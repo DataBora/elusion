@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Schema, Field, DataType as ArrowDataType};
-use datafusion::common::DFSchema;
-use datafusion::logical_expr::ExprSchemable;
+// use datafusion::common::DFSchema;
+// use datafusion::logical_expr::ExprSchemable;
 use crate::datatypes::datatypes::SQLDataType;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::col;
+// use datafusion::logical_expr::col;
 use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 // pub trait CsvLoader {

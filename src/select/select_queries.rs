@@ -53,31 +53,69 @@ impl CustomDataFrame {
 
     /// SELECT clause
     pub fn select(mut self, columns: Vec<&str>) -> Self {
-        // Build the SELECT clause for SQL representation
+        // Parse columns into expressions
+        let expressions: Vec<Expr> = columns
+            .iter()
+            .map(|&col| self.parse_aggregate_function(col)) 
+            .collect();
+    
+        // Update the SQL SELECT clause
         self.query = format!(
             "SELECT {} {}",
             columns.join(", "),
             self.query
         );
     
-        // Create the expressions directly using `col()` with column names
-        let exprs: Vec<Expr> = columns
-            .iter()
-            .map(|&col_name| col(col_name)) // Pass the column names directly
-            .collect();
+        // Update selected columns
+        self.selected_columns = columns.iter().map(|&c| c.to_string()).collect();
     
-        // Apply the selection to the DataFrame
+        // Apply selection to the DataFrame
         self.df = self
             .df
-            .select(exprs)
+            .select(expressions)
             .expect("Failed to apply SELECT.");
-    
-        // Update the selected columns for display purposes
-        self.selected_columns = columns.iter().map(|&s| s.to_string()).collect();
     
         self
     }
     
+
+     /// GROUP BY clause
+     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
+        // Create grouping expressions
+        let group_exprs: Vec<Expr> = group_columns
+            .iter()
+            .map(|&col_name| col(col_name))
+            .collect();
+    
+        // Prepare aggregate expressions for non-grouped columns
+        let aggregate_exprs: Vec<Expr> = self
+            .selected_columns
+            .iter()
+            .filter(|col_name| !group_columns.contains(&col_name.as_str()))
+            .map(|col_name| self.parse_aggregate_function(col_name))
+            .collect();
+    
+        // Construct the SQL GROUP BY clause
+        self.query = format!(
+            "{} GROUP BY {}",
+            self.query,
+            group_columns
+                .iter()
+                .map(|&col| format!("{}.{}", self.alias, col))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    
+        // Apply grouping and aggregation to the DataFrame
+        self.df = self
+            .df
+            .aggregate(group_exprs, aggregate_exprs)
+            .expect("Failed to apply GROUP BY.");
+    
+        self
+    }
+    
+
     /// WHERE clause
     pub fn filter(mut self, condition: &str) -> Self {
         self.query = format!("{} WHERE {}", self.query, condition);
@@ -146,47 +184,7 @@ impl CustomDataFrame {
         self
     }
     
-    /// GROUP BY clause
-    pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
-        // Create grouping expressions
-        let group_exprs: Vec<Expr> = group_columns
-            .iter()
-            .map(|&col_name| col(col_name))
-            .collect();
-    
-        // Prepare aggregate expressions for non-grouped columns
-        let mut aggregate_exprs = vec![];
-        for col_name in &self.selected_columns {
-            if group_columns.contains(&col_name.as_str()) {
-                // If the column is part of the GROUP BY, skip it
-                continue;
-            }
-    
-            // Directly parse and add the aggregation expression
-            aggregate_exprs.push(self.parse_aggregate_function(col_name));
-        }
-    
-        // Construct the SQL GROUP BY clause
-        self.query = format!(
-            "{} GROUP BY {}",
-            self.query,
-            group_columns
-                .iter()
-                .map(|&col| format!("{}.{}", self.alias, col))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    
-        // Apply grouping and aggregation to the DataFrame
-        self.df = self
-            .df
-            .aggregate(group_exprs, aggregate_exprs)
-            .expect("Failed to apply GROUP BY.");
-    
-        self
-    }
-    
-    
+   
 
     /// HAVING clause
     pub fn having(mut self, condition: &str) -> Self {
@@ -306,58 +304,54 @@ impl CustomDataFrame {
     //-------------- PARSING FUNCTIONS ---------------
 
     fn parse_aggregate_function(&self, aggregate: &str) -> Expr {
+
+        println!("Parsing aggregate function: {}", aggregate);
         // Regex to extract function name and column
-        let re = Regex::new(r"^(?i)(\w+)\((.+)\)$").unwrap();
-        let caps = re.captures(aggregate).expect("Invalid aggregate function format");
+        let re = Regex::new(r"^(?i)(MIN|MAX|AVG|MEDIAN|SUM|COUNT|COUNT_DISTINCT|STDEV|CORR|FIRST_VALUE|NTH_VALUE|APPROX_PERCENTILE_CONT)\((.+)\)$").expect("We didn't implemnt that funciton yet :(");
+
+        if let Some(caps) = re.captures(aggregate) {
+            let func = caps.get(1).unwrap().as_str().to_uppercase(); 
+            let column = caps.get(2).unwrap().as_str().trim();      
     
-        let func = caps.get(1).unwrap().as_str().to_uppercase(); // Function name (e.g., SUM, AVG)
-        let column = caps.get(2).unwrap().as_str().trim();       // Column name (e.g., unit_price)
-    
-        match func.as_str() {
-            "SUM" => sum(col(column)),
-            "MIN" => min(col(column)),
-            "MAX" => max(col(column)),
-            "AVG" => avg(col(column)),
-            "MEDIAN" => {
-                    approx_percentile_cont(
-                        col(column),  
-                        lit(0.5),          
-                        None               
-                    )
-                }
-            "STDDEV" => stddev(col(column)),
-            "COUNT" => count(col(column)),
-            "COUNT_DISTINCT" => count_distinct(col(column)),
-            "CORR" => {
-                    let cols: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
-                    if cols.len() == 2 {
-                        corr(col(cols[0]), col(cols[1]))
+            match func.as_str() {
+                "SUM" => sum(col(column)),
+                "MIN" => min(col(column)),
+                "MAX" => max(col(column)),
+                "AVG" => avg(col(column)),
+                "MEDIAN" => approx_percentile_cont(col(column), lit(0.5), None),
+                "STDDEV" => stddev(col(column)),
+                "COUNT" => count(col(column)),
+                "COUNT_DISTINCT" => count_distinct(col(column)),
+                "CORR" => {
+                    let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
+                    if args.len() == 2 {
+                        corr(col(args[0]), col(args[1]))
                     } else {
                         panic!("CORR requires two columns, e.g., CORR(col1, col2).");
                     }
                 }
-            "APPROX_PERCENTILE_CONT" => {
+                "APPROX_PERCENTILE_CONT" => {
                     let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
                     if args.len() == 2 {
                         approx_percentile_cont(
-                            col(args[0]),                                   // Column
-                            lit(args[1].parse::<f64>().expect("Invalid percentile")), // Percentile as a literal
-                            None                                           // No weight column (default behavior)
+                            col(args[0]),
+                            lit(args[1].parse::<f64>().expect("Invalid percentile")),
+                            None,
                         )
                     } else if args.len() == 3 {
                         approx_percentile_cont(
-                            col(args[0]),                                   // Column
-                            lit(args[1].parse::<f64>().expect("Invalid percentile")), // Percentile
-                            Some(col(args[2]))                             // Weight column (if provided)
+                            col(args[0]),
+                            lit(args[1].parse::<f64>().expect("Invalid percentile")),
+                            Some(col(args[2])),
                         )
                     } else {
-                        panic!("APPROX_PERCENTILE_CONT requires 2 or 3 arguments, e.g., APPROX_PERCENTILE_CONT(col, 0.5) or APPROX_PERCENTILE_CONT(col, 0.5, weight_col).");
+                        panic!("APPROX_PERCENTILE_CONT requires 2 or 3 arguments.");
                     }
                 }
-            "FIRST_VALUE" => {
+                "FIRST_VALUE" => {
                     let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
                     if args.len() == 1 {
-                        first_value(col(args[0]), None) // No sort expression provided
+                        first_value(col(args[0]), None)
                     } else if args.len() == 2 {
                         first_value(
                             col(args[0]),
@@ -365,31 +359,36 @@ impl CustomDataFrame {
                                 expr: col(args[1]),
                                 asc: true,
                                 nulls_first: true,
-                            }])
+                            }]),
                         )
                     } else {
-                        panic!("FIRST_VALUE requires 1 or 2 arguments, e.g., FIRST_VALUE(col) or FIRST_VALUE(col, sort_col).");
+                        panic!("FIRST_VALUE requires 1 or 2 arguments.");
                     }
                 }
-            "NTH_VALUE" => {
+                "NTH_VALUE" => {
                     let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
                     if args.len() == 3 {
                         nth_value(
                             col(args[0]),
-                            args[1].parse::<i64>().expect("Invalid nth value"), // nth position
+                            args[1].parse::<i64>().expect("Invalid nth value"),
                             vec![SortExpr {
                                 expr: col(args[2]),
                                 asc: true,
                                 nulls_first: true,
-                            }]
+                            }],
                         )
                     } else {
-                        panic!("NTH_VALUE requires 3 arguments, e.g., NTH_VALUE(col, nth, sort_col).");
+                        panic!("NTH_VALUE requires 3 arguments.");
                     }
                 }
-            "GROUPING" => grouping(col(column)),
-            _ => panic!("Unsupported aggregate function: {}", func),
+                "GROUPING" => grouping(col(column)),
+                _ => panic!("Unsupported aggregate function: {}", func),
+            }
+        } else {
+            // If not an aggregate function, treat it as a raw column reference
+            col(aggregate)
         }
+        
     }
     
     
