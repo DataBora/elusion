@@ -3,7 +3,7 @@ pub mod loaders;
 pub mod select;
 
 use std::sync::Arc;
-
+use log::{debug, error};
 use loaders::csv_loader::{create_schema_from_str, CsvLoader};
 
 use select::select_queries::CustomDataFrame;
@@ -11,9 +11,14 @@ use select::select_queries::CustomDataFrame;
 
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
+
+    // Initialize logging
+    std::env::set_var("RUST_LOG", "debug");
+    env_logger::init();
+
+    debug!("Initializing schema and setting up column definitions.");
     
     let columns = vec![
-
         ("sales_order_num", "VARCHAR", false),
         ("sales_order_line_num", "INT", false),
         ("order_date", "DATE", false),
@@ -25,30 +30,45 @@ async fn main() -> datafusion::error::Result<()> {
         ("tax_amount", "DOUBLE", false),
     ];
 
+    // Create schema
     let schema = Arc::new(create_schema_from_str(columns));
     let path = "C:\\Borivoj\\RUST\\Elusion\\elusion\\sales.csv";
 
-    // Load the CSV with alias
-    let aliased_df = path.load(path, schema, "sales").await?;
+    // Load CSV data into a DataFrame
+    debug!("Loading CSV data from path: {}", path);
+    let aliased_df = match path.load(path, schema, "sales").await {
+        Ok(df) => {
+            debug!("CSV loaded successfully.");
+            df
+        },
+        Err(err) => {
+            error!("Failed to load CSV: {:?}", err);
+            return Err(err);
+        },
+    };
+
     let custom_df = CustomDataFrame::new(aliased_df);
 
-    // Perform operations
     let result_df = custom_df
     .select(vec![
         "order_date",
         "customer_name",
-        "SUM(unit_price) AS unit_price_summed"
+        "SUM(unit_price) AS unit_price_summed",
     ])
     .filter("customer_name = 'Curtis Lu'")
     .group_by(vec!["order_date", "customer_name"])
     .order_by(vec!["order_date"], vec![true])
     .limit(10);
 
-
+    // Log query and schema
     result_df.display_query();
+    debug!("Final Schema: {:?}", result_df.df.schema());
+    debug!("Executing query...");
     result_df.display().await?;
-    
+    debug!("Final query plan: {:?}", result_df.df.logical_plan());
+
+
+
 
     Ok(())
-
 }

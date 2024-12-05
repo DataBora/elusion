@@ -8,12 +8,12 @@ use chrono::NaiveDate;
 use regex::Regex;
 use crate::loaders::csv_loader::AliasedDataFrame;
 use datafusion::functions_aggregate::expr_fn::{sum, min, max, avg,stddev, count, count_distinct, corr, approx_percentile_cont, first_value,grouping,nth_value }; //last_value , median
-
+use log::debug;
 pub struct CustomDataFrame {
-    df: DataFrame,
+    pub df: DataFrame,
     alias: String,
     query: String,
-    // selected_columns: Vec<String>,
+    selected_columns: Vec<String>,
     alias_map: Vec<(String, Expr)>
 }
 
@@ -38,7 +38,7 @@ impl CustomDataFrame {
             df: aliased_df.dataframe,
             alias: aliased_df.alias,
             query: String::new(),
-            // selected_columns: Vec::new(),
+            selected_columns: Vec::new(),
             alias_map: Vec::new()
         }
     }
@@ -99,32 +99,38 @@ impl CustomDataFrame {
         self
     }
     
-    
-    
-    
-    
-    
-    
-    //GROUP BY clause
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
+        debug!("Applying GROUP BY clause with columns: {:?}", group_columns);
+    
+        // Ensure fully qualified column names for grouping
         let group_exprs: Vec<Expr> = group_columns
             .iter()
-            .map(|&col| col_with_relation(self.alias.as_str(), col))
+            .map(|&col_name| col_with_relation(self.alias.as_str(), col_name))
             .collect();
     
+        // Include all expressions from alias_map as aggregates
+        let aggregate_exprs: Vec<Expr> = self
+            .alias_map
+            .iter()
+            .map(|(_, expr)| expr.clone())
+            .collect();
+    
+        debug!(
+            "Group expressions: {:?}, Aggregate expressions: {:?}",
+            group_exprs, aggregate_exprs
+        );
+    
+        // Update SQL query
         self.query = format!(
             "{} GROUP BY {}",
             self.query.trim_end(),
-            group_columns
-                .iter()
-                .map(|&col| format!("{}.{}", self.alias, col))
-                .collect::<Vec<_>>()
-                .join(", ")
+            group_columns.join(", ")
         );
     
+        // Apply grouping and aggregation
         self.df = self
             .df
-            .aggregate(group_exprs, vec![])
+            .aggregate(group_exprs, aggregate_exprs)
             .expect("Failed to apply GROUP BY.");
     
         self
@@ -159,12 +165,6 @@ impl CustomDataFrame {
         self
     }
     
-
-    
-    
-    
-    
-
     /// ORDER BY clause
     pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
         assert!(
@@ -360,11 +360,11 @@ impl CustomDataFrame {
             let func = caps.get(1).unwrap().as_str().to_uppercase(); // Extract function name
             let column = caps.get(2).unwrap().as_str().trim(); // Extract column name
             // let alias = caps.get(3).map(|m| m.as_str().trim().to_string()); // Extract alias if present
-    
+            let column_name = column.split('.').last().unwrap();
             println!("Function: {}, Column: {}", func, column);
     
             // Use col_with_relation to ensure the column has the correct table relation
-            let qualified_column_expr = col_with_relation(self.alias.as_str(), column);
+            let qualified_column_expr = col_with_relation(self.alias.as_str(), column_name);
     
             // Build the aggregate expression
             let agg_expr = match func.as_str() {
@@ -496,22 +496,20 @@ impl CustomDataFrame {
     pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
         Box::pin(async move {
             let df = &self.df;
-    
-            // Collect data from the DataFrame
             let batches = df.clone().collect().await?;
             let schema = df.schema();
     
-            // Map schema column names to their aliases where applicable
-            let column_names: Vec<String> = schema
-                .fields()
+            // Retrieve column names, using aliases if present
+            let column_names: Vec<String> = self
+                .selected_columns
                 .iter()
-                .map(|field| {
-                    // Check if the column has an alias in the alias_map
+                .map(|col| {
+                    // Check if the column has an alias in the alias map
                     self.alias_map
                         .iter()
-                        .find(|(_, expr)| expr.to_string() == *field.name())
+                        .find(|(alias, _)| alias == col)
                         .map(|(alias, _)| alias.clone())
-                        .unwrap_or_else(|| field.name().clone())
+                        .unwrap_or_else(|| col.clone())
                 })
                 .collect();
     
@@ -537,17 +535,13 @@ impl CustomDataFrame {
                     let mut row_data = Vec::new();
     
                     for col_name in &column_names {
-                        // Find the column index by name
+                        // Match column names to schema fields
                         if let Some(col_index) = schema.fields().iter().position(|field| {
-                            // Match either original name or alias
-                            self.alias_map
-                                .iter()
-                                .find(|(alias, expr)| alias == col_name || expr.to_string() == *field.name())
-                                .is_some()
+                            field.name() == col_name || field.name() == col_name.split(" AS ").next().unwrap()
                         }) {
                             let column = batch.column(col_index);
     
-                            // Match column type and extract values
+                            // Extract values based on column type
                             let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
                                 array.value(row).to_string()
                             } else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
@@ -556,21 +550,17 @@ impl CustomDataFrame {
                                 format!("{:.2}", array.value(row))
                             } else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
                                 let days_since_epoch = array.value(row);
-                                match NaiveDate::from_ymd_opt(1970, 1, 1)
+                                NaiveDate::from_ymd_opt(1970, 1, 1)
                                     .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
-                                {
-                                    Some(valid_date) => valid_date.to_string(),
-                                    None => "Invalid date".to_string(),
-                                }
+                                    .map(|valid_date| valid_date.to_string())
+                                    .unwrap_or_else(|| "Invalid date".to_string())
                             } else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
                                 let millis_since_epoch = array.value(row);
                                 let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
-                                match NaiveDate::from_ymd_opt(1970, 1, 1)
+                                NaiveDate::from_ymd_opt(1970, 1, 1)
                                     .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
-                                {
-                                    Some(valid_date) => valid_date.to_string(),
-                                    None => "Invalid date".to_string(),
-                                }
+                                    .map(|valid_date| valid_date.to_string())
+                                    .unwrap_or_else(|| "Invalid date".to_string())
                             } else {
                                 "Unsupported Type".to_string()
                             };
@@ -581,7 +571,6 @@ impl CustomDataFrame {
                         }
                     }
     
-                    // Print the formatted row
                     let formatted_row = row_data
                         .iter()
                         .map(|v| format!("{:<30}", v))
@@ -590,11 +579,10 @@ impl CustomDataFrame {
                     println!("{}", formatted_row);
                 }
             }
+    
             Ok(())
         })
-    }
-    
-    
+    }    
     
     
 }
