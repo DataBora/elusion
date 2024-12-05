@@ -42,6 +42,14 @@ impl CustomDataFrame {
             alias_map: Vec::new()
         }
     }
+
+    pub fn display_query_plan(&self) {
+        println!("Generated Logical Plan:");
+        println!("{:?}", self.df.logical_plan());
+       
+    
+    }
+    
     /// FROM function for handling multiple DataFrames
     pub fn from(mut self, table_aliases: Vec<(DataFrame, &str)>) -> Self {
         if table_aliases.is_empty() {
@@ -69,25 +77,12 @@ impl CustomDataFrame {
 
     /// SELECT clause
     pub fn select(mut self, columns: Vec<&str>) -> Self {
-        let mut expressions = Vec::new();
+        let expressions: Vec<Expr> = columns
+            .iter()
+            .map(|&col| self.parse_aggregate_function(col))
+            .collect();
     
-        for &col in &columns {
-            if let Some(alias_start) = col.to_uppercase().find(" AS ") {
-                // Extract the original column and alias
-                let original_expression = &col[..alias_start].trim();
-                let alias = col[alias_start + 4..].trim();
-    
-                // Parse and append only the original column name
-                let parsed_expr = self.parse_aggregate_function(original_expression);
-                expressions.push(parsed_expr.alias(alias.to_string()));
-            } else {
-                // If no alias, parse normally
-                let parsed_expr = self.parse_aggregate_function(col);
-                expressions.push(parsed_expr);
-            }
-        }
-    
-        println!("Parsed SELECT expressions: {:?}", expressions);
+        debug!("Parsed SELECT expressions: {:?}", expressions);
     
         self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
         self.query = format!(
@@ -96,19 +91,23 @@ impl CustomDataFrame {
             self.alias
         );
     
+        // Preserve original column names for display()
+        self.selected_columns = columns.iter().map(|s| s.to_string()).collect();
+    
         self
     }
+    
     
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
         debug!("Applying GROUP BY clause with columns: {:?}", group_columns);
     
-        // Ensure fully qualified column names for grouping
+        // Prepare grouping expressions
         let group_exprs: Vec<Expr> = group_columns
             .iter()
-            .map(|&col_name| col_with_relation(self.alias.as_str(), col_name))
+            .map(|&col_name| col(col_name.split('.').last().unwrap()))
             .collect();
     
-        // Include all expressions from alias_map as aggregates
+        // Collect aggregation expressions
         let aggregate_exprs: Vec<Expr> = self
             .alias_map
             .iter()
@@ -120,13 +119,6 @@ impl CustomDataFrame {
             group_exprs, aggregate_exprs
         );
     
-        // Update SQL query
-        self.query = format!(
-            "{} GROUP BY {}",
-            self.query.trim_end(),
-            group_columns.join(", ")
-        );
-    
         // Apply grouping and aggregation
         self.df = self
             .df
@@ -135,10 +127,6 @@ impl CustomDataFrame {
     
         self
     }
-    
-    
-    
-    
     
     /// WHERE clause
     pub fn filter(mut self, condition: &str) -> Self {
