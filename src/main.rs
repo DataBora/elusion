@@ -34,14 +34,16 @@ async fn main() -> datafusion::error::Result<()> {
 
     // Perform operations
     let result_df = custom_df
-        .select(vec![
-            "order_date", 
-            "SUM(unit_price) AS unit_price_summed"
-        ])
-        .filter("customer_name = 'Curtis Lu'")
-        .group_by(vec!["order_date"]) 
-        .order_by(vec!["order_date"], vec![true]) 
-        .limit(10);
+    .select(vec![
+        "order_date",
+        "customer_name",
+        "SUM(unit_price) AS unit_price_summed"
+    ])
+    .filter("customer_name = 'Curtis Lu'")
+    .group_by(vec!["order_date", "customer_name"])
+    .order_by(vec!["order_date"], vec![true])
+    .limit(10);
+
 
     result_df.display_query();
     result_df.display().await?;
