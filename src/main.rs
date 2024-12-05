@@ -9,6 +9,7 @@ use loaders::csv_loader::{create_schema_from_str, CsvLoader};
 use select::select_queries::CustomDataFrame;
 // use display::display_dataframe::display;
 
+
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
 
@@ -35,7 +36,7 @@ async fn main() -> datafusion::error::Result<()> {
     let path = "C:\\Borivoj\\RUST\\Elusion\\elusion\\sales.csv";
 
     // Load CSV data into a DataFrame
-    debug!("Loading CSV data from path: {}", path);
+    
     let aliased_df = match path.load(path, schema, "sales").await {
         Ok(df) => {
             debug!("CSV loaded successfully.");
@@ -49,26 +50,26 @@ async fn main() -> datafusion::error::Result<()> {
 
     let custom_df = CustomDataFrame::new(aliased_df);
 
+
     let result_df = custom_df
-    .select(vec![
-        "order_date",
-        "customer_name",
-        "SUM(unit_price) AS unit_price_summed",
-    ])
-    .filter("customer_name = 'Curtis Lu'")
-    .group_by(vec!["order_date", "customer_name"])
-    .order_by(vec!["order_date"], vec![true])
-    .limit(10);
+        .select(vec![
+            "order_date",
+            "customer_name",
+            "SUM(unit_price) AS unit_price_summed",
+        ])
+        .filter("customer_name = 'Curtis Lu'")
+        .group_by(vec!["order_date", "customer_name"])
+        .order_by(vec!["order_date"], vec![true])
+        .limit(10);
 
-    // Log query and schema
-    result_df.display_query();
-    debug!("Final Schema: {:?}", result_df.df.schema());
-    debug!("Executing query...");
-    result_df.display().await?;
-    debug!("Final query plan: {:?}", result_df.df.logical_plan());
-
-
+ 
+    //  result_df.display_query();
+     result_df.display().await?;
+     result_df.display_query_plan();
+     result_df.display_query(); // Show SQL equivalent
+    
 
 
     Ok(())
 }
+
