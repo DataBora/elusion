@@ -125,24 +125,21 @@ impl CustomDataFrame {
     // }
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
         let group_exprs: Vec<Expr> = group_columns.iter().map(|&col_name| col(col_name)).collect();
+    
         let aggregate_exprs: Vec<Expr> = self.selected_columns.iter()
             .filter(|col_name| !group_columns.contains(&col_name.as_str()))
             .map(|col_name| self.parse_aggregate_function(col_name))
             .collect();
+    
+        // Add GROUP BY clause to the query
         self.query = format!(
             "{} GROUP BY {}",
-            self.query,
+            self.query.trim_end(),
             group_columns.iter()
                 .map(|&col| format!("{}.{}", self.alias, col))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-    
-        // Include aggregate functions in the query
-        if !aggregate_exprs.is_empty() {
-            let aggregates_sql: Vec<String> = aggregate_exprs.iter().map(|expr| format!("{:?}", expr)).collect();
-            self.query = format!("SELECT {}, {} {}", group_columns.join(", "), aggregates_sql.join(", "), self.query);
-        }
     
         self.df = self.df.aggregate(group_exprs, aggregate_exprs).expect("Failed to apply GROUP BY.");
         self
@@ -153,21 +150,24 @@ impl CustomDataFrame {
     
     
     
+    
 
     /// WHERE clause
     pub fn filter(mut self, condition: &str) -> Self {
-        let column_name = condition.split_whitespace().next().unwrap(); // Get the column being filtered
+        // Add the column used in the condition to selected columns if not already present
+        let column_name = condition.split_whitespace().next().unwrap();
         if !self.selected_columns.contains(&column_name.to_string()) {
-            // Add the column to selected columns if it's not already included
-            self.query = format!("SELECT {}, {} ", column_name, self.query);
+            self.selected_columns.push(column_name.to_string());
         }
     
-        self.query = format!("{} WHERE {}", self.query, condition);
+        // Update WHERE clause without affecting SELECT
+        self.query = format!("{} WHERE {}", self.query.trim_end(), condition);
     
         let expr = self.parse_condition(condition);
         self.df = self.df.filter(expr).expect("Failed to apply WHERE filter");
         self
     }
+    
     
     
 
