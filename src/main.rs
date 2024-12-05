@@ -36,8 +36,7 @@ async fn main() -> datafusion::error::Result<()> {
     let result_df = custom_df
         .select(vec![
             "order_date", 
-            "SUM(unit_price)",
-            "COUNT(customer_name)" 
+            "SUM(unit_price) AS unit_price_summed"
         ])
         .filter("customer_name = 'Curtis Lu'")
         .group_by(vec!["order_date"]) 

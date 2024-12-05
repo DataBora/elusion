@@ -53,77 +53,122 @@ impl CustomDataFrame {
 
     /// SELECT clause
     pub fn select(mut self, columns: Vec<&str>) -> Self {
-        // Parse columns into expressions
-        let expressions: Vec<Expr> = columns
-            .iter()
-            .map(|&col| self.parse_aggregate_function(col)) 
-            .collect();
+        let mut aliases = vec![]; // Create a mutable aliases vector
+        
+        let expressions: Vec<Expr> = columns.iter().map(|&col| {
+            let expr = self.parse_aggregate_function(col);
     
-        // Update the SQL SELECT clause
-        self.query = format!(
-            "SELECT {} {}",
-            columns.join(", "),
-            self.query
-        );
+            if let Some(alias_start) = col.to_uppercase().find(" AS ") {
+                // Extract and push alias
+                let alias = col[alias_start + 4..].trim().to_string();
+                aliases.push(alias.clone());
+                expr.alias(alias)
+            } else {
+                // Push plain column name if no alias
+                aliases.push(col.to_string());
+                expr
+            }
+        }).collect();
     
-        // Update selected columns
-        self.selected_columns = columns.iter().map(|&c| c.to_string()).collect();
+        println!("Expressions: {:?}", expressions);
+        println!("Parsed columns with aliases: {:?}", aliases);
     
-        // Apply selection to the DataFrame
-        self.df = self
-            .df
-            .select(expressions)
-            .expect("Failed to apply SELECT.");
+        self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
+    
+        // Use `clone` to avoid moving `aliases`
+        self.selected_columns = aliases.clone();
+    
+        // Update self.query with the SELECT clause if not already present
+        if !self.query.to_uppercase().starts_with("SELECT") {
+            self.query = format!("SELECT {} {}", aliases.join(", "), self.query);
+        }
     
         self
     }
     
+    
 
      /// GROUP BY clause
-     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
-        // Create grouping expressions
-        let group_exprs: Vec<Expr> = group_columns
-            .iter()
-            .map(|&col_name| col(col_name))
-            .collect();
+    //  pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
+    //     // Create grouping expressions using original column names
+    //     let group_exprs: Vec<Expr> = group_columns
+    //         .iter()
+    //         .map(|&col_name| col(col_name)) // Use original column names
+    //         .collect();
     
-        // Prepare aggregate expressions for non-grouped columns
-        let aggregate_exprs: Vec<Expr> = self
-            .selected_columns
-            .iter()
+    //     // Prepare aggregate expressions for non-grouped columns
+    //     let aggregate_exprs: Vec<Expr> = self
+    //         .selected_columns
+    //         .iter()
+    //         .filter(|col_name| !group_columns.contains(&col_name.as_str()))
+    //         .map(|col_name| self.parse_aggregate_function(col_name))
+    //         .collect();
+    
+    //     // Construct the SQL GROUP BY clause
+    //     self.query = format!(
+    //         "{} GROUP BY {}",
+    //         self.query,
+    //         group_columns
+    //             .iter()
+    //             .map(|&col| format!("{}.{}", self.alias, col))
+    //             .collect::<Vec<_>>()
+    //             .join(", ")
+    //     );
+    
+    //     // Apply grouping and aggregation to the DataFrame
+    //     self.df = self
+    //         .df
+    //         .aggregate(group_exprs, aggregate_exprs)
+    //         .expect("Failed to apply GROUP BY.");
+    
+    //     self
+    // }
+    pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
+        let group_exprs: Vec<Expr> = group_columns.iter().map(|&col_name| col(col_name)).collect();
+        let aggregate_exprs: Vec<Expr> = self.selected_columns.iter()
             .filter(|col_name| !group_columns.contains(&col_name.as_str()))
             .map(|col_name| self.parse_aggregate_function(col_name))
             .collect();
-    
-        // Construct the SQL GROUP BY clause
         self.query = format!(
             "{} GROUP BY {}",
             self.query,
-            group_columns
-                .iter()
+            group_columns.iter()
                 .map(|&col| format!("{}.{}", self.alias, col))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
     
-        // Apply grouping and aggregation to the DataFrame
-        self.df = self
-            .df
-            .aggregate(group_exprs, aggregate_exprs)
-            .expect("Failed to apply GROUP BY.");
+        // Include aggregate functions in the query
+        if !aggregate_exprs.is_empty() {
+            let aggregates_sql: Vec<String> = aggregate_exprs.iter().map(|expr| format!("{:?}", expr)).collect();
+            self.query = format!("SELECT {}, {} {}", group_columns.join(", "), aggregates_sql.join(", "), self.query);
+        }
     
+        self.df = self.df.aggregate(group_exprs, aggregate_exprs).expect("Failed to apply GROUP BY.");
         self
     }
+    
+    
+    
+    
+    
     
 
     /// WHERE clause
     pub fn filter(mut self, condition: &str) -> Self {
+        let column_name = condition.split_whitespace().next().unwrap(); // Get the column being filtered
+        if !self.selected_columns.contains(&column_name.to_string()) {
+            // Add the column to selected columns if it's not already included
+            self.query = format!("SELECT {}, {} ", column_name, self.query);
+        }
+    
         self.query = format!("{} WHERE {}", self.query, condition);
     
         let expr = self.parse_condition(condition);
         self.df = self.df.filter(expr).expect("Failed to apply WHERE filter");
         self
     }
+    
     
 
     /// ORDER BY clause
@@ -304,16 +349,23 @@ impl CustomDataFrame {
     //-------------- PARSING FUNCTIONS ---------------
 
     fn parse_aggregate_function(&self, aggregate: &str) -> Expr {
-
         println!("Parsing aggregate function: {}", aggregate);
-        // Regex to extract function name and column
-        let re = Regex::new(r"^(?i)(MIN|MAX|AVG|MEDIAN|SUM|COUNT|COUNT_DISTINCT|STDEV|CORR|FIRST_VALUE|NTH_VALUE|APPROX_PERCENTILE_CONT)\((.+)\)$").expect("We didn't implemnt that funciton yet :(");
-
-        if let Some(caps) = re.captures(aggregate) {
-            let func = caps.get(1).unwrap().as_str().to_uppercase(); 
-            let column = caps.get(2).unwrap().as_str().trim();      
     
-            match func.as_str() {
+        // Updated regex to capture function, column, and alias (optional)
+        let re = Regex::new(
+            r"^(?i)(MIN|MAX|AVG|MEDIAN|SUM|COUNT|COUNT_DISTINCT|STDEV|CORR|FIRST_VALUE|NTH_VALUE|APPROX_PERCENTILE_CONT)\(([^)]+)\)(?:\s+AS\s+(.+))?$",
+        )
+        .expect("Failed to compile regex");
+    
+        if let Some(caps) = re.captures(aggregate) {
+            let func = caps.get(1).unwrap().as_str().to_uppercase(); // Extract function name
+            let column = caps.get(2).unwrap().as_str().trim(); // Extract column name
+            let alias = caps.get(3).map(|m| m.as_str().trim().to_string()); // Extract alias if present
+    
+            println!("Function: {}, Column: {}, Alias: {:?}", func, column, alias);
+    
+            // Build the appropriate aggregate expression
+            let agg_expr = match func.as_str() {
                 "SUM" => sum(col(column)),
                 "MIN" => min(col(column)),
                 "MAX" => max(col(column)),
@@ -383,13 +435,21 @@ impl CustomDataFrame {
                 }
                 "GROUPING" => grouping(col(column)),
                 _ => panic!("Unsupported aggregate function: {}", func),
+            };
+    
+            // Apply alias if provided
+            if let Some(alias_name) = alias {
+                agg_expr.alias(alias_name)
+            } else {
+                agg_expr
             }
         } else {
-            // If not an aggregate function, treat it as a raw column reference
+            // Not an aggregate function, treat as a plain column
+            println!("Treating as plain column: {}", aggregate);
             col(aggregate)
         }
-        
     }
+    
     
     
     
