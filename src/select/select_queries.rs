@@ -1,3 +1,6 @@
+
+use crate::AggregationBuilder;
+
 use arrow::array::Date64Array;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError; 
@@ -7,28 +10,28 @@ use arrow::array::{Date32Array,  Float64Array, Int32Array, StringArray};
 use chrono::NaiveDate;
 use regex::Regex;
 use crate::loaders::csv_loader::AliasedDataFrame;
-use datafusion::functions_aggregate::expr_fn::{sum, min, max, avg,stddev, count, count_distinct, corr, approx_percentile_cont, first_value,grouping,nth_value }; //last_value , median
-use log::debug;
+
+// use log::debug;
+
+
+
 pub struct CustomDataFrame {
     pub df: DataFrame,
-    alias: String,
+    pub table_alias: String,
     query: String,
     selected_columns: Vec<String>,
     alias_map: Vec<(String, Expr)>
 }
 
-use datafusion::prelude::Column;
 
 fn col_with_relation(relation: &str, column: &str) -> Expr {
     if column.contains('.') {
-        // Directly construct a column without modifying it
-        Expr::Column(Column::from(column))
+        col(column) // Already qualified
     } else {
-        // Construct a fully qualified column
-        let qualified_name = format!("{}.{}", relation, column);
-        Expr::Column(Column::from(qualified_name.as_str()))
+        col(&format!("{}.{}", relation, column)) // Add table alias
     }
 }
+
 
 
 impl CustomDataFrame {
@@ -36,12 +39,14 @@ impl CustomDataFrame {
     pub fn new(aliased_df: AliasedDataFrame) -> Self {
         CustomDataFrame {
             df: aliased_df.dataframe,
-            alias: aliased_df.alias,
+            table_alias: aliased_df.alias,
             query: String::new(),
             selected_columns: Vec::new(),
             alias_map: Vec::new()
         }
     }
+
+   
 
     pub fn display_query_plan(&self) {
         println!("Generated Logical Plan:");
@@ -68,65 +73,158 @@ impl CustomDataFrame {
         // Use the first DataFrame as the main DataFrame
         if let Some((df, alias)) = table_aliases.into_iter().next() {
             self.df = df; // Take ownership of the first DataFrame
-            self.alias = alias.to_string(); // Set the alias
+            self.table_alias = alias.to_string(); // Set the alias
+        }
+    
+        self
+    }
+
+    /// SELECT clause
+    pub fn select(mut self, columns: Vec<&str>) -> Self {
+        let mut expressions: Vec<Expr> = vec![];
+        let mut final_columns: Vec<String> = vec![];
+    
+        for &col in &columns {
+            // Check if the column is already aliased
+            if let Some((alias, expr)) = self.alias_map.iter().find(|(_, expr)| match expr {
+                Expr::Alias(alias_struct) => match *alias_struct.expr {
+                    Expr::Column(ref column) => column.name() == col,
+                    _ => false,
+                },
+                _ => false,
+            }) {
+                // If it's in alias_map, replace the column with the alias
+                expressions.push(expr.clone());
+                final_columns.push(alias.clone());
+            } else {
+                // Otherwise, include the original column
+                expressions.push(col_with_relation(&self.table_alias, col));
+                final_columns.push(col.to_string());
+            }
+        }
+    
+        // Add any aggregated columns (from alias_map) that are not already included
+        for (alias, expr) in &self.alias_map {
+            if !final_columns.contains(alias) {
+                expressions.push(expr.clone());
+                final_columns.push(alias.clone());
+            }
+        }
+    
+        // Apply the select operation
+        self.df = self
+            .df
+            .select(expressions.clone())
+            .expect("Failed to apply SELECT.");
+    
+        // Update selected columns and query
+        self.selected_columns = final_columns.clone();
+    
+        self.query = format!(
+            "SELECT {} FROM {}",
+            final_columns.join(", "),
+            self.table_alias
+        );
+    
+        self
+    }
+    
+    
+    
+    
+    
+    
+    pub fn aggregation(mut self, aggregations: Vec<AggregationBuilder>) -> Self {
+        for builder in aggregations {
+            let expr = builder.build_expr(&self.table_alias); // Build aggregation expression
+            let alias = builder
+                .agg_alias
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", expr)); // Use alias or default to expression
+    
+            // Add the alias and expression to alias_map
+            self.alias_map.push((alias.clone(), expr.clone()));
+    
+            // Include the alias in the list of selected columns for display
+            self.selected_columns.push(alias);
         }
     
         self
     }
     
 
-    /// SELECT clause
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
-        let expressions: Vec<Expr> = columns
-            .iter()
-            .map(|&col| self.parse_aggregate_function(col))
-            .collect();
-    
-        debug!("Parsed SELECT expressions: {:?}", expressions);
-    
-        self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
-        self.query = format!(
-            "SELECT {} FROM {}",
-            columns.join(", "),
-            self.alias
-        );
-    
-        // Preserve original column names for display()
-        self.selected_columns = columns.iter().map(|s| s.to_string()).collect();
-    
-        self
-    }
-    
-    
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
-        debug!("Applying GROUP BY clause with columns: {:?}", group_columns);
-    
-        // Prepare grouping expressions
         let group_exprs: Vec<Expr> = group_columns
             .iter()
-            .map(|&col_name| col(col_name.split('.').last().unwrap()))
+            .map(|col| col_with_relation(&self.table_alias, col))
             .collect();
     
-        // Collect aggregation expressions
         let aggregate_exprs: Vec<Expr> = self
             .alias_map
             .iter()
             .map(|(_, expr)| expr.clone())
             .collect();
     
-        debug!(
-            "Group expressions: {:?}, Aggregate expressions: {:?}",
-            group_exprs, aggregate_exprs
-        );
-    
-        // Apply grouping and aggregation
         self.df = self
             .df
             .aggregate(group_exprs, aggregate_exprs)
             .expect("Failed to apply GROUP BY.");
     
+        self.query = format!(
+            "{} GROUP BY {}",
+            self.query.trim_end(),
+            group_columns.join(", ")
+        );
+    
         self
     }
+    
+
+    pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
+        assert!(
+            columns.len() == ascending.len(),
+            "The number of columns and sort directions must match"
+        );
+
+        let sort_exprs: Vec<SortExpr> = columns
+            .iter()
+            .zip(ascending.iter())
+            .map(|(col, &asc)| {
+                SortExpr {
+                    expr: col_with_relation(&self.table_alias, col),
+                    asc,
+                    nulls_first: true,
+                }
+            })
+            .collect();
+
+        self.df = self
+            .df
+            .sort(sort_exprs)
+            .expect("Failed to apply ORDER BY.");
+
+        self.query = format!(
+            "{} ORDER BY {}",
+            self.query.trim_end(),
+            columns
+                .iter()
+                .zip(ascending.iter())
+                .map(|(col, &asc)| format!("{} {}", col, if asc { "ASC" } else { "DESC" }))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        self
+    }
+
+    pub fn limit(mut self, count: usize) -> Self {
+        self.query = format!("{} LIMIT {}", self.query, count);
+
+        self.df = self.df.limit(0, Some(count)).expect("Failed to apply LIMIT.");
+        self
+    }
+    
+    
     
     /// WHERE clause
     pub fn filter(mut self, condition: &str) -> Self {
@@ -152,55 +250,7 @@ impl CustomDataFrame {
     
         self
     }
-    
-    /// ORDER BY clause
-    pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
-        assert!(
-            columns.len() == ascending.len(),
-            "The number of columns and sort directions must match"
-        );
-    
-        let sort_exprs: Vec<SortExpr> = columns
-            .iter()
-            .zip(ascending.iter())
-            .map(|(&col, &asc)| {
-                SortExpr {
-                    expr: col_with_relation(self.alias.as_str(), col),
-                    asc,
-                    nulls_first: true,
-                }
-            })
-            .collect();
-    
-        self.query = format!(
-            "{} ORDER BY {}",
-            self.query.trim_end(),
-            columns
-                .iter()
-                .zip(ascending.iter())
-                .map(|(&col, &asc)| format!("{} {}", col, if asc { "ASC" } else { "DESC" }))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    
-        self.df = self.df.sort(sort_exprs).expect("Failed to apply ORDER BY.");
-    
-        self
-    }
-    
-    
-
-    /// LIMIT clause
-    pub fn limit(mut self, count: usize) -> Self {
-        self.query = format!("{} LIMIT {}", self.query, count);
-    
-        self.df = self.df.limit(0, Some(count)).expect("Failed to apply LIMIT.");
-        self
-    }
-    
-   
-
-    
+  
 
     /// JOIN clause
     pub fn join(
@@ -217,7 +267,7 @@ impl CustomDataFrame {
                     .iter()
                     .find(|(alias, _)| alias == *left)
                     .map(|(_, expr)| expr.to_string())
-                    .unwrap_or_else(|| format!("{}.{}", self.alias, left));
+                    .unwrap_or_else(|| format!("{}.{}", self.table_alias, left));
     
                 format!(
                     "{} = {}.{}",
@@ -277,7 +327,7 @@ impl CustomDataFrame {
             .iter()
             .find(|(alias, _)| alias == column)
             .map(|(_, expr)| expr.to_string())
-            .unwrap_or_else(|| format!("{}.{}", self.alias, column));
+            .unwrap_or_else(|| format!("{}.{}", self.table_alias, column));
     
         let partition_str = if !partition_by.is_empty() {
             format!(
@@ -289,7 +339,7 @@ impl CustomDataFrame {
                             .iter()
                             .find(|(alias, _)| alias == col)
                             .map(|(_, expr)| expr.to_string())
-                            .unwrap_or_else(|| format!("{}.{}", self.alias, col))
+                            .unwrap_or_else(|| format!("{}.{}", self.table_alias, col))
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -308,7 +358,7 @@ impl CustomDataFrame {
                             .iter()
                             .find(|(alias, _)| alias == col)
                             .map(|(_, expr)| expr.to_string())
-                            .unwrap_or_else(|| format!("{}.{}", self.alias, col))
+                            .unwrap_or_else(|| format!("{}.{}", self.table_alias, col))
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -330,122 +380,6 @@ impl CustomDataFrame {
     }
     
 
-    
-    //-------------- PARSING FUNCTIONS ---------------
-
-   
-
-    fn parse_aggregate_function(&self, aggregate: &str) -> Expr {
-        println!("Parsing aggregate function: {}", aggregate);
-    
-        // Regex to capture function, column, and optional alias
-        let re = Regex::new(
-            r"^(?i)(MIN|MAX|AVG|MEDIAN|SUM|COUNT|COUNT_DISTINCT|STDEV|CORR|FIRST_VALUE|NTH_VALUE|APPROX_PERCENTILE_CONT)\(([^)]+)\)(?:\s+AS\s+(.+))?$",
-        )
-        .expect("Failed to compile regex");
-    
-        if let Some(caps) = re.captures(aggregate) {
-            let func = caps.get(1).unwrap().as_str().to_uppercase(); // Extract function name
-            let column = caps.get(2).unwrap().as_str().trim(); // Extract column name
-            // let alias = caps.get(3).map(|m| m.as_str().trim().to_string()); // Extract alias if present
-            let column_name = column.split('.').last().unwrap();
-            println!("Function: {}, Column: {}", func, column);
-    
-            // Use col_with_relation to ensure the column has the correct table relation
-            let qualified_column_expr = col_with_relation(self.alias.as_str(), column_name);
-    
-            // Build the aggregate expression
-            let agg_expr = match func.as_str() {
-                "SUM" => sum(qualified_column_expr),
-                "MIN" => min(qualified_column_expr),
-                "MAX" => max(qualified_column_expr),
-                "AVG" => avg(qualified_column_expr),
-                "MEDIAN" => approx_percentile_cont(qualified_column_expr, lit(0.5), None),
-                "STDDEV" => stddev(qualified_column_expr),
-                "COUNT" => count(qualified_column_expr),
-                "COUNT_DISTINCT" => count_distinct(qualified_column_expr),
-                "CORR" => {
-                    let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
-                    if args.len() == 2 {
-                        corr(
-                            col_with_relation(self.alias.as_str(), args[0]),
-                            col_with_relation(self.alias.as_str(), args[1]),
-                        )
-                    } else {
-                        panic!("CORR requires two columns, e.g., CORR(col1, col2).");
-                    }
-                }
-                "APPROX_PERCENTILE_CONT" => {
-                    let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
-                    if args.len() == 2 {
-                        approx_percentile_cont(
-                            col_with_relation(self.alias.as_str(), args[0]),
-                            lit(args[1].parse::<f64>().expect("Invalid percentile")),
-                            None,
-                        )
-                    } else if args.len() == 3 {
-                        approx_percentile_cont(
-                            col_with_relation(self.alias.as_str(), args[0]),
-                            lit(args[1].parse::<f64>().expect("Invalid percentile")),
-                            Some(col_with_relation(self.alias.as_str(), args[2])),
-                        )
-                    } else {
-                        panic!("APPROX_PERCENTILE_CONT requires 2 or 3 arguments.");
-                    }
-                }
-                "FIRST_VALUE" => {
-                    let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
-                    if args.len() == 1 {
-                        first_value(col_with_relation(self.alias.as_str(), args[0]), None)
-                    } else if args.len() == 2 {
-                        first_value(
-                            col_with_relation(self.alias.as_str(), args[0]),
-                            Some(vec![SortExpr {
-                                expr: col_with_relation(self.alias.as_str(), args[1]),
-                                asc: true,
-                                nulls_first: true,
-                            }]),
-                        )
-                    } else {
-                        panic!("FIRST_VALUE requires 1 or 2 arguments.");
-                    }
-                }
-                "NTH_VALUE" => {
-                    let args: Vec<&str> = column.split(',').map(|s| s.trim()).collect();
-                    if args.len() == 3 {
-                        nth_value(
-                            col_with_relation(self.alias.as_str(), args[0]),
-                            args[1].parse::<i64>().expect("Invalid nth value"),
-                            vec![SortExpr {
-                                expr: col_with_relation(self.alias.as_str(), args[2]),
-                                asc: true,
-                                nulls_first: true,
-                            }],
-                        )
-                    } else {
-                        panic!("NTH_VALUE requires 3 arguments.");
-                    }
-                }
-                "GROUPING" => grouping(qualified_column_expr),
-                _ => panic!("Unsupported aggregate function: {}", func),
-            };
-    
-            // Apply alias if provided
-            if let Some(alias) = caps.get(3) {
-                agg_expr.alias(alias.as_str().to_string())
-            } else {
-                agg_expr
-            }
-        } else {
-            // Treat as plain column
-            col_with_relation(self.alias.as_str(), aggregate)
-        }
-    }
-    
-    
-    
-  
-    
 
     fn parse_condition(&self, condition: &str) -> Expr {
         let re = Regex::new(r"^(.+?)\s*(=|!=|>|<|>=|<=)\s*(.+)$").unwrap();
@@ -574,6 +508,4 @@ impl CustomDataFrame {
     
     
 }
-
-
 
