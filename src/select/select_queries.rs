@@ -80,57 +80,86 @@ impl CustomDataFrame {
     }
 
     /// SELECT clause
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
-        let mut expressions: Vec<Expr> = vec![];
-        let mut final_columns: Vec<String> = vec![];
+    // pub fn select(mut self, columns: Vec<&str>) -> Self {
+    //     let mut expressions: Vec<Expr> = vec![];
+    //     let mut final_columns: Vec<String> = vec![];
     
-        for &col in &columns {
-            // Check if the column is already aliased
-            if let Some((alias, expr)) = self.alias_map.iter().find(|(_, expr)| match expr {
-                Expr::Alias(alias_struct) => match *alias_struct.expr {
-                    Expr::Column(ref column) => column.name() == col,
-                    _ => false,
-                },
+    //     for &col in &columns {
+    //         // Check if the column is already aliased
+    //         if let Some((alias, expr)) = self.alias_map.iter().find(|(_, expr)| match expr {
+    //             Expr::Alias(alias_struct) => match *alias_struct.expr {
+    //                 Expr::Column(ref column) => column.name() == col,
+    //                 _ => false,
+    //             },
+    //             _ => false,
+    //         }) {
+    //             // If it's in alias_map, replace the column with the alias
+    //             expressions.push(expr.clone());
+    //             final_columns.push(alias.clone());
+    //         } else {
+    //             // Otherwise, include the original column
+    //             expressions.push(col_with_relation(&self.table_alias, col));
+    //             final_columns.push(col.to_string());
+    //         }
+    //     }
+    
+    //     // Add any aggregated columns (from alias_map) that are not already included
+    //     for (alias, expr) in &self.alias_map {
+    //         if !final_columns.contains(alias) {
+    //             expressions.push(expr.clone());
+    //             final_columns.push(alias.clone());
+    //         }
+    //     }
+    
+    //     // Apply the select operation
+    //     self.df = self
+    //         .df
+    //         .select(expressions.clone())
+    //         .expect("Failed to apply SELECT.");
+    
+    //     // Update selected columns and query
+    //     self.selected_columns = final_columns.clone();
+    
+    //     self.query = format!(
+    //         "SELECT {} FROM {}",
+    //         final_columns.join(", "),
+    //         self.table_alias
+    //     );
+    
+    //     self
+    // }
+
+    pub fn select(mut self, columns: Vec<&str>) -> Self {
+        let mut expressions: Vec<Expr> = Vec::new();
+        let mut selected_columns: Vec<String> = Vec::new();
+    
+        for col in columns {
+            if let Some((alias, _)) = self.alias_map.iter().find(|(_, expr)| match expr {
+                Expr::Column(column) if column.name == col => true,
                 _ => false,
             }) {
-                // If it's in alias_map, replace the column with the alias
-                expressions.push(expr.clone());
-                final_columns.push(alias.clone());
+                // Replace with alias if column is part of aggregation
+                expressions.push(col_with_relation(&self.table_alias, alias));
+                selected_columns.push(alias.clone());
             } else {
-                // Otherwise, include the original column
+                // Retain regular columns
                 expressions.push(col_with_relation(&self.table_alias, col));
-                final_columns.push(col.to_string());
+                selected_columns.push(col.to_string());
             }
         }
     
-        // Add any aggregated columns (from alias_map) that are not already included
-        for (alias, expr) in &self.alias_map {
-            if !final_columns.contains(alias) {
-                expressions.push(expr.clone());
-                final_columns.push(alias.clone());
-            }
-        }
+        self.selected_columns = selected_columns;
+        self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
     
-        // Apply the select operation
-        self.df = self
-            .df
-            .select(expressions.clone())
-            .expect("Failed to apply SELECT.");
-    
-        // Update selected columns and query
-        self.selected_columns = final_columns.clone();
-    
+        // Update query string
         self.query = format!(
             "SELECT {} FROM {}",
-            final_columns.join(", "),
+            self.selected_columns.join(", "),
             self.table_alias
         );
     
         self
     }
-    
-    
-    
     
     
     
@@ -421,12 +450,19 @@ impl CustomDataFrame {
             let batches = df.clone().collect().await?;
             let schema = df.schema();
     
-            // Retrieve column names, using aliases if present
+            // Filter the columns to display: retain selected columns and alias map
             let column_names: Vec<String> = self
                 .selected_columns
                 .iter()
+                .filter(|col| {
+                    // Include only aggregated or explicitly selected columns
+                    self.alias_map
+                        .iter()
+                        .any(|(alias, _)| alias == *col)
+                        || schema.fields().iter().any(|field| field.name() == *col)
+                })
                 .map(|col| {
-                    // Check if the column has an alias in the alias map
+                    // Prefer alias if exists
                     self.alias_map
                         .iter()
                         .find(|(alias, _)| alias == col)
@@ -504,7 +540,7 @@ impl CustomDataFrame {
     
             Ok(())
         })
-    }    
+    }
     
     
 }
