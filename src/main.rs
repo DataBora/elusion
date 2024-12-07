@@ -8,7 +8,6 @@ use loaders::csv_loader::{create_schema_from_str, CsvLoader};
 
 use select::select_queries::CustomDataFrame;
 use crate::select::aggregation::AggregationBuilder;
-use datafusion::logical_expr::col;
 // use display::display_dataframe::display;
 
 
@@ -57,12 +56,12 @@ async fn main() -> datafusion::error::Result<()> {
     let result_df = custom_df
         .select(vec!["customer_name", "order_date", "unit_price", "quantity"]) // Explicitly selected columns
         .aggregation(vec![
-            AggregationBuilder::new("unit_price").sum().alias("total_price"),
+            AggregationBuilder::new("unit_price").sum().alias("total_spent"),
             AggregationBuilder::new("quantity").avg().alias("average_quantity"),
         ]) // Aggregation columns with aliasing
         .group_by(vec!["customer_name", "order_date"]) // Grouping
         .order_by(vec!["order_date"], vec![true]) // Sorting
-        .limit(20); // Limiting
+        .limit(10); // Limiting
 
 
 
