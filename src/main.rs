@@ -7,6 +7,8 @@ use log::{debug, error};
 use loaders::csv_loader::{create_schema_from_str, CsvLoader};
 
 use select::select_queries::CustomDataFrame;
+use crate::select::aggregation::AggregationBuilder;
+use datafusion::logical_expr::col;
 // use display::display_dataframe::display;
 
 
@@ -49,23 +51,26 @@ async fn main() -> datafusion::error::Result<()> {
     };
 
     let custom_df = CustomDataFrame::new(aliased_df);
+    println!("Using table alias: {}", custom_df.table_alias); // Debug alias
 
 
     let result_df = custom_df
-        .select(vec![
-            "order_date",
-            "customer_name",
-            "SUM(unit_price) AS unit_price_summed",
-        ])
-        .filter("customer_name = 'Curtis Lu'")
-        .group_by(vec!["order_date", "customer_name"])
-        .order_by(vec!["order_date"], vec![true])
-        .limit(10);
+        .select(vec!["customer_name", "order_date", "unit_price", "quantity"]) // Explicitly selected columns
+        .aggregation(vec![
+            AggregationBuilder::new("unit_price").sum().alias("total_price"),
+            AggregationBuilder::new("quantity").avg().alias("average_quantity"),
+        ]) // Aggregation columns with aliasing
+        .group_by(vec!["customer_name", "order_date"]) // Grouping
+        .order_by(vec!["order_date"], vec![true]) // Sorting
+        .limit(20); // Limiting
+
+
+
 
  
     //  result_df.display_query();
      result_df.display().await?;
-     result_df.display_query_plan();
+    //  result_df.display_query_plan();
      result_df.display_query(); // Show SQL equivalent
     
 
