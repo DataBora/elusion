@@ -6,7 +6,7 @@ use std::sync::Arc;
 use log::{debug, error};
 use loaders::csv_loader::{create_schema_from_str, CsvLoader};
 
-use select::select_queries::CustomDataFrame;
+use select::queries::CustomDataFrame;
 use crate::select::aggregation::AggregationBuilder;
 // use display::display_dataframe::display;
 
@@ -54,14 +54,15 @@ async fn main() -> datafusion::error::Result<()> {
 
 
     let result_df = custom_df
-        .select(vec!["customer_name", "order_date", "unit_price", "quantity"]) // Explicitly selected columns
+        .select(vec!["customer_name", "order_date", "unit_price", "quantity"]) 
         .aggregation(vec![
             AggregationBuilder::new("unit_price").sum().alias("total_spent"),
             AggregationBuilder::new("quantity").avg().alias("average_quantity"),
-        ]) // Aggregation columns with aliasing
-        .group_by(vec!["customer_name", "order_date"]) // Grouping
-        .order_by(vec!["order_date"], vec![true]) // Sorting
-        .limit(10); // Limiting
+        ]) 
+        .filter("customer_name = 'Ruben Prasad'")
+        .group_by(vec!["customer_name", "order_date"]) 
+        .order_by(vec!["order_date"], vec![true]) 
+        .limit(10); 
 
 
 

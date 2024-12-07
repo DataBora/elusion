@@ -1,2 +1,2 @@
-pub mod select_queries;
+pub mod queries;
 pub mod aggregation;
