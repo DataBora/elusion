@@ -59,8 +59,9 @@ async fn main() -> datafusion::error::Result<()> {
             AggregationBuilder::new("unit_price").sum().alias("total_spent"),
             AggregationBuilder::new("quantity").avg().alias("average_quantity"),
         ]) 
-        .filter("customer_name = 'Ruben Prasad'")
+        .filter("unit_price = 'Ruben Prasad'")
         .group_by(vec!["customer_name", "order_date"]) 
+        .having("total_spent < 700")
         .order_by(vec!["order_date"], vec![true]) 
         .limit(10); 
 
