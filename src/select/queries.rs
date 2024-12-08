@@ -13,8 +13,6 @@ use crate::loaders::csv_loader::AliasedDataFrame;
 
 // use log::debug;
 
-
-
 pub struct CustomDataFrame {
     pub df: DataFrame,
     pub table_alias: String,
@@ -204,7 +202,7 @@ impl CustomDataFrame {
             self.query.trim_end(),
             group_columns.join(", ")
         );
-    
+
         self
     }
     
@@ -262,23 +260,30 @@ impl CustomDataFrame {
         self.query = format!("{} WHERE {}", self.query.trim_end(), condition);
     
         // Parse the condition
-        let expr = self.parse_condition(condition);
+        let expr = self.parse_condition_for_filter(condition);
         self.df = self.df.filter(expr).expect("Failed to apply WHERE filter");
     
         self
     }
-    
+
     pub fn having(mut self, condition: &str) -> Self {
         println!("Condition passed to HAVING: '{}'", condition);
     
-        self.query = format!("{} HAVING {}", self.query.trim_end(), condition);
+        // Parse and resolve the condition
+        let expr = self.parse_condition_for_having(condition);
     
-        // Parse the condition
-        let expr = self.parse_condition(condition);
-        self.df = self.df.filter(expr).expect("Failed to apply HAVING filter");
+        // Apply the HAVING condition
+        self.df = self
+            .df
+            .filter(expr.clone()) // Use the aggregated schema context for filtering
+            .expect("Failed to apply HAVING filter.");
+    
+        // Update the query string for debugging and display
+        self.query = format!("{} HAVING {}", self.query.trim_end(), condition);
     
         self
     }
+    
   
 
     /// JOIN clause
@@ -410,31 +415,90 @@ impl CustomDataFrame {
     
 
 
-    fn parse_condition(&self, condition: &str) -> Expr {
+    fn parse_condition_for_filter(&self, condition: &str) -> Expr {
         let re = Regex::new(r"^(.+?)\s*(=|!=|>|<|>=|<=)\s*(.+)$").unwrap();
-    
-        // Ensure the condition is trimmed and matches the expected format
         let condition_trimmed = condition.trim();
+    
         if !re.is_match(condition_trimmed) {
-            panic!("Invalid condition format: '{}'. Expected format: 'column operator value'", condition_trimmed);
+            panic!(
+                "Invalid FILTER condition format: '{}'. Expected format: 'column operator value'",
+                condition_trimmed
+            );
         }
     
-        let caps = re.captures(condition_trimmed).expect("Invalid condition format!");
-    
+        let caps = re.captures(condition_trimmed).expect("Invalid FILTER condition format!");
         let column = caps.get(1).unwrap().as_str().trim();
         let operator = caps.get(2).unwrap().as_str().trim();
         let value = caps.get(3).unwrap().as_str().trim().trim_matches('\'');
     
-        match operator {
-            "=" => col(column).eq(lit(value)),
-            "!=" => col(column).not_eq(lit(value)),
-            ">" => col(column).gt(lit(value)),
-            "<" => col(column).lt(lit(value)),
-            ">=" => col(column).gt_eq(lit(value)),
-            "<=" => col(column).lt_eq(lit(value)),
-            _ => panic!("Unsupported operator in condition: '{}'", operator),
+        let column_expr = col_with_relation(&self.table_alias, column);
+    
+        // Determine if value is numeric or string
+        match value.parse::<f64>() {
+            Ok(num_value) => match operator {
+                "=" => column_expr.eq(lit(num_value)),
+                "!=" => column_expr.not_eq(lit(num_value)),
+                ">" => column_expr.gt(lit(num_value)),
+                "<" => column_expr.lt(lit(num_value)),
+                ">=" => column_expr.gt_eq(lit(num_value)),
+                "<=" => column_expr.lt_eq(lit(num_value)),
+                _ => panic!("Unsupported operator in FILTER condition: '{}'", operator),
+            },
+            Err(_) => match operator {
+                "=" => column_expr.eq(lit(value)),
+                "!=" => column_expr.not_eq(lit(value)),
+                ">" => column_expr.gt(lit(value)),
+                "<" => column_expr.lt(lit(value)),
+                ">=" => column_expr.gt_eq(lit(value)),
+                "<=" => column_expr.lt_eq(lit(value)),
+                _ => panic!("Unsupported operator in FILTER condition: '{}'", operator),
+            },
         }
     }
+    
+    
+    fn parse_condition_for_having(&self, condition: &str) -> Expr {
+        let re = Regex::new(r"^(.+?)\s*(=|!=|>|<|>=|<=)\s*(.+)$").unwrap();
+        let condition_trimmed = condition.trim();
+    
+        if !re.is_match(condition_trimmed) {
+            panic!(
+                "Invalid HAVING condition format: '{}'. Expected format: 'column operator value'",
+                condition_trimmed
+            );
+        }
+    
+        let caps = re.captures(condition_trimmed).expect("Invalid HAVING condition format!");
+        let column = caps.get(1).unwrap().as_str().trim();
+        let operator = caps.get(2).unwrap().as_str().trim();
+        let value = caps.get(3).unwrap().as_str().trim();
+    
+        // Resolve aggregated columns by mapping aliases to their original expressions
+        let column_expr = self
+            .alias_map
+            .iter()
+            .find(|(alias, _)| alias == column)
+            .map(|(_, expr)| expr.clone())
+            .unwrap_or_else(|| panic!("Invalid column '{}' in HAVING. Must be an aggregation alias.", column));
+    
+        // Parse the numeric or string value for comparison
+        let parsed_value = if let Ok(num) = value.parse::<f64>() {
+            lit(num) // Numeric value
+        } else {
+            lit(value) // String value
+        };
+    
+        // Construct the HAVING condition
+        match operator {
+            "=" => column_expr.eq(parsed_value),
+            "!=" => column_expr.not_eq(parsed_value),
+            ">" => column_expr.gt(parsed_value),
+            "<" => column_expr.lt(parsed_value),
+            ">=" => column_expr.gt_eq(parsed_value),
+            "<=" => column_expr.lt_eq(parsed_value),
+            _ => panic!("Unsupported operator in HAVING condition: '{}'", operator),
+        }
+    }   
     
     
 
