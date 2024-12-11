@@ -12,7 +12,7 @@ use chrono::NaiveDate;
 use arrow::array::{StringArray, Date32Array, Date64Array, Float64Array, Int32Array};
 
 // use log::debug;
-
+#[derive(Clone)]
 pub struct CustomDataFrame {
     pub df: DataFrame,
     pub table_alias: String,
@@ -85,7 +85,10 @@ impl CustomDataFrame {
         alias: &'a str,
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
-            let ctx = SessionContext::new();
+            // let ctx = SessionContext::new();
+            let mut config = SessionConfig::new();
+            config = config.with_batch_size(8192); 
+            let ctx = SessionContext::new_with_config(config);
 
             let file_extension = file_path
                 .split('.')
@@ -130,6 +133,7 @@ impl CustomDataFrame {
                 _ => panic!("Unsupported file type: {}", file_extension),
             };
 
+            
             ctx.register_table(
                 alias,
                 Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
@@ -140,11 +144,13 @@ impl CustomDataFrame {
                 .table(alias)
                 .await
                 .expect("Failed to retrieve aliased table");
-
+            
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
                 alias: alias.to_string(),
             })
+
+
         })
     }
 
@@ -582,9 +588,8 @@ impl CustomDataFrame {
     /// Display the DataFrame
     pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
         let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
-       
+    
         Box::pin(async move {
-            // let df = &self.df;
             let batches = df.clone().collect().await?;
             let schema = df.schema();
     
@@ -625,11 +630,15 @@ impl CustomDataFrame {
                 .join(" | ");
             println!("{}", separator_row);
     
-            // Iterate over each batch and print rows
-            for batch in batches {
+            // Iterate over batches and rows, but stop after 100 rows
+            let mut row_count = 0;
+            'outer: for batch in &batches {
                 for row in 0..batch.num_rows() {
-                    let mut row_data = Vec::new();
+                    if row_count >= 100 {
+                        break 'outer;
+                    }
     
+                    let mut row_data = Vec::new();
                     for col_name in &column_names {
                         // Match column names to schema fields
                         if let Some(col_index) = schema.fields().iter().position(|field| {
@@ -673,12 +682,23 @@ impl CustomDataFrame {
                         .collect::<Vec<String>>()
                         .join(" | ");
                     println!("{}", formatted_row);
+    
+                    row_count += 1;
                 }
+            }
+    
+            if row_count == 0 {
+                println!("No data to display.");
+            } else if row_count < 100 {
+                println!("\nDisplayed all available rows (less than 100).");
+            } else {
+                println!("\nDisplayed the first 100 rows.");
             }
     
             Ok(())
         })
     }
+    
     
     
 }
