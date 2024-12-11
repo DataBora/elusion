@@ -1,15 +1,15 @@
-
+use crate::datatypes::datatypes::SQLDataType;
+use datafusion::logical_expr::{Expr, col, SortExpr};
 use crate::AggregationBuilder;
-
-use arrow::array::Date64Array;
+use regex::Regex;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError; 
 use futures::future::BoxFuture;
-use datafusion::logical_expr::{Expr, col, SortExpr};
-use arrow::array::{Date32Array,  Float64Array, Int32Array, StringArray};
+use datafusion::datasource::MemTable;
+use std::sync::Arc;
+use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::NaiveDate;
-use regex::Regex;
-use crate::loaders::csv_loader::AliasedDataFrame;
+use arrow::array::{StringArray, Date32Array, Date64Array, Float64Array, Int32Array};
 
 // use log::debug;
 
@@ -18,34 +18,138 @@ pub struct CustomDataFrame {
     pub table_alias: String,
     query: String,
     selected_columns: Vec<String>,
-    alias_map: Vec<(String, Expr)>
+    alias_map: Vec<(String, Expr)>,
+    aggregated_df: Option<DataFrame>
 }
 
+
+pub struct AliasedDataFrame {
+    pub dataframe: DataFrame,
+    pub alias: String,
+}
+
+  
 
 fn col_with_relation(relation: &str, column: &str) -> Expr {
-    if column.contains('.') {
-        col(column) // Already qualified
-    } else {
-        col(&format!("{}.{}", relation, column)) // Add table alias
+        if column.contains('.') {
+            col(column) // Already qualified
+        } else {
+            col(&format!("{}.{}", relation, column)) // Add table alias
+        }
     }
-}
-
 
 
 impl CustomDataFrame {
-    /// Create a new CustomDataFrame with an optional alias
-    pub fn new(aliased_df: AliasedDataFrame) -> Self {
+    
+    /// Unified `new` method for loading and schema definition
+    pub async fn new<'a>(
+        file_path: &'a str,
+        columns: Vec<(&'a str, &'a str, bool)>,
+        alias: &'a str,
+    ) -> Self {
+        let schema = Arc::new(Self::create_schema_from_str(columns));
+
+        // Load the file into a DataFrame
+        let aliased_df = Self::load(file_path, schema.clone(), alias)
+            .await
+            .expect("Failed to load file");
+
         CustomDataFrame {
             df: aliased_df.dataframe,
             table_alias: aliased_df.alias,
             query: String::new(),
             selected_columns: Vec::new(),
-            alias_map: Vec::new()
+            alias_map: Vec::new(),
+            aggregated_df: None,
         }
     }
 
-   
+     /// Utility function to create schema from user-defined column info
+    fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
+        let fields = columns
+            .into_iter()
+            .map(|(name, sql_type_str, nullable)| {
+                let sql_type = SQLDataType::from_str(sql_type_str);
+                let arrow_type: ArrowDataType = sql_type.into();
+                Field::new(name, arrow_type, nullable)
+            })
+            .collect::<Vec<_>>();
 
+        Schema::new(fields)
+    }
+
+    /// Internal unified `load` function for any supported file type
+    pub fn load<'a>(
+        file_path: &'a str,
+        schema: Arc<Schema>,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+
+            let file_extension = file_path
+                .split('.')
+                .last()
+                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
+                .to_lowercase();
+
+            let df = match file_extension.as_str() {
+                "csv" => {
+                    ctx.read_csv(
+                        file_path,
+                        CsvReadOptions::new()
+                            .schema(&schema)
+                            .has_header(true)
+                            .file_extension(".csv"),
+                    )
+                    .await?
+                }
+                "parquet" => {
+                    ctx.read_parquet(
+                        file_path,
+                        ParquetReadOptions {
+                            schema: Some(&schema),
+                            file_extension: ".parquet",
+                            table_partition_cols: vec![],
+                            ..Default::default()
+                        },
+                    )
+                    .await?
+                }
+                "avro" => {
+                    ctx.read_avro(
+                        file_path,
+                        AvroReadOptions {
+                            schema: Some(&schema),
+                            file_extension: ".avro",
+                            table_partition_cols: vec![],
+                        },
+                    )
+                    .await?
+                }
+                _ => panic!("Unsupported file type: {}", file_extension),
+            };
+
+            ctx.register_table(
+                alias,
+                Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
+            )
+            .expect("Failed to register DataFrame alias");
+
+            let aliased_df = ctx
+                .table(alias)
+                .await
+                .expect("Failed to retrieve aliased table");
+
+            Ok(AliasedDataFrame {
+                dataframe: aliased_df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
+   
+ 
     pub fn display_query_plan(&self) {
         println!("Generated Logical Plan:");
         println!("{:?}", self.df.logical_plan());
@@ -53,6 +157,7 @@ impl CustomDataFrame {
     
     }
     
+    // ---------------------  SQL QUERIES ------------------//
     /// FROM function for handling multiple DataFrames
     pub fn from(mut self, table_aliases: Vec<(DataFrame, &str)>) -> Self {
         if table_aliases.is_empty() {
@@ -76,56 +181,6 @@ impl CustomDataFrame {
     
         self
     }
-
-    /// SELECT clause
-    // pub fn select(mut self, columns: Vec<&str>) -> Self {
-    //     let mut expressions: Vec<Expr> = vec![];
-    //     let mut final_columns: Vec<String> = vec![];
-    
-    //     for &col in &columns {
-    //         // Check if the column is already aliased
-    //         if let Some((alias, expr)) = self.alias_map.iter().find(|(_, expr)| match expr {
-    //             Expr::Alias(alias_struct) => match *alias_struct.expr {
-    //                 Expr::Column(ref column) => column.name() == col,
-    //                 _ => false,
-    //             },
-    //             _ => false,
-    //         }) {
-    //             // If it's in alias_map, replace the column with the alias
-    //             expressions.push(expr.clone());
-    //             final_columns.push(alias.clone());
-    //         } else {
-    //             // Otherwise, include the original column
-    //             expressions.push(col_with_relation(&self.table_alias, col));
-    //             final_columns.push(col.to_string());
-    //         }
-    //     }
-    
-    //     // Add any aggregated columns (from alias_map) that are not already included
-    //     for (alias, expr) in &self.alias_map {
-    //         if !final_columns.contains(alias) {
-    //             expressions.push(expr.clone());
-    //             final_columns.push(alias.clone());
-    //         }
-    //     }
-    
-    //     // Apply the select operation
-    //     self.df = self
-    //         .df
-    //         .select(expressions.clone())
-    //         .expect("Failed to apply SELECT.");
-    
-    //     // Update selected columns and query
-    //     self.selected_columns = final_columns.clone();
-    
-    //     self.query = format!(
-    //         "SELECT {} FROM {}",
-    //         final_columns.join(", "),
-    //         self.table_alias
-    //     );
-    
-    //     self
-    // }
 
     pub fn select(mut self, columns: Vec<&str>) -> Self {
         let mut expressions: Vec<Expr> = Vec::new();
@@ -178,7 +233,8 @@ impl CustomDataFrame {
     
         self
     }
-    
+
+
 
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
         let group_exprs: Vec<Expr> = group_columns
@@ -267,24 +323,38 @@ impl CustomDataFrame {
     }
 
     pub fn having(mut self, condition: &str) -> Self {
-        println!("Condition passed to HAVING: '{}'", condition);
-    
-        // Parse and resolve the condition
-        let expr = self.parse_condition_for_having(condition);
-    
-        // Apply the HAVING condition
-        self.df = self
-            .df
-            .filter(expr.clone()) // Use the aggregated schema context for filtering
-            .expect("Failed to apply HAVING filter.");
-    
-        // Update the query string for debugging and display
-        self.query = format!("{} HAVING {}", self.query.trim_end(), condition);
-    
+        if self.aggregated_df.is_none() {
+            panic!("HAVING must be applied after aggregation. Ensure `group_by` and `aggregation` are called before `having`.");
+        }
+
+        if let Some(ref mut aggregated_df) = self.aggregated_df {
+            // Parse the condition using alias_map for aggregated columns
+            let expr = Self::parse_condition_for_having(condition, &self.alias_map);
+
+            println!("DEBUG: Applying HAVING condition: {:?}", expr);
+
+            // Apply the condition to the aggregated DataFrame
+            *aggregated_df = aggregated_df
+                .clone()
+                .filter(expr)
+                .expect("Failed to apply HAVING filter.");
+
+            println!(
+                "DEBUG: Schema after HAVING: {:?}",
+                aggregated_df.schema()
+            );
+
+            self.query = format!("{} HAVING {}", self.query.trim_end(), condition);
+        } else {
+            panic!("Aggregated DataFrame not available for HAVING.");
+        }
+
         self
     }
     
-  
+    
+    
+    
 
     /// JOIN clause
     pub fn join(
@@ -457,7 +527,10 @@ impl CustomDataFrame {
     }
     
     
-    fn parse_condition_for_having(&self, condition: &str) -> Expr {
+    fn parse_condition_for_having(
+        condition: &str,
+        alias_map: &[(String, Expr)],
+    ) -> Expr {
         let re = Regex::new(r"^(.+?)\s*(=|!=|>|<|>=|<=)\s*(.+)$").unwrap();
         let condition_trimmed = condition.trim();
     
@@ -474,8 +547,7 @@ impl CustomDataFrame {
         let value = caps.get(3).unwrap().as_str().trim();
     
         // Resolve aggregated columns by mapping aliases to their original expressions
-        let column_expr = self
-            .alias_map
+        let column_expr = alias_map
             .iter()
             .find(|(alias, _)| alias == column)
             .map(|(_, expr)| expr.clone())
@@ -509,8 +581,10 @@ impl CustomDataFrame {
 
     /// Display the DataFrame
     pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
+        let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
+       
         Box::pin(async move {
-            let df = &self.df;
+            // let df = &self.df;
             let batches = df.clone().collect().await?;
             let schema = df.schema();
     
