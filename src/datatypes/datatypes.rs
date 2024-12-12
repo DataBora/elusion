@@ -57,13 +57,14 @@ impl From<SQLDataType> for ArrowDataType {
             SQLDataType::Double => ArrowDataType::Float64,
             
             
-            SQLDataType::Decimal(precision, scale) => 
-            {
-                let precision_u8 = precision.try_into().unwrap();
-                let scale_i8 = scale.try_into().unwrap();
-                ArrowDataType::Decimal128(precision_u8, scale_i8)
-            }
-            
+            // SQLDataType::Decimal(precision, scale) => 
+            // {
+            //     let precision_u8 = precision.try_into().unwrap();
+            //     let scale_i8 = scale.try_into().unwrap();
+            //     ArrowDataType::Decimal128(precision_u8, scale_i8)
+            // }
+            SQLDataType::Decimal(precision, scale) => ArrowDataType::Decimal128(precision.into(), scale.try_into().unwrap()),
+
             // Date/Time Types
             SQLDataType::Date => ArrowDataType::Date32,
             SQLDataType::Time => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Nanosecond),
@@ -94,7 +95,7 @@ impl SQLDataType {
             "BIGINT" => SQLDataType::BigInt,
             "FLOAT" => SQLDataType::Float,
             "DOUBLE" => SQLDataType::Double,
-            "DECIMAL" => SQLDataType::Decimal(20, 4), // Default precision and scale
+            "DECIMAL" => SQLDataType::Decimal(20, 4), 
             "DATE" => SQLDataType::Date,
             "TIME" => SQLDataType::Time,
             "TIMESTAMP" => SQLDataType::Timestamp,

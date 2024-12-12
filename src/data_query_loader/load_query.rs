@@ -1,6 +1,8 @@
 use crate::datatypes::datatypes::SQLDataType;
-use datafusion::logical_expr::{Expr, col, SortExpr};
+use crate::data_query_loader::csv_detect_defect::{csv_detect_defect_utf8, convert_invalid_utf8};
 use crate::AggregationBuilder;
+
+use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError; 
@@ -38,6 +40,24 @@ fn col_with_relation(relation: &str, column: &str) -> Expr {
         }
     }
 
+fn validate_schema(schema: &Schema, df: &DataFrame) {
+        let df_fields = df.schema().fields();
+    
+        for field in schema.fields() {
+            if !df_fields.iter().any(|f| f.name() == field.name()) {
+                panic!(
+                    "Column '{}' not found in the loaded CSV file. Available columns: {:?}",
+                    field.name(),
+                    df_fields.iter().map(|f| f.name()).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+fn normalize_column_name(name: &str) -> String {
+        name.to_lowercase() // or .to_uppercase() based on convention
+    }
+    
 
 impl CustomDataFrame {
     
@@ -64,19 +84,22 @@ impl CustomDataFrame {
         }
     }
 
+    
+    
      /// Utility function to create schema from user-defined column info
-    fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
+     fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
         let fields = columns
             .into_iter()
             .map(|(name, sql_type_str, nullable)| {
                 let sql_type = SQLDataType::from_str(sql_type_str);
                 let arrow_type: ArrowDataType = sql_type.into();
-                Field::new(name, arrow_type, nullable)
+                Field::new(&normalize_column_name(name), arrow_type, nullable) // Normalize to lowercase
             })
             .collect::<Vec<_>>();
-
+    
         Schema::new(fields)
     }
+    
 
     /// Internal unified `load` function for any supported file type
     pub fn load<'a>(
@@ -85,10 +108,10 @@ impl CustomDataFrame {
         alias: &'a str,
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
-            // let ctx = SessionContext::new();
-            let mut config = SessionConfig::new();
-            config = config.with_batch_size(8192); 
-            let ctx = SessionContext::new_with_config(config);
+            let ctx = SessionContext::new();
+            // let mut config = SessionConfig::new();
+            // config = config.with_batch_size(8192); 
+            // let ctx = SessionContext::new_with_config(config);
 
             let file_extension = file_path
                 .split('.')
@@ -96,44 +119,49 @@ impl CustomDataFrame {
                 .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
                 .to_lowercase();
 
-            let df = match file_extension.as_str() {
-                "csv" => {
-                    ctx.read_csv(
-                        file_path,
-                        CsvReadOptions::new()
-                            .schema(&schema)
-                            .has_header(true)
-                            .file_extension(".csv"),
-                    )
-                    .await?
+                if let Err(err) = csv_detect_defect_utf8(file_path) {
+                    eprintln!(
+                        "Invalid UTF-8 data detected in file '{}': {}. Attempting in-place conversion...",
+                        file_path, err
+                    );
+                    convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
                 }
-                "parquet" => {
-                    ctx.read_parquet(
-                        file_path,
-                        ParquetReadOptions {
-                            schema: Some(&schema),
-                            file_extension: ".parquet",
-                            table_partition_cols: vec![],
-                            ..Default::default()
-                        },
-                    )
-                    .await?
-                }
-                "avro" => {
-                    ctx.read_avro(
-                        file_path,
-                        AvroReadOptions {
-                            schema: Some(&schema),
-                            file_extension: ".avro",
-                            table_partition_cols: vec![],
-                        },
-                    )
-                    .await?
-                }
-                _ => panic!("Unsupported file type: {}", file_extension),
-            };
+               
+                let df = match file_extension.as_str() {
+                    "csv" => {
+                        let result = ctx
+                            .read_csv(
+                                file_path,
+                                CsvReadOptions::new()
+                                    .schema(&schema)
+                                    .has_header(true)
+                                    .file_extension(".csv")
+                                    
+                            )
+                            .await;
+        
+                        match result {
+                            Ok(df) => {
+                                validate_schema(&schema, &df); // Validate schema here
+                                df
+                            }
+                            Err(err) => {
+                                // Enhanced error logging
+                                eprintln!(
+                                    "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                                    file_path, err
+                                );
+                                return Err(err);
+                            }
+                        }
+                    }
+                    _ => panic!("Unsupported file type: {}", file_extension),
+                };
 
-            
+                println!("Registering table with alias: {}", alias);
+                println!("Loading file: {}", file_path);
+                println!("Loaded schema: {:?}", df.schema());
+
             ctx.register_table(
                 alias,
                 Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
@@ -154,8 +182,7 @@ impl CustomDataFrame {
         })
     }
 
-   
- 
+
     pub fn display_query_plan(&self) {
         println!("Generated Logical Plan:");
         println!("{:?}", self.df.logical_plan());
@@ -653,6 +680,10 @@ impl CustomDataFrame {
                                 array.value(row).to_string()
                             } else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
                                 format!("{:.2}", array.value(row))
+                            } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
+                                array.value(row).to_string()
+                            } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Decimal128Array>() {
+                                array.value(row).to_string()
                             } else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
                                 let days_since_epoch = array.value(row);
                                 NaiveDate::from_ymd_opt(1970, 1, 1)
