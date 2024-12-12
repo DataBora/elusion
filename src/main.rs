@@ -17,37 +17,74 @@ async fn main() -> datafusion::error::Result<()> {
 
     // debug!("Initializing schema and setting up column definitions.");
     
-    let columns = vec![
-        ("sales_order_num", "VARCHAR", false),
-        ("sales_order_line_num", "INT", false),
-        ("order_date", "DATE", false),
-        ("customer_name", "VARCHAR", false),
-        ("email_address", "VARCHAR", false),
-        ("item", "VARCHAR", false),
-        ("quantity", "INT", false),
-        ("unit_price", "DOUBLE", false),
-        ("tax_amount", "DOUBLE", false),
+    let sales_columns = vec![
+        ("OrderDate", "DATE", false),
+        ("StockDate", "DATE", false),
+        ("OrderNumber", "VARCHAR", false),
+        ("ProductKey", "INT", false),
+        ("CustomerKey", "INT", false),
+        ("TerritoryKey", "INT", false),
+        ("OrderLineItem", "INT", false),
+        ("OrderQuantity", "INT", false)
     ];
 
-    let csv_path = "C:\\Borivoj\\RUST\\Elusion\\sales.csv";
+    let customers_columns = vec![
+        ("CustomerKey", "INT", false),
+        ("Prefix", "VARCHAR", true),
+        ("FirstName", "VARCHAR", false),
+        ("LastName", "VARCHAR", false),
+        ("BirthDate", "DATE", false),
+        ("MaritialStatus", "CHAR", false),
+        ("Gender", "VARCHAR", false),
+        ("EmailAddress", "VARCHAR", false),
+        ("AnnualIncome", "INT", false),
+        ("TotalChildren", "INT", false),
+        ("EducationLevel", "VARCHAR", false),
+        ("Occupation", "VARCHAR", false),
+        ("HomeOwner","CHAR", false)
+    ];
 
-    let custom_df = CustomDataFrame::new(csv_path, columns, "sales").await; 
+    let products_columns = vec![
+        ("ProductKey", "INT", false),
+        ("ProductSubcategoryKey", "INT", false),
+        ("ProductSKU", "VARCHAR", false),
+        ("ProductName", "VARCHAR", false),
+        ("ModelName", "VARCHAR", false),
+        ("ProductDescription", "VARCHAR", false),
+        ("ProductColor", "VARCHAR", false),
+        ("ProductSize", "VARCHAR", false),
+        ("ProductStyle", "VARCHAR", false),
+        ("ProductCost", "DOUBLE", false),
+        ("ProductPrice", "DOUBLE", false)
+    ];
+
+    let subcategory_columns = vec![
+        ("ProductSubcategoryKey", "INT", false),
+        ("SubcategoryName", "VARCHAR", false),
+        ("ProducCateforyKey", "INT", false)
+    ];
+
+    let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+    // let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+    // let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+    // let subcategory = "C:\\Borivoj\\RUST\\Elusion\\ProductSubcategory.csv";
+
+    let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
+    // let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
+    // let df_products = CustomDataFrame::new(products, products_columns, "products").await; 
+    // let df_subcategory = CustomDataFrame::new(subcategory, subcategory_columns, "subcategory").await; 
+
+    
+    df_sales
+        .select(vec!["OrderDate", "OrderQuantity"])
+        .limit(10)
+        .display().await?; 
 
 
-    let result_df = custom_df
-        .select(vec!["customer_name", "order_date", "unit_price", "quantity"]) ;
-        // .aggregation(vec![
-        //     AggregationBuilder::new("unit_price").sum().alias("total_spent"),
-        //     AggregationBuilder::new("quantity").avg().alias("average_quantity"),
-        // ]) 
-        // .filter("customer_name = 'Ruben Prasad'")
-        // .group_by(vec!["customer_name", "order_date"]) 
-        // // .having("total_spent < 700")
-        // .order_by(vec!["order_date"], vec![true]) 
-        // .limit(10); 
+
 
     //  result_df.display_query();
-     result_df.display().await?;
+    //  result_df.display().await?;
     //  result_df.display_query_plan();
     //  result_df.display_query(); 
 
