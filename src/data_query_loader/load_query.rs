@@ -1,6 +1,8 @@
 use crate::datatypes::datatypes::SQLDataType;
 use crate::data_query_loader::csv_detect_defect::{csv_detect_defect_utf8, convert_invalid_utf8};
+use crate::data_query_loader::csv_date_preprocess::preprocess_date_column;
 use crate::AggregationBuilder;
+
 
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
@@ -53,6 +55,8 @@ fn validate_schema(schema: &Schema, df: &DataFrame) {
             }
         }
     }
+
+
 
 fn normalize_column_name(name: &str) -> String {
         name.to_lowercase() // or .to_uppercase() based on convention
@@ -119,68 +123,90 @@ impl CustomDataFrame {
                 .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
                 .to_lowercase();
 
-                if let Err(err) = csv_detect_defect_utf8(file_path) {
-                    eprintln!(
-                        "Invalid UTF-8 data detected in file '{}': {}. Attempting in-place conversion...",
-                        file_path, err
-                    );
-                    convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
-                }
-               
-                let df = match file_extension.as_str() {
-                    "csv" => {
-                        let result = ctx
-                            .read_csv(
-                                file_path,
-                                CsvReadOptions::new()
-                                    .schema(&schema)
-                                    .has_header(true)
-                                    .file_extension(".csv")
-                                    
-                            )
-                            .await;
-        
-                        match result {
-                            Ok(df) => {
-                                validate_schema(&schema, &df); // Validate schema here
-                                df
-                            }
-                            Err(err) => {
-                                // Enhanced error logging
-                                eprintln!(
-                                    "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                                    file_path, err
-                                );
-                                return Err(err);
-                            }
+            // Detect and fix invalid UTF-8
+            if let Err(err) = csv_detect_defect_utf8(file_path) {
+                eprintln!(
+                    "Invalid UTF-8 data detected in file '{}': {}. Attempting in-place conversion...",
+                    file_path, err
+                );
+                convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
+            }
+
+            // Read and validate the CSV
+            let mut df = match file_extension.as_str() {
+                "csv" => {
+                    let result = ctx
+                        .read_csv(
+                            file_path,
+                            CsvReadOptions::new()
+                                .schema(&schema)
+                                .has_header(true)
+                                .file_extension(".csv"),
+                        )
+                        .await;
+
+                    match result {
+                        Ok(df) => {
+                            validate_schema(&schema, &df); // Validate schema here
+                            df
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                                file_path, err
+                            );
+                            return Err(err);
                         }
                     }
-                    _ => panic!("Unsupported file type: {}", file_extension),
-                };
+                }
+                _ => panic!("Unsupported file type: {}", file_extension),
+            };
 
-                println!("Registering table with alias: {}", alias);
-                println!("Loading file: {}", file_path);
-                println!("Loaded schema: {:?}", df.schema());
+            // Preprocess dates in the DataFrame
+            for field in schema.fields() {
+                if matches!(field.data_type(), ArrowDataType::Date32) {
+                    let column_name = field.name();
+            
+                    // Preprocess the date column
+                    println!("Preprocessing date column: {}", column_name);
+                    match preprocess_date_column(df, column_name).await {
+                        Ok(processed_df) => {
+                            df = processed_df; // Update the DataFrame with the processed column
+                        }
+                        Err(e) => {
+                            return Err(DataFusionError::Execution(format!(
+                                "Failed to preprocess date column '{}': {}",
+                                column_name, e
+                            )));
+                        }
+                    }
+                }
+            }
+            
+            println!("Registering table with alias: {}", alias);
+            println!("Loading file: {}", file_path);
+            println!("Loaded schema: {:?}", df.schema());
 
+            // Register the table with the context
             ctx.register_table(
                 alias,
                 Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
             )
             .expect("Failed to register DataFrame alias");
 
+            // Return the aliased DataFrame
             let aliased_df = ctx
                 .table(alias)
                 .await
                 .expect("Failed to retrieve aliased table");
-            
+
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
                 alias: alias.to_string(),
             })
-
-
         })
     }
+    
 
 
     pub fn display_query_plan(&self) {

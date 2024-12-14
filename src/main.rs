@@ -80,7 +80,7 @@ async fn main() -> datafusion::error::Result<()> {
         .limit(10)
         .display().await?; 
 
-
+    
 
 
     //  result_df.display_query();
