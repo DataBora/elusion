@@ -1,5 +1,8 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::Write;
+use encoding_rs::WINDOWS_1252;
 
 pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
     let file = File::open(file_path)?;
@@ -21,9 +24,6 @@ pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
     Ok(())
 }
 
-use std::fs::OpenOptions;
-use std::io::Write;
-use encoding_rs::WINDOWS_1252;
 
 pub fn convert_invalid_utf8(file_path: &str) -> Result<(), io::Error> {
     let file = File::open(file_path)?;
