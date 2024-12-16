@@ -1144,7 +1144,6 @@ dependencies = [
  "log",
  "regex",
  "tokio",
- "uuid",
 ]
 
 [[package]]

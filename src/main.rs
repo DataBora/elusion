@@ -7,7 +7,6 @@ pub mod data_query_loader;
 use data_query_loader::load_query::CustomDataFrame;
 use crate::aggregation_builder::aggregation::AggregationBuilder;
 
-
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
 
@@ -22,27 +21,27 @@ async fn main() -> datafusion::error::Result<()> {
         ("StockDate", "DATE", false),
         ("OrderNumber", "VARCHAR", false),
         ("ProductKey", "INT", false),
-        ("CustomerKey", "INT", false),
+        ("CustomerKey", "INT", true),
         ("TerritoryKey", "INT", false),
         ("OrderLineItem", "INT", false),
         ("OrderQuantity", "INT", false)
     ];
 
-    // let customers_columns = vec![
-    //     ("CustomerKey", "INT", false),
-    //     ("Prefix", "VARCHAR", true),
-    //     ("FirstName", "VARCHAR", false),
-    //     ("LastName", "VARCHAR", false),
-    //     ("BirthDate", "DATE", false),
-    //     ("MaritialStatus", "CHAR", false),
-    //     ("Gender", "VARCHAR", false),
-    //     ("EmailAddress", "VARCHAR", false),
-    //     ("AnnualIncome", "INT", false),
-    //     ("TotalChildren", "INT", false),
-    //     ("EducationLevel", "VARCHAR", false),
-    //     ("Occupation", "VARCHAR", false),
-    //     ("HomeOwner","CHAR", false)
-    // ];
+    let customers_columns = vec![
+        ("CustomerKey", "INT", true),
+        ("Prefix", "VARCHAR", true),
+        ("FirstName", "VARCHAR", true),
+        ("LastName", "VARCHAR", true),
+        ("BirthDate", "DATE", true),
+        ("MaritialStatus", "CHAR", true),
+        ("Gender", "VARCHAR", true),
+        ("EmailAddress", "VARCHAR", true),
+        ("AnnualIncome", "INT", true),
+        ("TotalChildren", "INT", true),
+        ("EducationLevel", "VARCHAR", true),
+        ("Occupation", "VARCHAR", true),
+        ("HomeOwner","CHAR", true)
+    ];
 
     // let products_columns = vec![
     //     ("ProductKey", "INT", false),
@@ -65,24 +64,33 @@ async fn main() -> datafusion::error::Result<()> {
     // ];
 
     let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
-    // let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+    let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
     // let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
     // let subcategory = "C:\\Borivoj\\RUST\\Elusion\\ProductSubcategory.csv";
 
     let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
-    // let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
+    let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
     // let df_products = CustomDataFrame::new(products, products_columns, "products").await; 
     // let df_subcategory = CustomDataFrame::new(subcategory, subcategory_columns, "subcategory").await; 
 
     
+    // let result_join_df = df_sales
+    //     .select(vec!["OrderDate", "OrderQuantity"])
+    //     .limit(10);
+
     let result_df = df_sales
-        .select(vec!["OrderDate", "OrderQuantity"])
-        .limit(10);
+        .join(
+            df_customers,
+            "sales.CustomerKey == customers.CustomerKey",
+            "INNER",
+        )
+        .select(vec![
+            "sales.OrderDate",
+            "sales.OrderQuantity",
+            "customers.FirstName",
+            "customers.LastName",
+        ]);
         
-
-    
-
-
     result_df.display_query();
     result_df.display().await?;
     //  result_df.display_query_plan();

@@ -32,11 +32,6 @@ pub struct AliasedDataFrame {
     pub alias: String,
 }
 
-
-
-
-  
-
 fn col_with_relation(relation: &str, column: &str) -> Expr {
         if column.contains('.') {
             col(column) // Already qualified
@@ -59,13 +54,10 @@ fn validate_schema(schema: &Schema, df: &DataFrame) {
         }
     }
 
-
-
 fn normalize_column_name(name: &str) -> String {
         name.to_lowercase() // or .to_uppercase() based on convention
     }
     
-
 impl CustomDataFrame {
     
     /// Unified `new` method for loading and schema definition
@@ -91,8 +83,6 @@ impl CustomDataFrame {
         }
     }
 
-    
-    
      /// Utility function to create schema from user-defined column info
      fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
         let fields = columns
@@ -111,8 +101,6 @@ impl CustomDataFrame {
     
         Schema::new(fields)
     }
-    
-    
 
     /// Internal unified `load` function for any supported file type
     pub fn load<'a>(
@@ -218,7 +206,6 @@ impl CustomDataFrame {
                     }
                 }
 
-                
                 // Create RecordBatch with the intermediate schema (not finalized yet)
                 let temp_schema = Arc::new(Schema::new(updated_fields.clone()));
                 let new_batch = RecordBatch::try_new(temp_schema.clone(), columns)?;
@@ -490,64 +477,136 @@ impl CustomDataFrame {
     
 
     /// JOIN clause
+    // pub fn join(
+    //     mut self,
+    //     other_df: AliasedDataFrame,
+    //     join_keys: Vec<(&str, &str)>,
+    //     join_type: JoinType,
+    // ) -> Self {
+    //     let join_condition: Vec<String> = join_keys
+    //         .iter()
+    //         .map(|(left, right)| {
+    //             let original_left = self
+    //                 .alias_map
+    //                 .iter()
+    //                 .find(|(alias, _)| alias == *left)
+    //                 .map(|(_, expr)| expr.to_string())
+    //                 .unwrap_or_else(|| format!("{}.{}", self.table_alias, left));
+    
+    //             format!(
+    //                 "{} = {}.{}",
+    //                 original_left,
+    //                 other_df.alias,
+    //                 right
+    //             )
+    //         })
+    //         .collect();
+    
+    //     self.query = format!(
+    //         "{} {} JOIN {} ON {}",
+    //         self.query,
+    //         match join_type {
+    //             JoinType::Inner => "INNER",
+    //             JoinType::Left => "LEFT",
+    //             JoinType::Right => "RIGHT",
+    //             JoinType::Full => "FULL",
+    //             JoinType::LeftSemi => "LEFT SEMI",
+    //             JoinType::RightSemi => "RIGHT SEMI",
+    //             JoinType::LeftAnti => "LEFT ANTI",
+    //             JoinType::RightAnti => "RIGHT ANTI",
+    //             JoinType::LeftMark => "LEFT MARK",
+    //         },
+    //         other_df.alias,
+    //         join_condition.join(" AND ")
+    //     );
+    
+    //     let (left_cols, right_cols): (Vec<&str>, Vec<&str>) = join_keys.iter().cloned().unzip();
+    
+    //     self.df = self
+    //         .df
+    //         .join(
+    //             other_df.dataframe,
+    //             join_type,
+    //             &left_cols,
+    //             &right_cols,
+    //             None,
+    //         )
+    //         .expect("Failed to apply JOIN.");
+    
+    //     self
+    // }
+
     pub fn join(
         mut self,
-        other_df: AliasedDataFrame,
-        join_keys: Vec<(&str, &str)>,
-        join_type: JoinType,
+        other: CustomDataFrame,    // Use CustomDataFrame directly
+        condition: &str,
+        join_type: &str,
     ) -> Self {
-        let join_condition: Vec<String> = join_keys
-            .iter()
-            .map(|(left, right)| {
-                let original_left = self
-                    .alias_map
-                    .iter()
-                    .find(|(alias, _)| alias == *left)
-                    .map(|(_, expr)| expr.to_string())
-                    .unwrap_or_else(|| format!("{}.{}", self.table_alias, left));
+        let join_type_enum = match join_type.to_uppercase().as_str() {
+            "INNER" => JoinType::Inner,
+            "LEFT" => JoinType::Left,
+            "RIGHT" => JoinType::Right,
+            "FULL" => JoinType::Full,
+            "LEFT SEMI" => JoinType::LeftSemi,
+            "RIGHT SEMI" => JoinType::RightSemi,
+            "LEFT ANTI" => JoinType::LeftAnti,
+            "RIGHT ANTI" => JoinType::RightAnti,
+            "LEFT MARK" => JoinType::LeftMark,
+            _ => panic!("Unsupported join type: {}", join_type),
+        };  
     
-                format!(
-                    "{} = {}.{}",
-                    original_left,
-                    other_df.alias,
-                    right
-                )
-            })
-            .collect();
-    
+        // Parse condition: e.g., "sales.CustomerKey == customers.CustomerKey"
+        let condition_parts: Vec<&str> = condition.split("==").map(|s| s.trim()).collect();
+        if condition_parts.len() != 2 {
+            panic!("Invalid join condition format. Use: 'table.column == table.column'");
+        }
+
+        let left_col = condition_parts[0];
+        let right_col = condition_parts[1];
+
+        // Update query string
         self.query = format!(
-            "{} {} JOIN {} ON {}",
-            self.query,
-            match join_type {
-                JoinType::Inner => "INNER",
-                JoinType::Left => "LEFT",
-                JoinType::Right => "RIGHT",
-                JoinType::Full => "FULL",
-                JoinType::LeftSemi => "LEFT SEMI",
-                JoinType::RightSemi => "RIGHT SEMI",
-                JoinType::LeftAnti => "LEFT ANTI",
-                JoinType::RightAnti => "RIGHT ANTI",
-                JoinType::LeftMark => "LEFT MARK",
-            },
-            other_df.alias,
-            join_condition.join(" AND ")
+            "{} {} JOIN {} ON {} = {}",
+            self.query.trim_end(),
+            join_type.to_uppercase(),
+            other.table_alias,
+            left_col,
+            right_col
         );
-    
-        let (left_cols, right_cols): (Vec<&str>, Vec<&str>) = join_keys.iter().cloned().unzip();
-    
+
+        // Extract column names without table prefixes for join keys
+        let left_column = left_col.split('.').last().unwrap();
+        let right_column = right_col.split('.').last().unwrap();
+
+        // Perform the join
         self.df = self
             .df
             .join(
-                other_df.dataframe,
-                join_type,
-                &left_cols,
-                &right_cols,
+                other.df.clone(),
+                join_type_enum,
+                &[left_column],
+                &[right_column],
                 None,
             )
             .expect("Failed to apply JOIN.");
-    
+
         self
     }
+    
+    
+
+    /// Helper function to parse a qualified column (e.g., "table.column")
+    // fn parse_qualified_column(qualified_column: &str) -> (&str, &str) {
+    //     let parts: Vec<&str> = qualified_column.split('.').collect();
+    //     if parts.len() != 2 {
+    //         panic!(
+    //             "Invalid column format '{}'. Expected 'table.column'",
+    //             qualified_column
+    //         );
+    //     }
+    //     (parts[0], parts[1])
+    // }
+
     
 
     
@@ -843,14 +902,14 @@ impl CustomDataFrame {
             // Print the column headers
             let header_row = column_names
                 .iter()
-                .map(|name| format!("{:<30}", name))
+                .map(|name| format!("{:<20}", name))
                 .collect::<Vec<String>>()
                 .join(" | ");
             println!("{}", header_row);
             
             let separator_row = column_names
                 .iter()
-                .map(|_| format!("{}", "-".repeat(30)))
+                .map(|_| format!("{}", "-".repeat(20)))
                 .collect::<Vec<String>>()
                 .join(" | ");
             println!("{}", separator_row);
@@ -883,7 +942,7 @@ impl CustomDataFrame {
     
                     let formatted_row = row_data
                         .iter()
-                        .map(|v| format!("{:<30}", v))
+                        .map(|v| format!("{:<20}", v))
                         .collect::<Vec<String>>()
                         .join(" | ");
                     println!("{}", formatted_row);
