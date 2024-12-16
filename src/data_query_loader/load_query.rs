@@ -1,8 +1,7 @@
 use crate::datatypes::datatypes::SQLDataType;
 use crate::data_query_loader::csv_detect_defect::{csv_detect_defect_utf8, convert_invalid_utf8};
-use crate::data_query_loader::csv_date_preprocess::preprocess_date_column;
 use crate::AggregationBuilder;
-
+use crate::data_query_loader::parse_dates::parse_date_with_formats;
 
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
@@ -13,8 +12,9 @@ use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::NaiveDate;
-use arrow::array::{StringArray, Date32Array, Date64Array, Float64Array, Int32Array};
-
+use arrow::array::{StringArray, Date32Array, Date64Array, Float64Array, Int32Array, ArrayRef, Array};
+use arrow::record_batch::RecordBatch;
+use arrow::datatypes::SchemaBuilder;
 // use log::debug;
 #[derive(Clone)]
 pub struct CustomDataFrame {
@@ -31,6 +31,9 @@ pub struct AliasedDataFrame {
     pub dataframe: DataFrame,
     pub alias: String,
 }
+
+
+
 
   
 
@@ -96,13 +99,19 @@ impl CustomDataFrame {
             .into_iter()
             .map(|(name, sql_type_str, nullable)| {
                 let sql_type = SQLDataType::from_str(sql_type_str);
-                let arrow_type: ArrowDataType = sql_type.into();
-                Field::new(&normalize_column_name(name), arrow_type, nullable) // Normalize to lowercase
+                // If the type is DATE, map it to Utf8 initially
+                let arrow_type = if matches!(sql_type, SQLDataType::Date) {
+                    ArrowDataType::Utf8
+                } else {
+                    sql_type.into()
+                };
+                Field::new(&normalize_column_name(name), arrow_type, nullable)
             })
             .collect::<Vec<_>>();
     
         Schema::new(fields)
     }
+    
     
 
     /// Internal unified `load` function for any supported file type
@@ -133,7 +142,7 @@ impl CustomDataFrame {
             }
 
             // Read and validate the CSV
-            let mut df = match file_extension.as_str() {
+            let df = match file_extension.as_str() {
                 "csv" => {
                     let result = ctx
                         .read_csv(
@@ -162,44 +171,104 @@ impl CustomDataFrame {
                 _ => panic!("Unsupported file type: {}", file_extension),
             };
 
-            // Preprocess dates in the DataFrame
-            for field in schema.fields() {
-                if matches!(field.data_type(), ArrowDataType::Date32) {
-                    let column_name = field.name();
-            
-                    // Preprocess the date column
-                    println!("Preprocessing date column: {}", column_name);
-                    match preprocess_date_column(df, column_name).await {
-                        Ok(processed_df) => {
-                            df = processed_df; // Update the DataFrame with the processed column
-                        }
-                        Err(e) => {
-                            return Err(DataFusionError::Execution(format!(
-                                "Failed to preprocess date column '{}': {}",
-                                column_name, e
-                            )));
-                        }
+            let batches = df.collect().await?;
+            let mut schema_builder = SchemaBuilder::new(); // Initialize SchemaBuilder
+            let mut new_batches = Vec::new();
+
+            // Temporary vector to store updated fields (to avoid consuming schema_builder)
+            let mut updated_fields = Vec::new();
+
+            // Step 1: Process each batch
+            for batch in &batches {
+                let mut columns = Vec::new();
+
+                // Step 2: Iterate through each column and process date fields
+                for (i, field) in schema.fields().iter().enumerate() {
+                    if field.data_type() == &ArrowDataType::Utf8 && field.name().contains("date") {
+                        let column = batch.column(i);
+                        let string_array = column
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .expect("Column is not a StringArray");
+                        
+                        // println!("Original column values for '{}':", field.name());
+                        // for value in string_array.iter() {
+                        //     println!("{:?}", value);
+                        // }
+                        // Convert string dates to Date32
+                        let date_values = string_array
+                            .iter()
+                            .map(|value| value.and_then(|v| parse_date_with_formats(v)))
+                            .collect::<Vec<_>>();
+
+                        // println!("Converted Date32 values: {:?}", date_values);
+
+
+                        let date_array: ArrayRef = Arc::new(Date32Array::from(date_values));
+                        columns.push(date_array);
+
+                        // Collect the updated field with Date32 type
+                        updated_fields.push(Field::new(field.name(), ArrowDataType::Date32, field.is_nullable()));
+                    } else {
+                        // Retain other columns
+                        columns.push(batch.column(i).clone());
+
+                        // Collect the original field as-is
+                        updated_fields.push(field.as_ref().clone());
                     }
                 }
+
+                
+                // Create RecordBatch with the intermediate schema (not finalized yet)
+                let temp_schema = Arc::new(Schema::new(updated_fields.clone()));
+                let new_batch = RecordBatch::try_new(temp_schema.clone(), columns)?;
+                new_batches.push(new_batch);
+
+                // Clear updated fields for next batch to avoid duplication
+                updated_fields.clear();
             }
+
+            // Step 3: Finalize the schema using the updated fields
+            for field in schema.fields() {
+                if field.data_type() == &ArrowDataType::Utf8 && field.name().contains("date") {
+                    schema_builder.push(Field::new(field.name(), ArrowDataType::Date32, field.is_nullable()));
+                } else {
+                    schema_builder.push(field.as_ref().clone());
+                }
+            }
+            let final_schema = Arc::new(schema_builder.finish());
+
+            // for batch in &new_batches {
+            //     println!("Final updated batch data:");
+            //     for column in batch.columns() {
+            //         println!("{:?}", column);
+            //     }
+            // }
+
+            let partitions: Vec<Vec<RecordBatch>> = new_batches.into_iter().map(|batch| vec![batch]).collect();
+            let mem_table = MemTable::try_new(final_schema.clone(), partitions)?;
+
+            
+            ctx.register_table(alias, Arc::new(mem_table))?;
             
             println!("Registering table with alias: {}", alias);
             println!("Loading file: {}", file_path);
-            println!("Loaded schema: {:?}", df.schema());
+            println!("Loaded schema: {:?}", final_schema);
 
             // Register the table with the context
-            ctx.register_table(
-                alias,
-                Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
-            )
-            .expect("Failed to register DataFrame alias");
+            // ctx.register_table(
+            //     alias,
+            //     Arc::new(MemTable::try_new(schema.clone(), vec![df.collect().await?])?),
+            // )
+            // .expect("Failed to register DataFrame alias");
 
-            // Return the aliased DataFrame
-            let aliased_df = ctx
-                .table(alias)
-                .await
-                .expect("Failed to retrieve aliased table");
+            // // Return the aliased DataFrame
+            // let aliased_df = ctx
+            //     .table(alias)
+            //     .await
+            //     .expect("Failed to retrieve aliased table");
 
+            let aliased_df = ctx.table(alias).await.expect("Failed to retrieve aliased table");
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
                 alias: alias.to_string(),
@@ -255,7 +324,8 @@ impl CustomDataFrame {
                 selected_columns.push(alias.clone());
             } else {
                 // Retain regular columns
-                expressions.push(col_with_relation(&self.table_alias, col));
+                expressions.push(col_with_relation(&self.table_alias, &normalize_column_name(col)));
+
                 selected_columns.push(col.to_string());
             }
         }
@@ -266,7 +336,11 @@ impl CustomDataFrame {
         // Update query string
         self.query = format!(
             "SELECT {} FROM {}",
-            self.selected_columns.join(", "),
+            self.selected_columns
+                .iter()
+                .map(|col| normalize_column_name(col))
+                .collect::<Vec<_>>()
+                .join(", "),
             self.table_alias
         );
     
@@ -639,34 +713,133 @@ impl CustomDataFrame {
     }
 
     /// Display the DataFrame
+    // pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
+    //     let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
+    
+    //     Box::pin(async move {
+    //         let batches = df.clone().collect().await?;
+    //         let schema = df.schema();
+    
+    //         // Filter the columns to display: retain selected columns and alias map
+    //         let column_names: Vec<String> = self
+    //             .selected_columns
+    //             .iter()
+    //             .filter(|col| {
+    //                 // Include only aggregated or explicitly selected columns
+    //                 self.alias_map
+    //                     .iter()
+    //                     .any(|(alias, _)| alias == *col)
+    //                     || schema.fields().iter().any(|field| field.name() == *col)
+    //             })
+    //             .map(|col| {
+    //                 // Prefer alias if exists
+    //                 self.alias_map
+    //                     .iter()
+    //                     .find(|(alias, _)| alias == col)
+    //                     .map(|(alias, _)| alias.clone())
+    //                     .unwrap_or_else(|| col.clone())
+    //             })
+    //             .collect();
+    
+    //         // Print the column headers
+    //         let header_row = column_names
+    //             .iter()
+    //             .map(|name| format!("{:<30}", name))
+    //             .collect::<Vec<String>>()
+    //             .join(" | ");
+    //         println!("{}", header_row);
+    
+    //         // Print underscores below the headers
+    //         let separator_row = column_names
+    //             .iter()
+    //             .map(|_| format!("{}", "-".repeat(30)))
+    //             .collect::<Vec<String>>()
+    //             .join(" | ");
+    //         println!("{}", separator_row);
+    
+    //         // Iterate over batches and rows, but stop after 100 rows
+    //         let mut row_count = 0;
+    //         'outer: for batch in &batches {
+    //             for row in 0..batch.num_rows() {
+    //                 if row_count >= 100 {
+    //                     break 'outer;
+    //                 }
+    
+    //                 let mut row_data = Vec::new();
+    //                 for col_name in &column_names {
+    //                     // Match column names to schema fields
+    //                     if let Some(col_index) = schema.fields().iter().position(|field| {
+    //                         field.name() == col_name || field.name() == col_name.split(" AS ").next().unwrap()
+    //                     }) {
+    //                         let column = batch.column(col_index);
+    
+    //                         // Extract values based on column type
+    //                         let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
+    //                             array.value(row).to_string()
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
+    //                             array.value(row).to_string()
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
+    //                             format!("{:.2}", array.value(row))
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
+    //                             array.value(row).to_string()
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Decimal128Array>() {
+    //                             array.value(row).to_string()
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
+    //                             let days_since_epoch = array.value(row);
+    //                             NaiveDate::from_ymd_opt(1970, 1, 1)
+    //                                 .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
+    //                                 .map(|valid_date| valid_date.to_string())
+    //                                 .unwrap_or_else(|| "Invalid date".to_string())
+    //                         } else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
+    //                             let millis_since_epoch = array.value(row);
+    //                             let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
+    //                             NaiveDate::from_ymd_opt(1970, 1, 1)
+    //                                 .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
+    //                                 .map(|valid_date| valid_date.to_string())
+    //                                 .unwrap_or_else(|| "Invalid date".to_string())
+    //                         } else {
+    //                             "Unsupported Type".to_string()
+    //                         };
+    
+    //                         row_data.push(value);
+    //                     } else {
+    //                         row_data.push("Column not found".to_string());
+    //                     }
+    //                 }
+    
+    //                 let formatted_row = row_data
+    //                     .iter()
+    //                     .map(|v| format!("{:<30}", v))
+    //                     .collect::<Vec<String>>()
+    //                     .join(" | ");
+    //                 println!("{}", formatted_row);
+    
+    //                 row_count += 1;
+    //             }
+    //         }
+    
+    //         if row_count == 0 {
+    //             println!("No data to display.");
+    //         } else if row_count < 100 {
+    //             println!("\nDisplayed all available rows (less than 100).");
+    //         } else {
+    //             println!("\nDisplayed the first 100 rows.");
+    //         }
+    
+    //         Ok(())
+    //     })
+    // }
+    
     pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
         let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
     
         Box::pin(async move {
             let batches = df.clone().collect().await?;
             let schema = df.schema();
-    
-            // Filter the columns to display: retain selected columns and alias map
-            let column_names: Vec<String> = self
-                .selected_columns
-                .iter()
-                .filter(|col| {
-                    // Include only aggregated or explicitly selected columns
-                    self.alias_map
-                        .iter()
-                        .any(|(alias, _)| alias == *col)
-                        || schema.fields().iter().any(|field| field.name() == *col)
-                })
-                .map(|col| {
-                    // Prefer alias if exists
-                    self.alias_map
-                        .iter()
-                        .find(|(alias, _)| alias == col)
-                        .map(|(alias, _)| alias.clone())
-                        .unwrap_or_else(|| col.clone())
-                })
-                .collect();
-    
+            
+            // Get schema column names and prepare for display
+            let column_names = schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>();
+            
             // Print the column headers
             let header_row = column_names
                 .iter()
@@ -674,16 +847,15 @@ impl CustomDataFrame {
                 .collect::<Vec<String>>()
                 .join(" | ");
             println!("{}", header_row);
-    
-            // Print underscores below the headers
+            
             let separator_row = column_names
                 .iter()
                 .map(|_| format!("{}", "-".repeat(30)))
                 .collect::<Vec<String>>()
                 .join(" | ");
             println!("{}", separator_row);
-    
-            // Iterate over batches and rows, but stop after 100 rows
+            
+            // Iterate over batches and rows, printing values
             let mut row_count = 0;
             'outer: for batch in &batches {
                 for row in 0..batch.num_rows() {
@@ -692,45 +864,21 @@ impl CustomDataFrame {
                     }
     
                     let mut row_data = Vec::new();
-                    for col_name in &column_names {
-                        // Match column names to schema fields
-                        if let Some(col_index) = schema.fields().iter().position(|field| {
-                            field.name() == col_name || field.name() == col_name.split(" AS ").next().unwrap()
-                        }) {
-                            let column = batch.column(col_index);
-    
-                            // Extract values based on column type
-                            let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
-                                array.value(row).to_string()
-                            } else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
-                                array.value(row).to_string()
-                            } else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
-                                format!("{:.2}", array.value(row))
-                            } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
-                                array.value(row).to_string()
-                            } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Decimal128Array>() {
-                                array.value(row).to_string()
-                            } else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
-                                let days_since_epoch = array.value(row);
-                                NaiveDate::from_ymd_opt(1970, 1, 1)
-                                    .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
-                                    .map(|valid_date| valid_date.to_string())
-                                    .unwrap_or_else(|| "Invalid date".to_string())
-                            } else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
-                                let millis_since_epoch = array.value(row);
-                                let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
-                                NaiveDate::from_ymd_opt(1970, 1, 1)
-                                    .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(days_since_epoch as u64)))
-                                    .map(|valid_date| valid_date.to_string())
-                                    .unwrap_or_else(|| "Invalid date".to_string())
-                            } else {
-                                "Unsupported Type".to_string()
-                            };
-    
-                            row_data.push(value);
+                    for column in batch.columns() {
+                        let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
+                            array.value(row).to_string()
+                        } else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
+                            array.value(row).to_string()
+                        } else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
+                            let days_since_epoch = array.value(row);
+                            NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch) // Safe date handling
+                                .map(|d| d.to_string())
+                                .unwrap_or_else(|| "Invalid date".to_string())
                         } else {
-                            row_data.push("Column not found".to_string());
-                        }
+                            "Unsupported Type".to_string()
+                        };
+    
+                        row_data.push(value);
                     }
     
                     let formatted_row = row_data
@@ -755,7 +903,6 @@ impl CustomDataFrame {
             Ok(())
         })
     }
-    
     
     
 }
