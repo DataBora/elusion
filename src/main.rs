@@ -28,41 +28,41 @@ async fn main() -> datafusion::error::Result<()> {
         ("OrderQuantity", "INT", false)
     ];
 
-    let customers_columns = vec![
-        ("CustomerKey", "INT", false),
-        ("Prefix", "VARCHAR", true),
-        ("FirstName", "VARCHAR", false),
-        ("LastName", "VARCHAR", false),
-        ("BirthDate", "DATE", false),
-        ("MaritialStatus", "CHAR", false),
-        ("Gender", "VARCHAR", false),
-        ("EmailAddress", "VARCHAR", false),
-        ("AnnualIncome", "INT", false),
-        ("TotalChildren", "INT", false),
-        ("EducationLevel", "VARCHAR", false),
-        ("Occupation", "VARCHAR", false),
-        ("HomeOwner","CHAR", false)
-    ];
+    // let customers_columns = vec![
+    //     ("CustomerKey", "INT", false),
+    //     ("Prefix", "VARCHAR", true),
+    //     ("FirstName", "VARCHAR", false),
+    //     ("LastName", "VARCHAR", false),
+    //     ("BirthDate", "DATE", false),
+    //     ("MaritialStatus", "CHAR", false),
+    //     ("Gender", "VARCHAR", false),
+    //     ("EmailAddress", "VARCHAR", false),
+    //     ("AnnualIncome", "INT", false),
+    //     ("TotalChildren", "INT", false),
+    //     ("EducationLevel", "VARCHAR", false),
+    //     ("Occupation", "VARCHAR", false),
+    //     ("HomeOwner","CHAR", false)
+    // ];
 
-    let products_columns = vec![
-        ("ProductKey", "INT", false),
-        ("ProductSubcategoryKey", "INT", false),
-        ("ProductSKU", "VARCHAR", false),
-        ("ProductName", "VARCHAR", false),
-        ("ModelName", "VARCHAR", false),
-        ("ProductDescription", "VARCHAR", false),
-        ("ProductColor", "VARCHAR", false),
-        ("ProductSize", "VARCHAR", false),
-        ("ProductStyle", "VARCHAR", false),
-        ("ProductCost", "DOUBLE", false),
-        ("ProductPrice", "DOUBLE", false)
-    ];
+    // let products_columns = vec![
+    //     ("ProductKey", "INT", false),
+    //     ("ProductSubcategoryKey", "INT", false),
+    //     ("ProductSKU", "VARCHAR", false),
+    //     ("ProductName", "VARCHAR", false),
+    //     ("ModelName", "VARCHAR", false),
+    //     ("ProductDescription", "VARCHAR", false),
+    //     ("ProductColor", "VARCHAR", false),
+    //     ("ProductSize", "VARCHAR", false),
+    //     ("ProductStyle", "VARCHAR", false),
+    //     ("ProductCost", "DOUBLE", false),
+    //     ("ProductPrice", "DOUBLE", false)
+    // ];
 
-    let subcategory_columns = vec![
-        ("ProductSubcategoryKey", "INT", false),
-        ("SubcategoryName", "VARCHAR", false),
-        ("ProducCateforyKey", "INT", false)
-    ];
+    // let subcategory_columns = vec![
+    //     ("ProductSubcategoryKey", "INT", false),
+    //     ("SubcategoryName", "VARCHAR", false),
+    //     ("ProducCateforyKey", "INT", false)
+    // ];
 
     let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
     // let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
@@ -75,16 +75,16 @@ async fn main() -> datafusion::error::Result<()> {
     // let df_subcategory = CustomDataFrame::new(subcategory, subcategory_columns, "subcategory").await; 
 
     
-    df_sales
+    let result_df = df_sales
         .select(vec!["OrderDate", "OrderQuantity"])
-        .limit(10)
-        .display().await?; 
+        .limit(10);
+        
 
     
 
 
-    //  result_df.display_query();
-    //  result_df.display().await?;
+    result_df.display_query();
+    result_df.display().await?;
     //  result_df.display_query_plan();
     //  result_df.display_query(); 
 
