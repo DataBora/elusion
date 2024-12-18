@@ -10,11 +10,10 @@ use crate::aggregation_builder::aggregation::AggregationBuilder;
 #[tokio::main]
 async fn main() -> datafusion::error::Result<()> {
 
-    // Initialize logging
-    std::env::set_var("RUST_LOG", "debug");
-    env_logger::init();
+   
+    // std::env::set_var("RUST_LOG", "debug");
+    // env_logger::init();
 
-    // debug!("Initializing schema and setting up column definitions.");
     
     let sales_columns = vec![
         ("OrderDate", "DATE", false),
@@ -133,7 +132,7 @@ let result_df = sales_order_data
     .having("total_sales > 1000")
     .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // Final columns after aggregation
     .order_by(vec!["total_sales"], vec![false])
-    .limit(20);
+    .limit(10);
 
 
     result_df.display_query();

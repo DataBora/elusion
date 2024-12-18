@@ -281,9 +281,9 @@ impl CustomDataFrame {
 
             ctx.register_table(alias, Arc::new(mem_table))?;
 
-            println!("Registering table with alias: {}", alias);
-            println!("Loading file: {}", file_path);
-            println!("Loaded schema: {:?}", final_schema);
+            // println!("Registering table with alias: {}", alias);
+            // println!("Loading file: {}", file_path);
+            // println!("Loaded schema: {:?}", final_schema);
 
             let aliased_df = ctx.table(alias).await.expect("Failed to retrieve aliased table");
             Ok(AliasedDataFrame {
@@ -1032,7 +1032,7 @@ impl CustomDataFrame {
             if row_count == 0 {
                 println!("No data to display.");
             } else if row_count < 100 {
-                println!("\nDisplayed all available rows (less than 100).");
+                println!("\nDisplayed limit() number of rows.");
             } else {
                 println!("\nDisplayed the first 100 rows.");
             }
