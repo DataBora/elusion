@@ -1141,6 +1141,7 @@ dependencies = [
  "encoding_rs",
  "env_logger",
  "futures",
+ "hex",
  "log",
  "regex",
  "tokio",
