@@ -4,7 +4,7 @@ pub mod data_query_loader;
 
 // use log::debug;
 
-use data_query_loader::load_query::CustomDataFrame;
+use data_query_loader::load_query2::CustomDataFrame;
 use crate::aggregation_builder::aggregation::AggregationBuilder;
 
 #[tokio::main]
@@ -73,12 +73,8 @@ async fn main() -> datafusion::error::Result<()> {
     // let df_products = CustomDataFrame::new(products, products_columns, "products").await; 
     // let df_subcategory = CustomDataFrame::new(subcategory, subcategory_columns, "subcategory").await; 
 
-    
-    // let result_join_df = df_sales
-    //     .select(vec!["OrderDate", "OrderQuantity"])
-    //     .limit(10);
 
-    let result_df = df_sales
+    let join_df = df_sales
         .join(
             df_customers,
             "sales.CustomerKey == customers.CustomerKey",
@@ -89,53 +85,59 @@ async fn main() -> datafusion::error::Result<()> {
             "sales.OrderQuantity",
             "customers.FirstName",
             "customers.LastName",
-        ]);
+        ])
+        .limit(10);
         
+    join_df.display_query();
+    join_df.display().await?;
+    // join_df.display_query_plan();
+
+//==================================
+
+    let sales_order_columns = vec![
+        ("customer_name", "VARCHAR", false),
+        ("customer_contact_name", "VARCHAR", false),
+        ("customer_country", "VARCHAR", false),
+        ("employee_name", "VARCHAR", false),
+        ("employee_title", "VARCHAR", false),
+        ("shipper_name", "VARCHAR", false),
+        ("ship_name", "VARCHAR", false),
+        ("order_date", "DATE", false),
+        ("delivery_date", "DATE", false),
+        ("freight_value", "DOUBLE", false),
+        ("order_value", "DOUBLE", false),
+        ("billable_value", "NUMBER", false),
+    ];
+
+    let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+
+    let sales_order_data = CustomDataFrame::new(sales_path, sales_order_columns, "sales_orders").await;
+
+    let result_sales = sales_order_data.clone()
+            .select(vec!["customer_name", "order_date", "billable_value"])
+            .filter("billable_value > 100.0")
+            .order_by(vec!["order_date"], vec![true])
+            .limit(10);
+
+        result_sales.display_query();   
+        // result_sales.display_query_plan();
+        result_sales.display().await?;
+
+//=============================================
+let result_df = sales_order_data
+    .aggregation(vec![
+        AggregationBuilder::new("billable_value").sum().alias("total_sales"),
+        AggregationBuilder::new("billable_value").avg().alias("avg_sales")
+    ])
+    .group_by(vec!["customer_name", "order_date"])
+    .having("total_sales > 1000")
+    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // Final columns after aggregation
+    .order_by(vec!["total_sales"], vec![false])
+    .limit(20);
+
+
     result_df.display_query();
     result_df.display().await?;
-    //  result_df.display_query_plan();
-    //  result_df.display_query(); 
-
-// PARQUET --------------------------
-    // let parquet_columns = vec![
-    //     ("row_id", "INT", false),
-    //     ("timestamp", "INT", true),
-    //     ("user_id", "INT", false),
-    //     ("content_id", "INT", false),
-    //     ("content_type_id", "BOOLEAN", false),
-    //     ("task_container_id", "INT", false),
-    //     ("user_answer", "INT", false),
-    //     ("answered_correctly", "INT", false),
-    //     ("prior_question_elapsed_time", "DOUBLE", true),
-    //     ("prior_question_had_explanation", "BOOLEAN", true),
-    // ];
-
-    // File path
-    // let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\riiid_train.parquet";
-
-    // // Load file and define schema in a single call
-    // let parquet_df = CustomDataFrame::new(parquet_path, parquet_columns, "riid").await;
-
-    // let result_df2 = parquet_df
-    //     .aggregation(vec![
-    //         AggregationBuilder::new("row_id").count().alias("df_count")
-    //     ]);
-        // .select(vec![
-        //     "row_id",
-        //     "timestamp",
-        //     "user_id",
-        //     "content_id",
-        //     "content_type_id",
-        //     "task_container_id",
-        //     "user_answer",
-        //     "answered_correctly",
-        //     "prior_question_elapsed_time",
-        //     "prior_question_had_explanation",
-        // ])
-        // .limit(10);
-
-    // result_df2.display().await?;
-
 
     Ok(())
 }

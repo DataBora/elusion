@@ -20,15 +20,16 @@ impl AggregationBuilder {
         }
     }
 
-    pub fn build_expr(&self, table_alias: &str) -> Expr {
-        let qualified_column = col_with_relation(table_alias, &self.column);
-
+    pub fn build_expr(&self, _table_alias: &str) -> Expr {
+        // Directly reference the column without qualification
+        let base_column = col(self.column.as_str());
+    
         let base_expr = if let Some(agg_fn) = &self.agg_fn {
-            agg_fn(qualified_column) 
+            agg_fn(base_column) 
         } else {
-            qualified_column
+            base_column
         };
-
+    
         // Apply alias if present
         if let Some(alias) = &self.agg_alias {
             base_expr.alias(alias.clone())
@@ -36,6 +37,7 @@ impl AggregationBuilder {
             base_expr
         }
     }
+    
 
     pub fn alias(mut self, alias: &str) -> Self {
         self.agg_alias = Some(alias.to_string());
@@ -162,3 +164,4 @@ impl From<AggregationBuilder> for Expr {
         builder.build_expr("default_alias") // Replace "default_alias" if context requires
     }
 }
+    

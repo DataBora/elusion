@@ -96,6 +96,7 @@ impl SQLDataType {
             "FLOAT" => SQLDataType::Float,
             "DOUBLE" => SQLDataType::Double,
             "DECIMAL" => SQLDataType::Decimal(20, 4), 
+            "NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
             "DATE" => SQLDataType::Date,
             "TIME" => SQLDataType::Time,
             "TIMESTAMP" => SQLDataType::Timestamp,
