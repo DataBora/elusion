@@ -120,7 +120,7 @@ let join_df = df_sales
     ])
     .limit(10);
         
-    join_df.display_query();
+    join_df.display_query(); // if you want to see generated sql query
     join_df.display().await?;
 ```
 
@@ -132,7 +132,7 @@ let result_sales = sales_order_data.clone()
     .order_by(vec!["order_date"], vec![true])
     .limit(10);
 
-    result_sales.display_query();   
+    result_sales.display_query(); // if you want to see generated sql query
     result_sales.display().await?;
 ```
 
@@ -149,7 +149,7 @@ let result_df = sales_order_data
     .order_by(vec!["total_sales"], vec![false])
     .limit(10);
 
-    result_df.display_query();
+    result_df.display_query(); // if you want to see generated sql query
     result_df.display().await?;
 ```
 
