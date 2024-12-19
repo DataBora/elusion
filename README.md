@@ -1,6 +1,6 @@
 # Elusion DataFrame Library
 
-**Elusion** is a high-performance, flexible library for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+**Elusion** is a high-performance, flexible library built on top of **DataFusion**for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 ---
 
@@ -23,6 +23,13 @@ To add **Elusion** to your Rust project, include the following line in your `Car
 
 ```toml
 elusion = "0.1.0"
+```
+
+---
+
+## Dependencies that Elusion is build on top of:
+
+```toml
 [dependencies]
 datafusion = "43.0.0"
 arrow = "53.3.0"
@@ -32,4 +39,55 @@ chrono = "0.4.38"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
 hex = "0.4.3"
+```
+
+## Usage examples:
+
+`rust`
+
+```
+let join_df = df_sales
+        .join(
+            df_customers,
+            "sales.CustomerKey == customers.CustomerKey",
+            "INNER",
+        )
+        .select(vec![
+            "sales.OrderDate",
+            "sales.OrderQuantity",
+            "customers.FirstName",
+            "customers.LastName",
+        ])
+        .limit(10);
+        
+    join_df.display_query();
+    join_df.display().await?;
+```
+
+```
+let result_sales = sales_order_data.clone()
+            .select(vec!["customer_name", "order_date", "billable_value"])
+            .filter("billable_value > 100.0")
+            .order_by(vec!["order_date"], vec![true])
+            .limit(10);
+
+    result_sales.display_query();   
+    result_sales.display().await?;
+```
+
+```
+let result_df = sales_order_data
+    .aggregation(vec![
+        AggregationBuilder::new("billable_value").sum().alias("total_sales"),
+        AggregationBuilder::new("billable_value").avg().alias("avg_sales")
+    ])
+    .group_by(vec!["customer_name", "order_date"])
+    .having("total_sales > 1000")
+    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // Final columns after aggregation
+    .order_by(vec!["total_sales"], vec![false])
+    .limit(10);
+
+
+    result_df.display_query();
+    result_df.display().await?;
 ```

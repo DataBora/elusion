@@ -116,9 +116,8 @@ async fn main() -> datafusion::error::Result<()> {
             .order_by(vec!["order_date"], vec![true])
             .limit(10);
 
-        result_sales.display_query();   
-        // result_sales.display_query_plan();
-        result_sales.display().await?;
+    result_sales.display_query();   
+    result_sales.display().await?;
 
 //=============================================
 let result_df = sales_order_data
