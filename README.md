@@ -45,6 +45,7 @@ hex = "0.4.3"
 
 `rust`
 
+### JOIN
 ```
 let join_df = df_sales
         .join(
@@ -64,6 +65,7 @@ let join_df = df_sales
     join_df.display().await?;
 ```
 
+### SELECT without Aggregation
 ```
 let result_sales = sales_order_data.clone()
             .select(vec!["customer_name", "order_date", "billable_value"])
@@ -75,6 +77,7 @@ let result_sales = sales_order_data.clone()
     result_sales.display().await?;
 ```
 
+### SELECT with Aggregation
 ```
 let result_df = sales_order_data
     .aggregation(vec![
@@ -83,7 +86,7 @@ let result_df = sales_order_data
     ])
     .group_by(vec!["customer_name", "order_date"])
     .having("total_sales > 1000")
-    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // Final columns after aggregation
+    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // SELECT is used with Final columns after aggregation
     .order_by(vec!["total_sales"], vec![false])
     .limit(10);
 
