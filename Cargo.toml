@@ -9,7 +9,7 @@ repository = "https://github.com/DataBora/elusion"
 homepage = "https://github.com/DataBora/elusion"
 
 readme = "README.md"
-keywords = ["data", "engineering", "dataframe", "fusion", "analysis", "csv", "parquet", "delta", "tabular", "table"]
+keywords = ["data", "engineering", "dataframe", "analysis"]
 categories = ["data-structures", "concurency", "api-bindings"]
 
 [dependencies]
