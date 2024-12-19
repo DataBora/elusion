@@ -10,7 +10,7 @@ homepage = "https://github.com/DataBora/elusion"
 
 readme = "README.md"
 keywords = ["data", "engineering", "dataframe", "analysis"]
-categories = ["data-structures", "concurency", "api-bindings"]
+categories = ["data-structures"]
 
 [dependencies]
 datafusion = "43.0.0"
