@@ -135,6 +135,26 @@ let result_df = sales_order_data
     result_df.display_query();
     result_df.display().await?;
 
+    
+
+    //======= writing parquet
+
+    
+
+    result_df
+        .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
+        .await
+        .expect("Failed to write to Parquet");
+
+    result_df
+        .write_to_parquet(
+            "append",
+            "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
+            None
+        )
+        .await
+        .expect("Failed to append to Parquet");
+
     Ok(())
 }
 

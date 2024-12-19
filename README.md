@@ -200,6 +200,26 @@ let result_df = sales_order_data
 
 ```
 
+### Writing to Parquet File
+#### We have 2 writing modes: Overwrite and Append
+```rust
+// overwrite existing file
+result_df
+        .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
+        .await
+        .expect("Failed to write to Parquet");
+
+//append to exisiting file
+result_df
+    .write_to_parquet(
+        "append",
+        "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
+        None
+    )
+    .await
+    .expect("Failed to append to Parquet");
+```
+
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
 However, since it builds upon [DataFusion](https://datafusion.apache.org/), which is distributed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), some parts of this project are subject to the terms of the Apache License 2.0.
