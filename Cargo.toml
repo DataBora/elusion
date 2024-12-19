@@ -2,6 +2,14 @@
 name = "elusion"
 version = "0.1.0"
 edition = "2021"
+authors = ["Borivoj Grujicic borivoj.grujicic@gmail.com"]
+description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar sintax like PySpark or Python libraries like Pandas, Polars..."
+license = "MIT"
+repository = "https://github.com/DataBora/elusion"
+homepage = ""
+readme = "README.md"
+keywords = ["data", "engineering", "dataframe", "fusion", "analysis", "csv", "parquet", "delta", "tabular", "table"]
+categories = [""]
 
 [dependencies]
 datafusion = "43.0.0"
@@ -15,6 +23,8 @@ hex = "0.4.3"
 env_logger = "0.11.5"
 log = "0.4.22"
 
+[lib]
+path = "src/elusion.rs"
 
 # [profile.release]
 # lto = true
