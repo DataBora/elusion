@@ -1,7 +1,4 @@
-use crate::datatypes::datatypes::SQLDataType;
-use crate::data_query_loader::csv_detect_defect::{csv_detect_defect_utf8, convert_invalid_utf8};
-use crate::AggregationBuilder;
-use crate::data_query_loader::parse_dates::parse_date_with_formats;
+// ==================== IMPORTS ==================//
 
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
@@ -11,10 +8,426 @@ use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
-use chrono::NaiveDate;
+use chrono::{NaiveDate,Datelike};
 use arrow::array::{StringArray, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array};
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::SchemaBuilder;
+
+//======== AGGREGATION FUNCTIONS 
+use datafusion::functions_aggregate::expr_fn::{
+    sum, min, max, avg, stddev, count, count_distinct, corr, first_value, grouping,
+    var_pop, stddev_pop, array_agg,approx_percentile_cont, nth_value
+};
+
+// =================== DATA TYPES CONVERSIONS ==================== //
+
+#[derive(Debug, Clone)]
+pub enum SQLDataType {
+    // Character Types
+    Char,
+    Varchar,
+    Text,
+    String,
+
+    // Numeric Types
+    TinyInt,
+    SmallInt,
+    Int,
+    BigInt,
+    TinyIntUnsigned,
+    SmallIntUnsigned,
+    IntUnsigned,
+    BigIntUnsigned,
+    Float,
+    Real,
+    Double,
+    Decimal(u8, u8), // precision, scale
+
+    // Date/Time Types
+    Date,
+    Time,
+    Timestamp,
+    Interval,
+
+    // Boolean Types
+    Boolean,
+
+    // Binary Types
+    ByteA,
+
+    // Unsupported Types
+    Unsupported(String),
+}
+
+impl From<SQLDataType> for ArrowDataType {
+    fn from(sql_type: SQLDataType) -> Self {
+        match sql_type {
+            // Character Types
+            SQLDataType::Char | SQLDataType::Varchar | SQLDataType::Text | SQLDataType::String => ArrowDataType::Utf8,
+
+            // Numeric Types
+            SQLDataType::TinyInt => ArrowDataType::Int8,
+            SQLDataType::SmallInt => ArrowDataType::Int16,
+            SQLDataType::Int => ArrowDataType::Int32,
+            SQLDataType::BigInt => ArrowDataType::Int64,
+            SQLDataType::TinyIntUnsigned => ArrowDataType::UInt8,
+            SQLDataType::SmallIntUnsigned => ArrowDataType::UInt16,
+            SQLDataType::IntUnsigned => ArrowDataType::UInt32,
+            SQLDataType::BigIntUnsigned => ArrowDataType::UInt64,
+            SQLDataType::Float | SQLDataType::Real => ArrowDataType::Float32,
+            SQLDataType::Double => ArrowDataType::Float64,
+            
+            
+            // SQLDataType::Decimal(precision, scale) => 
+            // {
+            //     let precision_u8 = precision.try_into().unwrap();
+            //     let scale_i8 = scale.try_into().unwrap();
+            //     ArrowDataType::Decimal128(precision_u8, scale_i8)
+            // }
+            SQLDataType::Decimal(precision, scale) => ArrowDataType::Decimal128(precision.into(), scale.try_into().unwrap()),
+
+            // Date/Time Types
+            SQLDataType::Date => ArrowDataType::Date32,
+            SQLDataType::Time => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Nanosecond),
+            SQLDataType::Timestamp => ArrowDataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Nanosecond, None),
+            SQLDataType::Interval => ArrowDataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano),
+
+            // Boolean Types
+            SQLDataType::Boolean => ArrowDataType::Boolean,
+
+            // Binary Types
+            SQLDataType::ByteA => ArrowDataType::Binary,
+
+            // Unsupported
+            SQLDataType::Unsupported(msg) => panic!("Unsupported SQL type: {}", msg),
+        }
+    }
+}
+
+impl SQLDataType {
+    pub fn from_str(data_type: &str) -> Self {
+        match data_type.to_uppercase().as_str() {
+            "CHAR" => SQLDataType::Char,
+            "VARCHAR" => SQLDataType::Varchar,
+            "TEXT" | "STRING" => SQLDataType::Text,
+            "TINYINT" => SQLDataType::TinyInt,
+            "SMALLINT" => SQLDataType::SmallInt,
+            "INT" | "INTEGER" => SQLDataType::Int,
+            "BIGINT" => SQLDataType::BigInt,
+            "FLOAT" => SQLDataType::Float,
+            "DOUBLE" => SQLDataType::Double,
+            "DECIMAL" => SQLDataType::Decimal(20, 4), 
+            "NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
+            "DATE" => SQLDataType::Date,
+            "TIME" => SQLDataType::Time,
+            "TIMESTAMP" => SQLDataType::Timestamp,
+            "BOOLEAN" => SQLDataType::Boolean,
+            "BYTEA" => SQLDataType::ByteA,
+            _ => SQLDataType::Unsupported(data_type.to_string()),
+        }
+    }
+}
+
+impl From<ArrowDataType> for SQLDataType {
+    fn from(arrow_type: ArrowDataType) -> Self {
+        match arrow_type {
+            ArrowDataType::Utf8 => SQLDataType::String,
+            ArrowDataType::Int8 => SQLDataType::TinyInt,
+            ArrowDataType::Int16 => SQLDataType::SmallInt,
+            ArrowDataType::Int32 => SQLDataType::Int,
+            ArrowDataType::Int64 => SQLDataType::BigInt,
+            ArrowDataType::UInt8 => SQLDataType::TinyIntUnsigned,
+            ArrowDataType::UInt16 => SQLDataType::SmallIntUnsigned,
+            ArrowDataType::UInt32 => SQLDataType::IntUnsigned,
+            ArrowDataType::UInt64 => SQLDataType::BigIntUnsigned,
+            ArrowDataType::Float32 => SQLDataType::Float,
+            ArrowDataType::Float64 => SQLDataType::Double,
+            ArrowDataType::Date32 => SQLDataType::Date,
+            ArrowDataType::Time64(_) => SQLDataType::Time,
+            ArrowDataType::Timestamp(_, _) => SQLDataType::Timestamp,
+            ArrowDataType::Boolean => SQLDataType::Boolean,
+            ArrowDataType::Binary => SQLDataType::ByteA,
+            _ => SQLDataType::Unsupported(format!("{:?}", arrow_type)),
+        }
+    }
+}
+
+// =====================  AGGREGATION BUILDER =============== //
+
+pub struct AggregationBuilder {
+    column: String,
+    pub agg_alias: Option<String>,
+    agg_fn: Option<Box<dyn Fn(Expr) -> Expr>>, // Store aggregation function
+}
+
+impl AggregationBuilder {
+    pub fn new(column: &str) -> Self {
+        Self {
+            column: column.to_string(),
+            agg_alias: None,
+            agg_fn: None, // No aggregation function initially
+        }
+    }
+
+    pub fn build_expr(&self, _table_alias: &str) -> Expr {
+        // Directly reference the column without qualification
+        let base_column = col(self.column.as_str());
+    
+        let base_expr = if let Some(agg_fn) = &self.agg_fn {
+            agg_fn(base_column) 
+        } else {
+            base_column
+        };
+    
+        // Apply alias if present
+        if let Some(alias) = &self.agg_alias {
+            base_expr.alias(alias.clone())
+        } else {
+            base_expr
+        }
+    }
+    
+
+    pub fn alias(mut self, alias: &str) -> Self {
+        self.agg_alias = Some(alias.to_string());
+        self
+    }
+
+    ////////// --- FUNKCIJE --------------\\\\\\\\\\
+
+    pub fn sum(mut self) -> Self {
+        self.agg_fn = Some(Box::new(sum)); 
+        self
+    }
+
+    pub fn avg(mut self) -> Self {
+        self.agg_fn = Some(Box::new(avg)); 
+        self
+    }
+
+    pub fn min(mut self) -> Self {
+        self.agg_fn = Some(Box::new(min)); 
+        self
+    }
+
+    pub fn max(mut self) -> Self {
+        self.agg_fn = Some(Box::new(max)); 
+        self
+    }
+
+    pub fn stddev(mut self) -> Self {
+        self.agg_fn = Some(Box::new(stddev)); 
+        self
+    }
+
+    pub fn count(mut self) -> Self {
+        self.agg_fn = Some(Box::new(count)); 
+        self
+    }
+
+    pub fn count_distinct(mut self) -> Self {
+        self.agg_fn = Some(Box::new(count_distinct)); 
+        self
+    }
+
+    pub fn corr(mut self, other_column: &str) -> Self {
+        let other_column = other_column.to_string(); 
+        self.agg_fn = Some(Box::new(move |expr| {
+            corr(expr, col_with_relation("", &other_column))
+        })); 
+        self
+    }
+    
+
+
+    pub fn grouping(mut self) -> Self {
+        self.agg_fn = Some(Box::new(grouping)); // Store the grouping function
+        self
+    }
+
+    pub fn var_pop(mut self) -> Self {
+        self.agg_fn = Some(Box::new(var_pop)); // Store the population variance function
+        self
+    }
+
+    pub fn stddev_pop(mut self) -> Self {
+        self.agg_fn = Some(Box::new(stddev_pop)); // Store the population standard deviation function
+        self
+    }
+
+    pub fn array_agg(mut self) -> Self {
+        self.agg_fn = Some(Box::new(array_agg)); // Store the array aggregation function
+        self
+    }
+
+    pub fn approx_percentile(mut self, percentile: f64) -> Self {
+        println!("Building approx_percentile for column: {}, percentile: {}", self.column, percentile); // Example log
+        self.agg_fn = Some(Box::new(move |expr| {
+            approx_percentile_cont(expr, Expr::Literal(percentile.into()), None)
+        }));
+        self
+    }
+    
+
+    pub fn first_value(mut self) -> Self {
+        self.agg_fn = Some(Box::new(|expr| first_value(expr, None))); // First value function
+        self
+    }
+
+    pub fn nth_value(mut self, n: i64) -> Self {
+        self.agg_fn = Some(Box::new(move |expr| nth_value(expr, n, vec![]))); 
+        self
+    }
+    
+
+    
+}
+
+
+
+
+
+impl From<&str> for AggregationBuilder {
+    fn from(column: &str) -> Self {
+        AggregationBuilder::new(column)
+    }
+}
+
+impl From<AggregationBuilder> for Expr {
+    fn from(builder: AggregationBuilder) -> Self {
+        builder.build_expr("default_alias") // Replace "default_alias" if context requires
+    }
+}
+
+// =================== CSV DETECT DEFECT ======================= //
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::Write;
+use encoding_rs::WINDOWS_1252;
+
+pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
+    let file = File::open(file_path)?;
+    let reader = BufReader::new(file);
+
+    for (line_number, line) in reader.split(b'\n').enumerate() {
+        let line = line?;
+        if let Err(err) = std::str::from_utf8(&line) {
+            eprintln!(
+                "Invalid UTF-8 detected on line {}: {:?}. Error: {:?}",
+                line_number + 1,
+                line,
+                err
+            );
+            return Err(io::Error::new(io::ErrorKind::InvalidData, err));
+        }
+    }
+
+    Ok(())
+}
+
+
+pub fn convert_invalid_utf8(file_path: &str) -> Result<(), io::Error> {
+    let file = File::open(file_path)?;
+    let reader = BufReader::new(file);
+
+    let temp_file_path = format!("{}.temp", file_path);
+    let mut temp_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&temp_file_path)?;
+
+    for line in reader.split(b'\n') {
+        let line = line?;
+        match std::str::from_utf8(&line) {
+            Ok(valid_utf8) => writeln!(temp_file, "{}", valid_utf8)?,
+            Err(_) => {
+                // Convert invalid UTF-8 to valid UTF-8 using a fallback encoding
+                let (decoded, _, had_errors) = WINDOWS_1252.decode(&line);
+                if had_errors {
+                    eprintln!("Warning: Found invalid UTF-8 data and converted it to valid UTF-8.");
+                }
+                writeln!(temp_file, "{}", decoded)?;
+            }
+        }
+    }
+
+    // Replace original file with cleaned file
+    std::fs::rename(temp_file_path, file_path)?;
+
+    Ok(())
+}
+
+// ====================== PARSE DATES ======================== //
+
+pub fn parse_date_with_formats(date_str: &str) -> Option<i32> {
+    let formats = vec![
+        "%Y-%m-%d", "%d.%m.%Y", "%m/%d/%Y", "%d-%b-%Y", "%a, %d %b %Y",
+        "%Y/%m/%d", "%Y/%m", "%Y-%m-%dT%H:%M:%S%z", "%d%b%Y",
+    ];
+
+    // Days offset from Chrono CE to Unix epoch (1970-01-01)
+    const UNIX_EPOCH_DAYS_FROM_CE: i32 = 719_163;
+
+    for format in formats {
+        if let Ok(date) = NaiveDate::parse_from_str(date_str, format) {
+            let days_since_epoch = date.num_days_from_ce() - UNIX_EPOCH_DAYS_FROM_CE;
+            // println!(
+            //     "Parsed '{}' as {:?} (Days since epoch: {}) using format '{}'",
+            //     date_str, date, days_since_epoch, format
+            // );
+            return Some(days_since_epoch);
+        }
+    }
+    // println!("Failed to parse date '{}'", date_str);
+    None
+}
+
+// =============== QUERY LOADER =================== //
+
+
+// ===================== SCHEMA VALIDATION ===================== //
+
+fn col_with_relation(relation: &str, column: &str) -> Expr {
+    if column.contains('.') {
+        col(column) // Already qualified
+    } else {
+        col(&format!("{}.{}", relation, column)) // Add table alias
+    }
+}
+
+// fn col_with_relation(relation: &str, column: &str) -> Expr {
+//     if column.contains('.') {
+//         col(column) // Already qualified
+//     } else if !relation.is_empty() {
+//         col(&format!("{}.{}", relation, column)) // Add table alias
+//     } else {
+//         col(column) // Use column name as is
+//     }
+// }
+
+fn validate_schema(schema: &Schema, df: &DataFrame) {
+    let df_fields = df.schema().fields();
+
+    for field in schema.fields() {
+        if !df_fields.iter().any(|f| f.name() == field.name()) {
+            panic!(
+                "Column '{}' not found in the loaded CSV file. Available columns: {:?}",
+                field.name(),
+                df_fields.iter().map(|f| f.name()).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
+fn normalize_column_name(name: &str) -> String {
+    name.to_lowercase()
+}
+
+// ============================= CUSTOM DATA FRAME ==============================//
+
+// ================ STRUCTS ==================//
 
 #[derive(Clone)]
 pub struct CustomDataFrame {
@@ -50,7 +463,6 @@ pub struct CustomDataFrame {
     aggregated_df: Option<DataFrame>,
 }
 
-// Structures to hold additional info
 #[derive(Clone)]
 struct JoinClause {
     join_type: JoinType,
@@ -94,31 +506,7 @@ pub struct AliasedDataFrame {
     pub alias: String,
 }
 
-fn col_with_relation(relation: &str, column: &str) -> Expr {
-    if column.contains('.') {
-        col(column) // Already qualified
-    } else {
-        col(&format!("{}.{}", relation, column)) // Add table alias
-    }
-}
-
-fn validate_schema(schema: &Schema, df: &DataFrame) {
-    let df_fields = df.schema().fields();
-
-    for field in schema.fields() {
-        if !df_fields.iter().any(|f| f.name() == field.name()) {
-            panic!(
-                "Column '{}' not found in the loaded CSV file. Available columns: {:?}",
-                field.name(),
-                df_fields.iter().map(|f| f.name()).collect::<Vec<_>>()
-            );
-        }
-    }
-}
-
-fn normalize_column_name(name: &str) -> String {
-    name.to_lowercase()
-}
+// =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 
 impl CustomDataFrame {
     /// Unified `new` method for loading and schema definition
