@@ -46,7 +46,7 @@ hex = "0.4.3"
 `rust`
 
 ### Schema establishing
-#### Column Name, SQL DataType and If is Null-able (true, false) needs to be provided
+#### **Column Name**, **SQL DataType** and If is **Null**-able (true, false) needs to be provided
 
 ```
 let sales_columns = vec![
@@ -83,7 +83,7 @@ let sales_data = "C:\\Path\\To\\Your\\FIle.csv";
 let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
 ```
 ### Creating Custom data frame 
-#### 3 arguemts needed:  Path, Schema, Table Alias
+#### 3 arguments needed:  **Path**, **Schema**, **Table Alias**
 
 ```
 let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
