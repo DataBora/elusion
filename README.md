@@ -45,6 +45,49 @@ hex = "0.4.3"
 
 `rust`
 
+### Schema establishing
+
+```
+let sales_columns = vec![
+        ("OrderDate", "DATE", false),
+        ("StockDate", "DATE", false),
+        ("OrderNumber", "VARCHAR", false),
+        ("ProductKey", "INT", false),
+        ("CustomerKey", "INT", true),
+        ("TerritoryKey", "INT", false),
+        ("OrderLineItem", "INT", false),
+        ("OrderQuantity", "INT", false)
+    ];
+
+    let customers_columns = vec![
+        ("CustomerKey", "INT", true),
+        ("Prefix", "VARCHAR", true),
+        ("FirstName", "VARCHAR", true),
+        ("LastName", "VARCHAR", true),
+        ("BirthDate", "DATE", true),
+        ("MaritialStatus", "CHAR", true),
+        ("Gender", "VARCHAR", true),
+        ("EmailAddress", "VARCHAR", true),
+        ("AnnualIncome", "INT", true),
+        ("TotalChildren", "INT", true),
+        ("EducationLevel", "VARCHAR", true),
+        ("Occupation", "VARCHAR", true),
+        ("HomeOwner","CHAR", true)
+    ];
+```
+### CSV file paths
+
+```
+let sales_data = "C:\\Path\\To\\Your\\FIle.csv";
+let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
+```
+### Creating Custom data frame 
+#### 3 arguemts needed:  Path, Schema, Table Alias
+
+```
+let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
+let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await;
+```
 ### JOIN
 ```
 let join_df = df_sales
@@ -89,7 +132,6 @@ let result_df = sales_order_data
     .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // SELECT is used with Final columns after aggregation
     .order_by(vec!["total_sales"], vec![false])
     .limit(10);
-
 
     result_df.display_query();
     result_df.display().await?;
