@@ -137,3 +137,16 @@ let result_df = sales_order_data
     result_df.display_query();
     result_df.display().await?;
 ```
+
+### License
+Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
+However, since it builds upon [DataFusion](https://datafusion.apache.org/), which is distributed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), some parts of this project are subject to the terms of the Apache License 2.0.
+For full details, see the [LICENSE.txt file](LICENSE.txt).
+
+### Acknowledgments
+This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
+, Arrow for efficient query processing. Special thanks to the open-source community for making this project possible.
+
+
+
+
