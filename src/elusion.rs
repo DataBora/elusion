@@ -27,6 +27,13 @@ use datafusion::functions_aggregate::expr_fn::{
     var_pop, stddev_pop, array_agg,approx_percentile_cont, nth_value
 };
 
+//============ WRITERS
+use std::fs;
+use datafusion::prelude::SessionContext;
+use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
+// use datafusion::parquet::file::writer::{SerializedColumnWriter,SerializedFileWriter, SerializedRowGroupWriter, SerializedPageWriter}; 
+
+
 // =================== DATA TYPES CONVERSIONS ==================== //
 
 #[derive(Debug, Clone)]
@@ -1432,5 +1439,77 @@ impl CustomDataFrame {
             Ok(())
         })
     }
+
+    // ====================== WRITERS ==================== //
     
+    /// Write the DataFrame to a Parquet file.
+    ///
+    /// This function wraps DataFusion's `write_parquet` method for easier usage.
+    ///
+    /// # Parameters
+    /// - `mode`: Specifies the write mode. Accepted values are:
+    ///   - `"overwrite"`: Deletes existing files at the target path before writing.
+    ///   - `"append"`: Appends to the existing Parquet file if it exists.
+    /// - `path`: The file path where the Parquet file will be saved.
+    /// - `options`: Optional write options for customizing the output.
+    ///
+    /// # Example
+    /// ```rust
+     /// // Write to Parquet in overwrite mode
+    /// custom_df.write_to_parquet("overwrite", "output.parquet", None).await?;
+    ///
+    /// // Write to Parquet in append mode
+    /// custom_df.write_to_parquet("append", "output.parquet", None).await?;
+    /// ```
+    ///
+    /// # Errors
+    /// Returns a `DataFusionError` if the DataFrame execution or writing fails.
+    pub async fn write_to_parquet(
+        &self,
+        mode: &str,
+        path: &str,
+        options: Option<DataFrameWriteOptions>,
+    ) -> Result<(), DataFusionError> {
+        let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
+
+        match mode {
+            "overwrite" => {
+                // file or directory removal, if it exists
+                if fs::metadata(path).is_ok() {
+                    fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to delete existing file or directory at '{}': {}",
+                            path, e
+                        ))
+                    })?;
+                }
+            }
+            "append" => {
+                // if the file exists
+                if !fs::metadata(path).is_ok() {
+                    return Err(DataFusionError::Execution(format!(
+                        "Append mode requires an existing file at '{}'",
+                        path
+                    )));
+                }
+            }
+            _ => {
+                return Err(DataFusionError::Execution(format!(
+                    "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
+                    mode
+                )));
+            }
+        }
+
+        
+        self.df.clone().write_parquet(path, write_options, None).await?;
+
+        match mode {
+            "overwrite" => println!("Data successfully overwritten to '{}'.", path),
+            "append" => println!("Data successfully appended to '{}'.", path),
+            _ => unreachable!(),
+        }
+      
+        Ok(())
+    }
 }
