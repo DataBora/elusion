@@ -159,43 +159,43 @@ let result_df = sales_order_data
 ### Current Clause functions (some still under development)
 
 ```rust
-    load(...)
-    select(...)
-    group_by(...)
-    order_by(...)
-    limit(...)
-    filter(...)
-    having(...)
-    join(...)
-    window(...)
-    aggregation(...)
-    from_subquery(...)
-    with_cte(...)
-    union(...)
-    intersect(...)
-    except(...)
-    display(...)
-    display_query(...)
-    display_query_plan(...)
+load(...)
+select(...)
+group_by(...)
+order_by(...)
+limit(...)
+filter(...)
+having(...)
+join(...)
+window(...)
+aggregation(...)
+from_subquery(...)
+with_cte(...)
+union(...)
+intersect(...)
+except(...)
+display(...)
+display_query(...)
+display_query_plan(...)
 ```
 ### Current Aggregation functions (soon to be more)
 
 ```rust
-    sum(mut self)
-    avg(mut self)
-    min(mut self)
-    max(mut self)
-    stddev(mut self)
-    count(mut self)
-    count_distinct(mut self)
-    corr(mut self, other_column: &str)
-    grouping(mut self)
-    var_pop(mut self)
-    stddev_pop(mut self)
-    array_agg(mut self)
-    approx_percentile(mut self, percentile: f64)
-    first_value(mut self) 
-    nth_value(mut self, n: i64)
+sum(mut self)
+avg(mut self)
+min(mut self)
+max(mut self)
+stddev(mut self)
+count(mut self)
+count_distinct(mut self)
+corr(mut self, other_column: &str)
+grouping(mut self)
+var_pop(mut self)
+stddev_pop(mut self)
+array_agg(mut self)
+approx_percentile(mut self, percentile: f64)
+first_value(mut self) 
+nth_value(mut self, n: i64)
 
 ```
 
@@ -204,9 +204,9 @@ let result_df = sales_order_data
 ```rust
 // overwrite existing file
 result_df
-        .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
-        .await
-        .expect("Failed to write to Parquet");
+    .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
+    .await
+    .expect("Failed to write to Parquet");
 
 //append to exisiting file
 result_df
