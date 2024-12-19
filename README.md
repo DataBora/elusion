@@ -204,17 +204,13 @@ nth_value(mut self, n: i64)
 ```rust
 // overwrite existing file
 result_df
-    .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
+    .write_to_parquet("overwrite","C:\\Path\\To\\Your\\test.parquet",None)
     .await
     .expect("Failed to write to Parquet");
 
 //append to exisiting file
 result_df
-    .write_to_parquet(
-        "append",
-        "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
-        None
-    )
+    .write_to_parquet("append","C:\\Path\\To\\Your\\test.parquet",None)
     .await
     .expect("Failed to append to Parquet");
 ```
