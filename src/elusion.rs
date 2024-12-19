@@ -1,5 +1,6 @@
 // ==================== IMPORTS ==================//
 
+// ========== DataFrame
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
 use datafusion::prelude::*;
@@ -12,6 +13,13 @@ use chrono::{NaiveDate,Datelike};
 use arrow::array::{StringArray, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array};
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::SchemaBuilder;
+
+// ========= CSV defects
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use std::fs::OpenOptions;
+use std::io::Write;
+use encoding_rs::WINDOWS_1252;
 
 //======== AGGREGATION FUNCTIONS 
 use datafusion::functions_aggregate::expr_fn::{
@@ -193,7 +201,7 @@ impl AggregationBuilder {
         self
     }
 
-    ////////// --- FUNKCIJE --------------\\\\\\\\\\
+    ////////// =============== FUNKCIJE =================== \\\\\\\\\\
 
     pub fn sum(mut self) -> Self {
         self.agg_fn = Some(Box::new(sum)); 
@@ -284,9 +292,6 @@ impl AggregationBuilder {
 }
 
 
-
-
-
 impl From<&str> for AggregationBuilder {
     fn from(column: &str) -> Self {
         AggregationBuilder::new(column)
@@ -300,11 +305,6 @@ impl From<AggregationBuilder> for Expr {
 }
 
 // =================== CSV DETECT DEFECT ======================= //
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
-use std::fs::OpenOptions;
-use std::io::Write;
-use encoding_rs::WINDOWS_1252;
 
 pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
     let file = File::open(file_path)?;

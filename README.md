@@ -6,12 +6,29 @@
 
 ## Key Features
 
-- **CSV File Integration**: Load data directly from CSV files with customizable schemas.
-- **SQL-Like Query Interface**: Use familiar operations such as `SELECT`, `WHERE`, `GROUP BY`, `JOIN`, and more.
-- **Aggregation Builders**: Perform advanced aggregations, including `SUM`, `AVG`, `COUNT`, `APPROX_PERCENTILE`, and more.
-- **Window Functions**: Define analytical functions with partitioning and ordering support.
-- **Custom Table Aliases**: Manage complex multi-table operations with user-defined table aliases.
-- **Join Support**: Perform various types of joins (`INNER`, `LEFT`, `RIGHT`, etc.) with intuitive syntax.
+### 🚀 High-Performance DataFrame Operations
+- Load and process data from CSV files with ease.
+- Perform SQL-like transformations such as `SELECT`, `WHERE`, `GROUP BY`, and `JOIN`.
+
+### 📊 Aggregations and Analytics
+- Built-in support for functions like `SUM`, `AVG`, `MIN`, `MAX`, `COUNT`, and more.
+- Advanced statistical functions like `CORR`, `STDDEV`, `VAR_POP`, and `PERCENTILE`.
+
+### 🔗 Flexible Joins
+- Join tables with various join types (`INNER`, `LEFT`, `RIGHT`, `FULL`, etc.).
+- Intuitive syntax for specifying join conditions and aliases.
+
+### 🪟 Window Functions
+- Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
+
+### 🧹 Clean Query Construction
+- Construct readable and reusable SQL-like queries.
+- Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `INTERSECT`, `EXCEPT`).
+
+### 🛠️ Easy-to-Use API
+- Chainable and intuitive API for building queries.
+- Readable debug output of generated SQL for verification.
+
 - **Data Preview**: Preview your data easily by displaying a subset of rows in the terminal.
 - **Composable Queries**: Chain transformations seamlessly to build reusable and testable workflows.
 
@@ -40,15 +57,13 @@ regex = "1.11.1"
 encoding_rs = "0.8.35"
 hex = "0.4.3"
 ```
-
+---
 ## Usage examples:
-
-`rust`
 
 ### Schema establishing
 #### **Column Name**, **SQL DataType** and If is **Null**-able (true, false) needs to be provided
 
-```
+```rust
 let sales_columns = vec![
         ("OrderDate", "DATE", false),
         ("StockDate", "DATE", false),
@@ -78,19 +93,19 @@ let sales_columns = vec![
 ```
 ### CSV file paths
 
-```
+```rust
 let sales_data = "C:\\Path\\To\\Your\\FIle.csv";
 let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
 ```
 ### Creating Custom data frame 
 #### 3 arguments needed:  **Path**, **Schema**, **Table Alias**
 
-```
+```rust
 let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
 let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await;
 ```
 ### JOIN
-```
+```rust
 let join_df = df_sales
         .join(
             df_customers,
@@ -110,7 +125,7 @@ let join_df = df_sales
 ```
 
 ### SELECT without Aggregation
-```
+```rust
 let result_sales = sales_order_data.clone()
             .select(vec!["customer_name", "order_date", "billable_value"])
             .filter("billable_value > 100.0")
@@ -122,7 +137,7 @@ let result_sales = sales_order_data.clone()
 ```
 
 ### SELECT with Aggregation
-```
+```rust
 let result_df = sales_order_data
     .aggregation(vec![
         AggregationBuilder::new("billable_value").sum().alias("total_sales"),
@@ -138,6 +153,50 @@ let result_df = sales_order_data
     result_df.display().await?;
 ```
 
+---
+### Current Clause functions (some still under development)
+
+```rust
+load(...)
+select(...)
+group_by(...)
+order_by(...)
+limit(...)
+filter(...)
+having(...)
+join(...)
+window(...)
+aggregation(...)
+from_subquery(...)
+with_cte(...)
+union(...)
+intersect(...)
+except(...)
+display(...)
+display_query(...)
+display_query_plan(...)
+```
+### Current Aggregation functions (soon to be more)
+
+```rust
+    sum(mut self)
+    avg(mut self)
+    min(mut self)
+    max(mut self)
+    stddev(mut self)
+    count(mut self)
+    count_distinct(mut self)
+    corr(mut self, other_column: &str)
+    grouping(mut self)
+    var_pop(mut self)
+    stddev_pop(mut self)
+    array_agg(mut self)
+    approx_percentile(mut self, percentile: f64)
+    first_value(mut self) 
+    nth_value(mut self, n: i64)
+
+```
+
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
 However, since it builds upon [DataFusion](https://datafusion.apache.org/), which is distributed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), some parts of this project are subject to the terms of the Apache License 2.0.
@@ -148,5 +207,19 @@ This library leverages the power of Rust's type system and libraries like [DataF
 , Arrow for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 
+## 🚧 Disclaimer: Under Development 🚧
+
+This crate is currently **under active development and testing**. It is not considered stable or ready for production use.
+
+We are actively working to improve the features, performance, and reliability of this library. Breaking changes might occur between versions as we continue to refine the API and functionality.
+
+If you want to contribute or experiment with the crate, feel free to do so, but please be aware of the current limitations and evolving nature of the project.
+
+Thank you for your understanding and support!
 
 
+## Where you can find me:
+
+LindkedIn - [LinkedIn](https://www.linkedin.com/in/borivojgrujicic/ )
+YouTube channel - [YouTube](https://www.youtube.com/@RustyBiz)
+Udemy Instructor - [Udemy](https://www.udemy.com/user/borivoj-grujicic/)
