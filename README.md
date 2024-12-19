@@ -46,6 +46,7 @@ hex = "0.4.3"
 `rust`
 
 ### Schema establishing
+#### Column Name, SQL DataType and If is Null-able (true, false) needs to be provided
 
 ```
 let sales_columns = vec![
