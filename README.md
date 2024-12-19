@@ -1,10 +1,10 @@
 # Elusion DataFrame Library
 
-**Elusion** is a high-performance, flexible library built on top of **DataFusion** SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+**Elusion is a high-performance, flexible library built on top of **DataFusion** SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.**
 ---
 # Motivation
 
-I believe that **DataFusion** has great potential in Data Engineering / Data Analytics world, but I think that design choices for SQL and DataFrame API do not resemble popular DataFrame soultions out there, and I am here to narrow this gap, by creating easily chainable constructs for anybody to use and uderstand.
+**I believe that **DataFusion** has great potential in Data Engineering / Data Analytics world, but I think that design choices for SQL and DataFrame API do not resemble popular DataFrame soultions out there, and I am here to narrow this gap, by creating easily chainable constructs for anybody to use and uderstand.**
 ---
 
 ## Key Features
