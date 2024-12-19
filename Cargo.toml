@@ -6,10 +6,11 @@ authors = ["Borivoj Grujicic borivoj.grujicic@gmail.com"]
 description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar sintax like PySpark or Python libraries like Pandas, Polars..."
 license = "MIT"
 repository = "https://github.com/DataBora/elusion"
+homepage = "https://github.com/DataBora/elusion"
 
 readme = "README.md"
 keywords = ["data", "engineering", "dataframe", "fusion", "analysis", "csv", "parquet", "delta", "tabular", "table"]
-categories = [""]
+categories = ["data-structures", "concurency", "api-bindings"]
 
 [dependencies]
 datafusion = "43.0.0"
