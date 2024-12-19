@@ -65,31 +65,31 @@ hex = "0.4.3"
 
 ```rust
 let sales_columns = vec![
-        ("OrderDate", "DATE", false),
-        ("StockDate", "DATE", false),
-        ("OrderNumber", "VARCHAR", false),
-        ("ProductKey", "INT", false),
-        ("CustomerKey", "INT", true),
-        ("TerritoryKey", "INT", false),
-        ("OrderLineItem", "INT", false),
-        ("OrderQuantity", "INT", false)
+    ("OrderDate", "DATE", false),
+    ("StockDate", "DATE", false),
+    ("OrderNumber", "VARCHAR", false),
+    ("ProductKey", "INT", false),
+    ("CustomerKey", "INT", true),
+    ("TerritoryKey", "INT", false),
+    ("OrderLineItem", "INT", false),
+    ("OrderQuantity", "INT", false)
     ];
 
-    let customers_columns = vec![
-        ("CustomerKey", "INT", true),
-        ("Prefix", "VARCHAR", true),
-        ("FirstName", "VARCHAR", true),
-        ("LastName", "VARCHAR", true),
-        ("BirthDate", "DATE", true),
-        ("MaritialStatus", "CHAR", true),
-        ("Gender", "VARCHAR", true),
-        ("EmailAddress", "VARCHAR", true),
-        ("AnnualIncome", "INT", true),
-        ("TotalChildren", "INT", true),
-        ("EducationLevel", "VARCHAR", true),
-        ("Occupation", "VARCHAR", true),
-        ("HomeOwner","CHAR", true)
-    ];
+let customers_columns = vec![
+    ("CustomerKey", "INT", true),
+    ("Prefix", "VARCHAR", true),
+    ("FirstName", "VARCHAR", true),
+    ("LastName", "VARCHAR", true),
+    ("BirthDate", "DATE", true),
+    ("MaritialStatus", "CHAR", true),
+    ("Gender", "VARCHAR", true),
+    ("EmailAddress", "VARCHAR", true),
+    ("AnnualIncome", "INT", true),
+    ("TotalChildren", "INT", true),
+    ("EducationLevel", "VARCHAR", true),
+    ("Occupation", "VARCHAR", true),
+    ("HomeOwner","CHAR", true)
+];
 ```
 ### CSV file paths
 
@@ -107,18 +107,18 @@ let df_customers = CustomDataFrame::new(customers_data, customers_columns, "cust
 ### JOIN
 ```rust
 let join_df = df_sales
-        .join(
-            df_customers,
-            "sales.CustomerKey == customers.CustomerKey",
-            "INNER",
-        )
-        .select(vec![
-            "sales.OrderDate",
-            "sales.OrderQuantity",
-            "customers.FirstName",
-            "customers.LastName",
-        ])
-        .limit(10);
+    .join(
+        df_customers,
+        "sales.CustomerKey == customers.CustomerKey",
+        "INNER",
+    )
+    .select(vec![
+        "sales.OrderDate",
+        "sales.OrderQuantity",
+        "customers.FirstName",
+        "customers.LastName",
+    ])
+    .limit(10);
         
     join_df.display_query();
     join_df.display().await?;
@@ -127,10 +127,10 @@ let join_df = df_sales
 ### SELECT without Aggregation
 ```rust
 let result_sales = sales_order_data.clone()
-            .select(vec!["customer_name", "order_date", "billable_value"])
-            .filter("billable_value > 100.0")
-            .order_by(vec!["order_date"], vec![true])
-            .limit(10);
+    .select(vec!["customer_name", "order_date", "billable_value"])
+    .filter("billable_value > 100.0")
+    .order_by(vec!["order_date"], vec![true])
+    .limit(10);
 
     result_sales.display_query();   
     result_sales.display().await?;
@@ -157,24 +157,24 @@ let result_df = sales_order_data
 ### Current Clause functions (some still under development)
 
 ```rust
-load(...)
-select(...)
-group_by(...)
-order_by(...)
-limit(...)
-filter(...)
-having(...)
-join(...)
-window(...)
-aggregation(...)
-from_subquery(...)
-with_cte(...)
-union(...)
-intersect(...)
-except(...)
-display(...)
-display_query(...)
-display_query_plan(...)
+    load(...)
+    select(...)
+    group_by(...)
+    order_by(...)
+    limit(...)
+    filter(...)
+    having(...)
+    join(...)
+    window(...)
+    aggregation(...)
+    from_subquery(...)
+    with_cte(...)
+    union(...)
+    intersect(...)
+    except(...)
+    display(...)
+    display_query(...)
+    display_query_plan(...)
 ```
 ### Current Aggregation functions (soon to be more)
 
