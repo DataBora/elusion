@@ -2,12 +2,12 @@
 name = "elusion"
 version = "0.1.1"
 edition = "2021"
-authors = ["Borivoj Grujicic borivoj.grujicic@gmail.com"]
+authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar syntax like PySpark or Python libraries like Pandas, Polars..."
 license = "MIT"
 repository = "https://github.com/DataBora/elusion"
 homepage = "https://github.com/DataBora/elusion"
-
+documentation = "https://docs.rs/elusion"
 readme = "README.md"
 keywords = ["data", "engineering", "dataframe", "analysis"]
 categories = ["data-structures"]
