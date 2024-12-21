@@ -1,9 +1,9 @@
 [package]
 name = "elusion"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Borivoj Grujicic borivoj.grujicic@gmail.com"]
-description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar sintax like PySpark or Python libraries like Pandas, Polars..."
+description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar syntax like PySpark or Python libraries like Pandas, Polars..."
 license = "MIT"
 repository = "https://github.com/DataBora/elusion"
 homepage = "https://github.com/DataBora/elusion"
@@ -15,9 +15,9 @@ categories = ["data-structures"]
 [dependencies]
 datafusion = "43.0.0"
 arrow = "53.3.0"
-tokio = { version = "1.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 futures = "0.3.31"
-chrono = "0.4.38"
+chrono = "0.4.39"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
 hex = "0.4.3"
@@ -25,6 +25,7 @@ env_logger = "0.11.5"
 log = "0.4.22"
 
 [lib]
+name = "elusion"
 path = "src/elusion.rs"
 
 # [profile.release]

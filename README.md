@@ -41,7 +41,7 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.1.0"
+elusion = "0.1.1"
 ```
 
 ---
@@ -50,17 +50,47 @@ elusion = "0.1.0"
 
 ```toml
 [dependencies]
-datafusion = "43.0.0"
-arrow = "53.3.0"
-tokio = { version = "1.0", features = ["rt-multi-thread"] }
-futures = "0.3.31"
-chrono = "0.4.38"
-regex = "1.11.1"
-encoding_rs = "0.8.35"
-hex = "0.4.3"
+elusion = "0.1.1"
+tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
+
 ```
 ---
 ## Usage examples:
+
+### MAIN function
+
+```rust
+#[tokio::main]
+async fn main() -> ElusionResult<()> {
+    Ok(())
+}
+```
+
+### MAIN functions with small example
+
+```rust
+use elusion::prelude::*; // Import everything needed
+
+#[tokio::main]
+async fn main() -> ElusionResult<()> {
+    let sales_columns = vec![
+        ("OrderDate", "DATE", false),
+        ("StockDate", "DATE", false),
+        ("OrderNumber", "VARCHAR", false),
+    ];
+
+    let sales_data = "path/to/sales_data.csv";
+    let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await?;
+
+    let result = df_sales
+        .select(vec!["OrderDate", "OrderNumber"])
+        .limit(10);
+
+    result.display().await?;
+
+    Ok(())
+}
+```
 
 ### Schema establishing
 #### **Column Name**, **SQL DataType** and If is **Null**-able (true, false) needs to be provided
