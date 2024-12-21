@@ -46,7 +46,7 @@ elusion = "0.1.1"
 
 ---
 
-## Dependencies that Elusion is built on top of:
+## Dependencies that you need in Cargo.toml to use Elusion:
 
 ```toml
 [dependencies]
@@ -54,6 +54,7 @@ elusion = "0.1.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 
 ```
+
 ---
 ## Usage examples:
 
@@ -66,7 +67,7 @@ async fn main() -> ElusionResult<()> {
 }
 ```
 
-### MAIN functions with small example
+### MAIN function with small example
 
 ```rust
 use elusion::prelude::*; // Import everything needed
@@ -79,7 +80,7 @@ async fn main() -> ElusionResult<()> {
         ("OrderNumber", "VARCHAR", false),
     ];
 
-    let sales_data = "path/to/sales_data.csv";
+    let sales_data = "path\\to\\sales_data.csv";
     let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await?;
 
     let result = df_sales
