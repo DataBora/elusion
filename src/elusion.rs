@@ -1,4 +1,5 @@
 // ==================== IMPORTS ==================//
+pub mod prelude;
 
 // ========== DataFrame
 use datafusion::logical_expr::{Expr, col, SortExpr};
@@ -32,6 +33,43 @@ use std::fs;
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 // use datafusion::parquet::file::writer::{SerializedColumnWriter,SerializedFileWriter, SerializedRowGroupWriter, SerializedPageWriter}; 
+// =========== ERRROR
+
+use std::fmt;
+use std::error::Error;
+
+#[derive(Debug)]
+pub enum ElusionError {
+    DataFusion(DataFusionError),
+    Io(std::io::Error),
+    Custom(String),
+}
+
+impl fmt::Display for ElusionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ElusionError::DataFusion(err) => write!(f, "DataFusion Error: {}", err),
+            ElusionError::Io(err) => write!(f, "IO Error: {}", err),
+            ElusionError::Custom(err) => write!(f, "{}", err),
+        }
+    }
+}
+
+impl Error for ElusionError {}
+
+impl From<DataFusionError> for ElusionError {
+    fn from(err: DataFusionError) -> Self {
+        ElusionError::DataFusion(err)
+    }
+}
+
+impl From<std::io::Error> for ElusionError {
+    fn from(err: std::io::Error) -> Self {
+        ElusionError::Io(err)
+    }
+}
+
+pub type ElusionResult<T> = Result<T, ElusionError>;
 
 
 // =================== DATA TYPES CONVERSIONS ==================== //
@@ -1222,7 +1260,7 @@ impl CustomDataFrame {
     }
 
     /// Display functions that display results to terminal
-    pub fn display(&self) -> BoxFuture<'_, Result<(), DataFusionError>> {
+    pub fn display(&self) -> BoxFuture<'_, ElusionResult<()>> {
         let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
     
         Box::pin(async move {
@@ -1469,7 +1507,7 @@ impl CustomDataFrame {
         mode: &str,
         path: &str,
         options: Option<DataFrameWriteOptions>,
-    ) -> Result<(), DataFusionError> {
+    ) -> ElusionResult<()> {
         let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
 
         match mode {
@@ -1487,14 +1525,14 @@ impl CustomDataFrame {
             "append" => {
                 // if the file exists
                 if !fs::metadata(path).is_ok() {
-                    return Err(DataFusionError::Execution(format!(
+                    return Err(ElusionError::Custom(format!(
                         "Append mode requires an existing file at '{}'",
                         path
                     )));
                 }
             }
             _ => {
-                return Err(DataFusionError::Execution(format!(
+                return Err(ElusionError::Custom(format!(
                     "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
                     mode
                 )));
@@ -1512,4 +1550,8 @@ impl CustomDataFrame {
       
         Ok(())
     }
+
+  
+
+
 }

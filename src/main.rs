@@ -1,12 +1,10 @@
-mod elusion;
 
-use elusion::AggregationBuilder;
-use elusion::CustomDataFrame;
 // use log::debug;
+use elusion::prelude::*;
 
 
 #[tokio::main]
-async fn main() -> datafusion::error::Result<()> {
+async fn main() -> ElusionResult<()> {
 
    
     // std::env::set_var("RUST_LOG", "debug");
