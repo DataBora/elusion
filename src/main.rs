@@ -69,9 +69,9 @@ async fn main() -> ElusionResult<()> {
     // let df_subcategory = CustomDataFrame::new(subcategory, subcategory_columns, "subcategory").await; 
 
 
-    let join_df = df_sales
+    let join_df = df_sales.clone()
         .join(
-            df_customers,
+            df_customers.clone(),
             "sales.CustomerKey == customers.CustomerKey",
             "INNER",
         )
@@ -86,6 +86,56 @@ async fn main() -> ElusionResult<()> {
     join_df.display_query();
     join_df.display().await?;
     // join_df.display_query_plan();
+
+// ============ CTE
+  //  CTE for aggregated sales data
+ 
+        // let aggregated_sales = df_sales.clone()
+        //     .aggregation(vec![
+        //         AggregationBuilder::new("OrderQuantity").sum().alias("total_order_quantity"),
+        //         AggregationBuilder::new("OrderLineItem").count().alias("total_orders"),
+        //     ])
+        //     .group_by(vec!["sales.CustomerKey"])
+        //     .select(vec!["CustomerKey", "total_order_quantity", "total_orders"]);
+            
+        // // println!("Aggregated Sales Schema: {:?}", aggregated_sales.df.schema());
+
+        // // for cte in &aggregated_sales.ctes {
+        // // println!("CTE Registered: {:?}", cte.schema.fields());
+        // // }
+
+        // let cte_query = aggregated_sales.df_alias("agg_sales")
+        // .join(
+        //     df_customers,
+        //     "agg_sales.CustomerKey == customers.CustomerKey",
+        //     "INNER",
+        // )
+        // .select(vec![
+        //     "total_order_quantity", 
+        //     "cust.FirstName",
+        //     "cust.LastName",
+        //     "cust.EmailAddress",
+        // ]);
+
+        // cte_query.limit(10).display().await?;
+
+
+// ========== WINDOW Function
+
+    // let window_query = df_sales
+    //     .select(vec!["CustomerKey", "OrderDate", "OrderQuantity"])
+    //     .window(
+    //         "RANK",                  // Window function: RANK
+    //         "OrderQuantity",         // Column to calculate rank
+    //         vec!["CustomerKey"],     // PARTITION BY CustomerKey
+    //         vec!["OrderDate"],       // ORDER BY OrderDate
+    //         Some("OrderRank"),       // Alias for the window function
+    //     )
+    //     .order_by(vec!["CustomerKey", "OrderRank"], vec![true, true]) // Order by CustomerKey and rank
+    //     .limit(10);
+
+    // window_query.display_query();
+    // window_query.display().await?;
 
 //==================================
 
@@ -117,7 +167,7 @@ async fn main() -> ElusionResult<()> {
     result_sales.display_query();   
     result_sales.display().await?;
 
-//=============================================
+// // //=============================================
 let result_df = sales_order_data
     .aggregation(vec![
         AggregationBuilder::new("billable_value").sum().alias("total_sales"),
@@ -125,7 +175,7 @@ let result_df = sales_order_data
     ])
     .group_by(vec!["customer_name", "order_date"])
     .having("total_sales > 1000")
-    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // Final columns after aggregation
+    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) 
     .order_by(vec!["total_sales"], vec![false])
     .limit(10);
 
@@ -133,25 +183,30 @@ let result_df = sales_order_data
     result_df.display_query();
     result_df.display().await?;
 
+    let sales_columns = df_sales
+        .select(vec!["CustomerKey as customer_key"])
+        .limit(10);
+
+    sales_columns.display().await?;
     
 
-    //======= writing parquet
+//     //======= writing parquet
 
     
 
-    result_df
-        .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
-        .await
-        .expect("Failed to write to Parquet");
+//     result_df
+//         .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\test.parquet", None)
+//         .await
+//         .expect("Failed to write to Parquet");
 
-    result_df
-        .write_to_parquet(
-            "append",
-            "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
-            None
-        )
-        .await
-        .expect("Failed to append to Parquet");
+//     result_df
+//         .write_to_parquet(
+//             "append",
+//             "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
+//             None
+//         )
+//         .await
+//         .expect("Failed to append to Parquet");
 
     Ok(())
 }
