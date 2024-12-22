@@ -470,6 +470,27 @@ fn normalize_column_name(name: &str) -> String {
     name.to_lowercase()
 }
 
+/// Create a schema dynamically from the `DataFrame` as helper for with_cte
+fn cte_schema(dataframe: &DataFrame, alias: &str) -> Arc<Schema> {
+   
+    let fields: Vec<Field> = dataframe
+        .schema()
+        .fields()
+        .iter()
+        .map(|df_field| {
+            Field::new(
+                &format!("{}.{}", alias, df_field.name()), 
+                df_field.data_type().clone(),             
+                df_field.is_nullable(),                   
+            )
+        })
+        .collect();
+
+  
+    Arc::new(Schema::new(fields))
+}
+
+
 // ============================= CUSTOM DATA FRAME ==============================//
 
 // ================ STRUCTS ==================//
@@ -496,7 +517,7 @@ pub struct CustomDataFrame {
     window_functions: Vec<WindowDefinition>,
 
     // Store WITH CTEs
-    ctes: Vec<CTEDefinition>,
+    pub ctes: Vec<CTEDefinition>,
 
     // Store SUBQUERY information
     subquery_source: Option<Box<CustomDataFrame>>,
@@ -511,7 +532,7 @@ pub struct CustomDataFrame {
 #[derive(Clone)]
 struct JoinClause {
     join_type: JoinType,
-    // table: String,
+    table: String,
     alias: String,
     on_left: String,
     on_right: String,
@@ -527,10 +548,12 @@ struct WindowDefinition {
 }
 
 #[derive(Clone)]
-struct CTEDefinition {
+pub struct CTEDefinition {
+    pub schema: Arc<Schema>,
     name: String,
     cte_df: CustomDataFrame,
 }
+
 
 #[derive(Clone)]
 enum SetOperationType {
@@ -934,12 +957,19 @@ impl CustomDataFrame {
 
     /// WITH CTE claUse
     pub fn with_cte(mut self, name: &str, cte_df: CustomDataFrame) -> Self {
+        // Use the updated `cte_schema` to extract schema with alias
+        let schema = cte_schema(&cte_df.df, name);
+    
+        // Add the CTE to the list of definitions with its schema
         self.ctes.push(CTEDefinition {
             name: name.to_string(),
             cte_df,
+            schema,
         });
+    
         self
     }
+    
 
     /// UNION clause
     pub fn union(mut self, other: CustomDataFrame, all: bool) -> Self {
@@ -975,24 +1005,112 @@ impl CustomDataFrame {
     pub fn select(mut self, columns: Vec<&str>) -> Self {
         let mut expressions: Vec<Expr> = Vec::new();
         let mut selected_columns: Vec<String> = Vec::new();
-
+    
         for c in columns {
-            // Check if c is an aggregation alias in self.alias_map
-            if let Some((alias, _expr)) = self.alias_map.iter().find(|(a, _)| a == c) {
-                // This is an aggregated column, it now exists without table alias
-                expressions.push(col(alias.as_str()));
-                selected_columns.push(alias.clone());
-            } else {
-                // Normal column from the original table
+            // Parse column and alias (if provided)
+            let as_keyword = Regex::new(r"(?i)\s+as\s+").unwrap(); // Case-insensitive " AS "
+            let parts: Vec<&str> = as_keyword.split(c).map(|s| s.trim()).collect();
+            let column_name = normalize_column_name(parts[0]); // Normalize the column name
+            let alias: Option<String> = parts.get(1).map(|&alias| normalize_column_name(alias)); // Normalize alias if exists
+    
+            let mut expr_resolved = false;
+             //  if the column belongs to the current schema
+            if !expr_resolved {
+                let qualified_column = if column_name.contains('.') {
+                    column_name.clone()
+                } else {
+                    format!("{}.{}", self.table_alias, column_name)
+                };
+
+                if self.df.schema().fields().iter().any(|field| *field.name() == qualified_column) {
+                    let expr = col(&qualified_column);
+                    if let Some(ref alias) = alias {
+                        expressions.push(expr.alias(alias));
+                        selected_columns.push(alias.clone());
+                    } else {
+                        expressions.push(expr);
+                        selected_columns.push(qualified_column.clone());
+                    }
+                    expr_resolved = true;
+                }
+            }
+    
+            //if column is an aggregation alias in `alias_map`
+            if let Some((agg_alias, _)) = self.alias_map.iter().find(|(a, _)| a == &column_name) {
+                let expr = col(agg_alias.as_str());
+                if let Some(ref alias) = alias {
+                    expressions.push(expr.alias(alias));
+                    selected_columns.push(alias.clone());
+                } else {
+                    expressions.push(expr);
+                    selected_columns.push(agg_alias.clone());
+                }
+                expr_resolved = true;
+            }
+    
+            // 2. Check if column exists in the current schema (including fully qualified names)
+            if !expr_resolved {
+                if self.df.schema().fields().iter().any(|f| *f.name() == column_name) {
+                    // Column name matches directly
+                    let expr = col(&column_name);
+                    if let Some(ref alias) = alias {
+                        expressions.push(expr.alias(alias));
+                        selected_columns.push(alias.clone());
+                    } else {
+                        expressions.push(expr);
+                        selected_columns.push(column_name.clone());
+                    }
+                    expr_resolved = true;
+                }
+            }
+    
+      
+            // if column belongs to a CTE via JoinClause
+            if !expr_resolved {
+                for join in &self.joins {
+                    if let Some(cte) = self.ctes.iter().find(|cte| cte.name == join.table) {
+                        let qualified_name = format!("{}.{}", cte.name, column_name); // Fully qualify column name
+                        if cte.schema.fields().iter().any(|field| *field.name() == qualified_name) {
+                            let expr = col(&qualified_name);
+                            if let Some(ref alias) = alias {
+                                expressions.push(expr.alias(alias));
+                                selected_columns.push(alias.clone());
+                            } else {
+                                expressions.push(expr);
+                                selected_columns.push(qualified_name.clone());
+                            }
+                            expr_resolved = true;
+                            break;
+                        }
+                    }
+                }
+            }
+    
+            // Fallback to table alias resolution for normal columns
+            if !expr_resolved {
                 let col_name = normalize_column_name(c);
-                expressions.push(col_with_relation(&self.table_alias, &col_name));
-                selected_columns.push(c.to_string());
+                let expr = col_with_relation(&self.table_alias, &col_name);
+                if let Some(ref alias) = alias {
+                    expressions.push(expr.alias(alias));
+                    selected_columns.push(alias.clone());
+                } else {
+                    expressions.push(expr);
+                    selected_columns.push(col_name);
+                }
+                expr_resolved = true;
+            }
+    
+            if !expr_resolved {
+                panic!(
+                    "Column '{}' not found in current table schema, alias map, or CTEs.",
+                    column_name
+                );
             }
         }
-
-        self.selected_columns = selected_columns;
+    
+        self.selected_columns = selected_columns.clone();
         self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
-
+    
         // Update query string
         self.query = format!(
             "SELECT {} FROM {}",
@@ -1003,9 +1121,18 @@ impl CustomDataFrame {
                 .join(", "),
             self.table_alias
         );
-
+    
         self
     }
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     
     /// GROUP BY clause
@@ -1103,6 +1230,84 @@ impl CustomDataFrame {
     /// JOIN clause
     pub fn join(
         mut self,
+         other: CustomDataFrame,
+        condition: &str,
+        join_type: &str,
+    ) -> Self {
+        let join_type_enum = match join_type.to_uppercase().as_str() {
+            "INNER" => JoinType::Inner,
+            "LEFT" => JoinType::Left,
+            "RIGHT" => JoinType::Right,
+            "FULL" => JoinType::Full,
+            "LEFT SEMI" => JoinType::LeftSemi,
+            "RIGHT SEMI" => JoinType::RightSemi,
+            "LEFT ANTI" => JoinType::LeftAnti,
+            "RIGHT ANTI" => JoinType::RightAnti,
+            "LEFT MARK" => JoinType::LeftMark,
+            _ => panic!("Unsupported join type: {}", join_type),
+        };
+    
+        // Parse the join condition
+        let condition_parts: Vec<&str> = condition.split("==").map(|s| s.trim()).collect();
+        if condition_parts.len() != 2 {
+            panic!("Invalid join condition format. Use: 'table.column == table.column'");
+        }
+    
+        let left_col = condition_parts[0];
+        let right_col = condition_parts[1];
+    
+        let left_table = left_col.split('.').next().unwrap();
+        let right_table = right_col.split('.').next().unwrap();
+    
+        let left_column = left_col.split('.').last().unwrap();
+        let right_column = right_col.split('.').last().unwrap();
+    
+        // Handle CTE resolution for the left and right tables
+        let left_df = if let Some(cte) = self.ctes.iter().find(|cte| cte.name == left_table) {
+            cte.cte_df.df.clone()
+        } else {
+            self.df.clone()
+        };
+    
+        let right_df = if let Some(cte) = self.ctes.iter().find(|cte| cte.name == right_table) {
+            cte.cte_df.df.clone()
+        } else {
+            other.df.clone()
+        };
+    
+        // Perform the join operation
+        self.df = left_df
+            .join(
+                right_df,
+                join_type_enum,
+                &[left_column],
+                &[right_column],
+                None,
+            )
+            .expect("Failed to apply JOIN.");
+    
+        // Record the join details, including the table
+        self.joins.push(JoinClause {
+            join_type: join_type_enum,
+            table: if let Some(cte) = self.ctes.iter().find(|cte| cte.name == right_table) {
+                cte.name.clone() // Use the CTE name
+            } else {
+                other.table_alias.clone() // Use the table alias
+            },
+            alias: other.table_alias.clone(),
+            on_left: left_col.to_string(),
+            on_right: right_col.to_string(),
+        });
+    
+        self
+    }
+    
+    
+    
+    
+    
+    pub fn joinn(
+        mut self,
         other: CustomDataFrame,
         condition: &str,
         join_type: &str,
@@ -1144,7 +1349,7 @@ impl CustomDataFrame {
 
         self.joins.push(JoinClause {
             join_type: join_type_enum,
-            // table: other.from_table,
+            table: other.from_table,
             alias: other.table_alias,
             on_left: left_col.to_string(),
             on_right: right_col.to_string(),
@@ -1152,6 +1357,43 @@ impl CustomDataFrame {
 
         self
     }
+    
+    pub fn selectt(mut self, columns: Vec<&str>) -> Self {
+        let mut expressions: Vec<Expr> = Vec::new();
+        let mut selected_columns: Vec<String> = Vec::new();
+
+        for c in columns {
+            // Check if c is an aggregation alias in self.alias_map
+            if let Some((alias, _expr)) = self.alias_map.iter().find(|(a, _)| a == c) {
+                // This is an aggregated column, it now exists without table alias
+                expressions.push(col(alias.as_str()));
+                selected_columns.push(alias.clone());
+            } else {
+                // Normal column from the original table
+                let col_name = normalize_column_name(c);
+                expressions.push(col_with_relation(&self.table_alias, &col_name));
+                selected_columns.push(c.to_string());
+            }
+        }
+
+        self.selected_columns = selected_columns;
+        self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
+
+        // Update query string
+        self.query = format!(
+            "SELECT {} FROM {}",
+            self.selected_columns
+                .iter()
+                .map(|col| normalize_column_name(col))
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.table_alias
+        );
+
+        self
+    }
+    
+    
 
     /// WINDOW CLAUSE
     pub fn window(

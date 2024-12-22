@@ -99,31 +99,40 @@ async fn main() -> ElusionResult<()> {
 ```rust
 let sales_columns = vec![
     ("OrderDate", "DATE", false),
-    ("StockDate", "DATE", false),
     ("OrderNumber", "VARCHAR", false),
     ("ProductKey", "INT", false),
     ("CustomerKey", "INT", true),
-    ("TerritoryKey", "INT", false),
-    ("OrderLineItem", "INT", false),
     ("OrderQuantity", "INT", false)
     ];
 
 let customers_columns = vec![
     ("CustomerKey", "INT", true),
-    ("Prefix", "VARCHAR", true),
     ("FirstName", "VARCHAR", true),
     ("LastName", "VARCHAR", true),
-    ("BirthDate", "DATE", true),
-    ("MaritialStatus", "CHAR", true),
-    ("Gender", "VARCHAR", true),
     ("EmailAddress", "VARCHAR", true),
-    ("AnnualIncome", "INT", true),
-    ("TotalChildren", "INT", true),
-    ("EducationLevel", "VARCHAR", true),
-    ("Occupation", "VARCHAR", true),
-    ("HomeOwner","CHAR", true)
+    ("AnnualIncome", "INT", true)
 ];
 ```
+### Currently supported SQL Data Types
+```rust
+"CHAR" => SQLDataType::Char,
+"VARCHAR" => SQLDataType::Varchar,
+"TEXT" | "STRING" => SQLDataType::Text,
+"TINYINT" => SQLDataType::TinyInt,
+"SMALLINT" => SQLDataType::SmallInt,
+"INT" | "INTEGER" => SQLDataType::Int,
+"BIGINT" => SQLDataType::BigInt,
+"FLOAT" => SQLDataType::Float,
+"DOUBLE" => SQLDataType::Double,
+"DECIMAL" => SQLDataType::Decimal(20, 4), 
+"NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
+"DATE" => SQLDataType::Date,
+"TIME" => SQLDataType::Time,
+"TIMESTAMP" => SQLDataType::Timestamp,
+"BOOLEAN" => SQLDataType::Boolean,
+"BYTEA" => SQLDataType::ByteA
+```
+
 ### CSV file paths
 
 ```rust
@@ -136,6 +145,13 @@ let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
 ```rust
 let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
 let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await;
+```
+### RULE of thumb: ALL Column names and Dataframe alias names, will be LOWERCASE() regardles of how you write it, or how they are writen in CSV file.
+
+### ALIAS column names in SELECT() function (AS is case insensitive)
+```rust
+let customers_alias = df_customers
+    .select(vec!["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
 ```
 ### JOIN
 ```rust
@@ -186,6 +202,22 @@ let result_df = sales_order_data
     result_df.display().await?;
 ```
 
+### Writing to Parquet File
+#### We have 2 writing modes: Overwrite and Append
+```rust
+// overwrite existing file
+result_df
+    .write_to_parquet("overwrite","C:\\Path\\To\\Your\\test.parquet",None)
+    .await
+    .expect("Failed to write to Parquet");
+
+//append to exisiting file
+result_df
+    .write_to_parquet("append","C:\\Path\\To\\Your\\test.parquet",None)
+    .await
+    .expect("Failed to append to Parquet");
+```
+
 ---
 ### Current Clause functions (some still under development)
 
@@ -228,22 +260,6 @@ approx_percentile(mut self, percentile: f64)
 first_value(mut self) 
 nth_value(mut self, n: i64)
 
-```
-
-### Writing to Parquet File
-#### We have 2 writing modes: Overwrite and Append
-```rust
-// overwrite existing file
-result_df
-    .write_to_parquet("overwrite","C:\\Path\\To\\Your\\test.parquet",None)
-    .await
-    .expect("Failed to write to Parquet");
-
-//append to exisiting file
-result_df
-    .write_to_parquet("append","C:\\Path\\To\\Your\\test.parquet",None)
-    .await
-    .expect("Failed to append to Parquet");
 ```
 
 ### License
