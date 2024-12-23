@@ -1,10 +1,10 @@
-# Elusion 🦀 DataFrame Library
+# Elusion 🦀 DataFrame Library for Everybody!
 
 Elusion is a high-performance, flexible library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 # Motivation
 
-I believe that DataFusion has great potential in Data Engineering / Data Analytics world, but I think that design choices for SQL and DataFrame API do not resemble popular DataFrame soultions out there, and I am here to narrow this gap, by creating easily chainable constructs for anybody to use and understand.
+I believe that DataFusion has great potential in Data Engineering / Data Analytics world, but I also believe that design choices for SQL and DataFrame API do not resemble popular DataFrame soultions out there, and I am here to narrow this gap, by creating easily chainable constructs for anybody to use and understand.
 
 ## Key Features
 
@@ -41,7 +41,7 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.1.2"
+elusion = "0.1.3"
 ```
 
 ---
@@ -50,7 +50,7 @@ elusion = "0.1.2"
 
 ```toml
 [dependencies]
-elusion = "0.1.2"
+elusion = "0.1.3"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 
 ```

@@ -517,7 +517,7 @@ pub struct CustomDataFrame {
     window_functions: Vec<WindowDefinition>,
 
     // Store WITH CTEs
-    pub ctes: Vec<CTEDefinition>,
+    ctes: Vec<CTEDefinition>,
 
     // Store SUBQUERY information
     subquery_source: Option<Box<CustomDataFrame>>,
@@ -548,8 +548,8 @@ struct WindowDefinition {
 }
 
 #[derive(Clone)]
-pub struct CTEDefinition {
-    pub schema: Arc<Schema>,
+struct CTEDefinition {
+    schema: Arc<Schema>,
     name: String,
     cte_df: CustomDataFrame,
 }
@@ -1126,15 +1126,6 @@ impl CustomDataFrame {
     }
     
     
-    
-    
-    
-    
-    
-    
-    
-
-    
     /// GROUP BY clause
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
         let group_exprs: Vec<Expr> = group_columns
@@ -1301,98 +1292,6 @@ impl CustomDataFrame {
     
         self
     }
-    
-    
-    
-    
-    
-    pub fn joinn(
-        mut self,
-        other: CustomDataFrame,
-        condition: &str,
-        join_type: &str,
-    ) -> Self {
-        let join_type_enum = match join_type.to_uppercase().as_str() {
-            "INNER" => JoinType::Inner,
-            "LEFT" => JoinType::Left,
-            "RIGHT" => JoinType::Right,
-            "FULL" => JoinType::Full,
-            "LEFT SEMI" => JoinType::LeftSemi,
-            "RIGHT SEMI" => JoinType::RightSemi,
-            "LEFT ANTI" => JoinType::LeftAnti,
-            "RIGHT ANTI" => JoinType::RightAnti,
-            "LEFT MARK" => JoinType::LeftMark,
-            _ => panic!("Unsupported join type: {}", join_type),
-        };
-
-        let condition_parts: Vec<&str> = condition.split("==").map(|s| s.trim()).collect();
-        if condition_parts.len() != 2 {
-            panic!("Invalid join condition format. Use: 'table.column == table.column'");
-        }
-
-        let left_col = condition_parts[0];
-        let right_col = condition_parts[1];
-
-        let left_column = left_col.split('.').last().unwrap();
-        let right_column = right_col.split('.').last().unwrap();
-
-        self.df = self
-            .df
-            .join(
-                other.df.clone(),
-                join_type_enum,
-                &[left_column],
-                &[right_column],
-                None,
-            )
-            .expect("Failed to apply JOIN.");
-
-        self.joins.push(JoinClause {
-            join_type: join_type_enum,
-            table: other.from_table,
-            alias: other.table_alias,
-            on_left: left_col.to_string(),
-            on_right: right_col.to_string(),
-        });
-
-        self
-    }
-    
-    pub fn selectt(mut self, columns: Vec<&str>) -> Self {
-        let mut expressions: Vec<Expr> = Vec::new();
-        let mut selected_columns: Vec<String> = Vec::new();
-
-        for c in columns {
-            // Check if c is an aggregation alias in self.alias_map
-            if let Some((alias, _expr)) = self.alias_map.iter().find(|(a, _)| a == c) {
-                // This is an aggregated column, it now exists without table alias
-                expressions.push(col(alias.as_str()));
-                selected_columns.push(alias.clone());
-            } else {
-                // Normal column from the original table
-                let col_name = normalize_column_name(c);
-                expressions.push(col_with_relation(&self.table_alias, &col_name));
-                selected_columns.push(c.to_string());
-            }
-        }
-
-        self.selected_columns = selected_columns;
-        self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
-
-        // Update query string
-        self.query = format!(
-            "SELECT {} FROM {}",
-            self.selected_columns
-                .iter()
-                .map(|col| normalize_column_name(col))
-                .collect::<Vec<_>>()
-                .join(", "),
-            self.table_alias
-        );
-
-        self
-    }
-    
     
 
     /// WINDOW CLAUSE
