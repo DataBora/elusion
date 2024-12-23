@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "This crate is built on top of DataFusion SQL engine, for ease of use with familiar syntax like PySpark or Python libraries like Pandas, Polars..."
