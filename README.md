@@ -202,6 +202,18 @@ let result_df = sales_order_data
     result_df.display().await?;
 ```
 
+### FILTER 
+```rust
+ let result_sales = sales_order_data.clone()
+    .select(vec!["customer_name", "order_date", "billable_value"])
+    .filter("billable_value > 100.0")
+    .order_by(vec!["order_date"], vec![true])
+    .limit(10);
+
+    result_sales.display_query();   
+    result_sales.display().await?;
+```
+
 ### Writing to Parquet File
 #### We have 2 writing modes: Overwrite and Append
 ```rust
