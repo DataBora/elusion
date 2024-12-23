@@ -5,7 +5,6 @@ pub use datafusion::error::{DataFusionError, Result as DataFusionResult};
 pub use datafusion::dataframe::{DataFrame, DataFrameWriteOptions};
 pub use datafusion::datasource::MemTable;
 
-
 pub use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 pub use datafusion::arrow::datatypes::SchemaBuilder;
 pub use datafusion::arrow::array::{
@@ -22,7 +21,6 @@ pub use datafusion::functions_aggregate::expr_fn::{
 pub use futures::future::BoxFuture;
 
 pub use chrono::{NaiveDate, Datelike};
-
 
 pub use regex::Regex;
 
