@@ -612,6 +612,102 @@ impl CustomDataFrame {
             }
     }
 
+    // ============== SQL execution on Dataframes
+
+    /// Helper function to register a DataFrame as a table provider in the given SessionContext
+    async fn register_df_as_table(
+        ctx: &SessionContext,
+        table_name: &str,
+        df: &DataFrame,
+    ) -> ElusionResult<()> {
+        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        
+        let schema = df.schema();
+        
+        let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+            .map_err(|e| ElusionError::DataFusion(e))?;
+        
+        ctx.register_table(table_name, Arc::new(mem_table))
+            .map_err(|e| ElusionError::DataFusion(e))?;
+        
+        Ok(())
+    }
+
+    /// Execute a raw SQL query involving multiple CustomDataFrame instances and return a new CustomDataFrame with the results.
+    ///
+    /// # Arguments
+    ///
+    /// * `sql` - The raw SQL query string to execute.
+    /// * `alias` - The alias name for the resulting DataFrame.
+    /// * `additional_dfs` - A slice of references to other CustomDataFrame instances to be registered in the context.
+    ///
+    /// # Returns
+    ///
+    /// * `ElusionResult<Self>` - A new `CustomDataFrame` containing the result of the SQL query.
+    pub async fn execute_sql(
+        &self,
+        sql: &str,
+        alias: &str,
+        additional_dfs: &[&CustomDataFrame],
+    ) -> ElusionResult<Self> {
+        // Initialize a new SessionContext for executing SQL
+        let ctx = Arc::new(SessionContext::new());
+
+        // Register the current DataFrame's table
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        // Register any CTEs associated with the current CustomDataFrame
+        for cte in &self.ctes {
+            Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
+        }
+
+        // Register additional DataFrames
+        for df in additional_dfs {
+            Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
+            
+            // Register CTEs of additional DataFrames
+            for cte in &df.ctes {
+                Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
+            }
+        }
+
+        let df = ctx.sql(sql).await.map_err(ElusionError::DataFusion)?;
+        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let result_mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
+            .map_err(|e| ElusionError::DataFusion(e))?;
+
+        ctx.register_table(alias, Arc::new(result_mem_table))
+            .map_err(|e| ElusionError::DataFusion(e))?;
+
+        let result_df = ctx.table(alias).await.map_err(|e| {
+            ElusionError::Custom(format!(
+                "Failed to retrieve table '{}': {}",
+                alias, e
+            ))
+        })?;
+
+        Ok(CustomDataFrame {
+            df: result_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql.to_string(),
+            aggregated_df: Some(df.clone()),
+        })
+    }
+
     /// Utility function to create schema from user-defined column info
     fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
         let fields = columns
@@ -681,6 +777,29 @@ impl CustomDataFrame {
                         }
                     }
                 }
+            // "json" => {
+            //     let json_options = NdJsonReadOptions::default();
+            //     json_options.clone()
+            //     .schema(&schema); 
+            //     json_options.clone()
+            //     .file_extension(".json"); // Ensure correct file extension
+
+            //     let result = ctx.read_json(file_path, json_options).await;
+
+            //         match result {
+            //             Ok(df) => {
+            //                 validate_schema(&schema, &df);
+            //                 df
+            //             }
+            //             Err(err) => {
+            //                 eprintln!(
+            //                     "Error reading JSON file '{}': {}. Ensure the file is properly formatted.",
+            //                     file_path, err
+            //                 );
+            //                 return Err(err.into());
+            //             }
+            //         }
+            //     }
                 _ => panic!("Unsupported file type: {}", file_extension),
             };
 
@@ -753,6 +872,7 @@ impl CustomDataFrame {
         println!("Generated Logical Plan:");
         println!("{:?}", self.df.logical_plan());
     }
+
 
     // ======================= BUILDERS ==============================//
 
@@ -1691,8 +1811,5 @@ impl CustomDataFrame {
       
         Ok(())
     }
-
-  
-
 
 }
