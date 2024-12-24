@@ -1,6 +1,6 @@
 # Elusion 🦀 DataFrame Library for Everybody!
 
-Elusion is a high-performance, flexible library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance, flexible DataFrame library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 # Motivation
 
@@ -41,16 +41,14 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.1.3"
+elusion = "0.2.0"
 ```
-
 ---
-
 ## Dependencies that you need in Cargo.toml to use Elusion:
 
 ```toml
 [dependencies]
-elusion = "0.1.3"
+elusion = "0.2.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 
 ```
@@ -214,6 +212,130 @@ let result_df = sales_order_data
     result_sales.display().await?;
 ```
 
+### Raw SQL Querying
+#### FULL SQL SUPPORT is available
+```rust
+let sales_columns = vec![
+    ("OrderDate", "DATE", false),
+    ("StockDate", "DATE", false),
+    ("OrderNumber", "VARCHAR", false),
+    ("ProductKey", "INT", false),
+    ("CustomerKey", "INT", true),
+    ("TerritoryKey", "INT", false),
+    ("OrderLineItem", "INT", false),
+    ("OrderQuantity", "INT", false)
+];
+
+let customers_columns = vec![
+    ("CustomerKey", "INT", true),
+    ("Prefix", "VARCHAR", true),
+    ("FirstName", "VARCHAR", true),
+    ("LastName", "VARCHAR", true),
+    ("BirthDate", "DATE", true),
+    ("MaritialStatus", "CHAR", true),
+    ("Gender", "VARCHAR", true),
+    ("EmailAddress", "VARCHAR", true),
+    ("AnnualIncome", "INT", true),
+    ("TotalChildren", "INT", true),
+    ("EducationLevel", "VARCHAR", true),
+    ("Occupation", "VARCHAR", true),
+    ("HomeOwner","CHAR", true)
+];
+
+let products_columns = vec![
+    ("ProductKey", "INT", false),
+    ("ProductSubcategoryKey", "INT", false),
+    ("ProductSKU", "VARCHAR", false),
+    ("ProductName", "VARCHAR", false),
+    ("ModelName", "VARCHAR", false),
+    ("ProductDescription", "VARCHAR", false),
+    ("ProductColor", "VARCHAR", false),
+    ("ProductSize", "VARCHAR", false),
+    ("ProductStyle", "VARCHAR", false),
+    ("ProductCost", "DOUBLE", false),
+    ("ProductPrice", "DOUBLE", false),
+];
+
+let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+let products_data = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+
+let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
+let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
+let df_products = CustomDataFrame::new(products_data, products_columns, "products").await; 
+
+// Query on 1 DataFrame
+let sql_one = "
+        SELECT
+            CAST(BirthDate AS DATE) as date_of_birth,
+            CONCAT(firstname, ' ',lastname) as full_name
+            FROM CUSTOMERS
+        LIMIT 10;
+    ";
+
+let result_one = df_customers.raw_sql(sql_one, "customers_data", &[]).await?;
+result_one.display().await?;
+
+// Query on 2 DataFrames
+let sql_two = "
+    WITH agg_sales AS (
+        SELECT
+            CustomerKey,
+            SUM(OrderQuantity) AS total_order_quantity,
+            COUNT(OrderLineItem) AS total_orders
+        FROM sales
+        GROUP BY CustomerKey
+    ),
+    customer_details AS (
+        SELECT
+            *
+        FROM customers
+    )
+    SELECT
+        cd.*,
+        asales.total_order_quantity,
+        asales.total_orders
+    FROM agg_sales asales
+    INNER JOIN customer_details cd ON asales.CustomerKey = cd.CustomerKey
+    ORDER BY asales.total_order_quantity DESC
+    LIMIT 100;
+";
+
+let result_two = df_sales.raw_sql(sql_two, "top_customers", &[&df_customers]).await?;
+result_two.display().await?;
+
+// Query on 3 DataFrames (same approach is used on any number of DataFrames)
+let sql_three = "
+    SELECT
+        c.CustomerKey,
+        c.FirstName,
+        c.LastName,
+        p.ProductName,
+        SUM(s.OrderQuantity) AS TotalQuantity
+    FROM
+        sales s
+    INNER JOIN
+        customers c
+    ON
+        s.CustomerKey = c.CustomerKey
+    INNER JOIN
+        products p
+    ON
+        s.ProductKey = p.ProductKey
+    GROUP BY
+        c.CustomerKey,
+        c.FirstName,
+        c.LastName,
+        p.ProductName
+    ORDER BY
+        TotalQuantity DESC
+    LIMIT 100;
+    ";
+
+    let result_three = df_sales.raw_sql(sql_three, "customer_product_sales_summary", &[&df_customers, &df_products]).await?;
+    result_three.display().await?;
+
+```
 ### Writing to Parquet File
 #### We have 2 writing modes: Overwrite and Append
 ```rust

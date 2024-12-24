@@ -38,13 +38,29 @@ async fn main() -> ElusionResult<()> {
         ("HomeOwner","CHAR", true)
     ];
 
+    let products_columns = vec![
+        ("ProductKey", "INT", false),
+        ("ProductSubcategoryKey", "INT", false),
+        ("ProductSKU", "VARCHAR", false),
+        ("ProductName", "VARCHAR", false),
+        ("ModelName", "VARCHAR", false),
+        ("ProductDescription", "VARCHAR", false),
+        ("ProductColor", "VARCHAR", false),
+        ("ProductSize", "VARCHAR", false),
+        ("ProductStyle", "VARCHAR", false),
+        ("ProductCost", "DOUBLE", false),
+        ("ProductPrice", "DOUBLE", false),
+    ];
 
 
-    let sales_data = "C:\\Users\\BorivojGrujičić\\RUST\\divcibare\\SalesData2022.csv";
-    let customers_data = "C:\\Users\\BorivojGrujičić\\RUST\\divcibare\\Customers.csv";
+
+    let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+    let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+    let products_data = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
 
     let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
     let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
+    let df_products = CustomDataFrame::new(products_data, products_columns, "products").await; 
 
 
     let join_df = df_sales.clone()
@@ -83,7 +99,7 @@ async fn main() -> ElusionResult<()> {
         ("billable_value", "NUMBER", false),
     ];
 
-    let sales_path = "C:\\Users\\BorivojGrujičić\\RUST\\divcibare\\sales_order_report.csv";
+    let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
     let sales_order_data = CustomDataFrame::new(sales_path, sales_order_columns, "sales_orders").await;
 
     // ========= FILTERING
@@ -122,32 +138,38 @@ async fn main() -> ElusionResult<()> {
 
     // ============ raw sql
 
-    let raw_sql = "
-        WITH agg_sales AS (
-            SELECT
-                CustomerKey,
-                SUM(OrderQuantity) AS total_order_quantity,
-                COUNT(OrderLineItem) AS total_orders
-            FROM sales
-            GROUP BY CustomerKey
-        ),
-        customer_details AS (
-            SELECT
-                *
-            FROM customers
-        )
+    let sql_three = "
         SELECT
-            cd.*,
-            asales.total_order_quantity,
-            asales.total_orders
-        FROM agg_sales asales
-        INNER JOIN customer_details cd ON asales.CustomerKey = cd.CustomerKey
-        ORDER BY asales.total_order_quantity DESC
-        LIMIT 100;
+            c.CustomerKey,
+            c.FirstName,
+            c.LastName,
+            p.ProductName,
+            SUM(s.OrderQuantity) AS TotalQuantity
+        FROM
+            sales s
+        INNER JOIN
+            customers c
+        ON
+            s.CustomerKey = c.CustomerKey
+        INNER JOIN
+            products p
+        ON
+            s.ProductKey = p.ProductKey
+        GROUP BY
+            c.CustomerKey,
+            c.FirstName,
+            c.LastName,
+            p.ProductName
+        ORDER BY
+            TotalQuantity DESC
+        LIMIT 10;
     ";
 
-    let raw_cte = df_sales.execute_sql(raw_sql, "top_customers", &[&df_customers]).await?;
-    raw_cte.display().await?;
+    // Execute the SQL query on sales, customers, and products DataFrames
+    let result_three = df_sales.raw_sql(sql_three, "customer_product_sales_summary", &[&df_customers, &df_products]).await?;
+
+    // Display the results
+    result_three.display().await?;
 
     // =================== JSON
 
@@ -187,10 +209,10 @@ async fn main() -> ElusionResult<()> {
 
     //======= writing parquet
 
-    raw_cte
-        .write_to_parquet("overwrite", "C:\\Users\\BorivojGrujičić\\RUST\\divcibare\\raw_cte.parquet", None)
-        .await
-        .expect("Failed to write to Parquet");
+    // raw_cte
+    //     .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\raw_cte.parquet", None)
+    //     .await
+    //     .expect("Failed to write to Parquet");
 
 //     result_df
 //         .write_to_parquet(

@@ -1,3 +1,7 @@
+## [0.2.0] - 2024-12-24
+### Added
+- Full Raw SQL Querying support
+
 ## [0.1.3] - 2024-12-23
 ### Added
 - Aliasing column names directly in select() function
