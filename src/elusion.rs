@@ -509,22 +509,11 @@ pub struct CustomDataFrame {
     having_conditions: Vec<String>,
     order_by_columns: Vec<(String, bool)>,
     limit_count: Option<usize>,
-
-    // Store JOIN clauses
     joins: Vec<JoinClause>,
-
-    // Store WINDOW definitions
     window_functions: Vec<WindowDefinition>,
-
-    // Store WITH CTEs
     ctes: Vec<CTEDefinition>,
-
-    // Store SUBQUERY information
     subquery_source: Option<Box<CustomDataFrame>>,
-
-    // Store SET operations: UNION, INTERSECT, EXCEPT
     set_operations: Vec<SetOperation>,
-
     query: String,
     aggregated_df: Option<DataFrame>,
 }
@@ -644,31 +633,30 @@ impl CustomDataFrame {
     /// # Returns
     ///
     /// * `ElusionResult<Self>` - A new `CustomDataFrame` containing the result of the SQL query.
-    pub async fn execute_sql(
+    pub async fn raw_sql(
         &self,
         sql: &str,
         alias: &str,
-        additional_dfs: &[&CustomDataFrame],
+        dfs: &[&CustomDataFrame],
     ) -> ElusionResult<Self> {
-        // Initialize a new SessionContext for executing SQL
         let ctx = Arc::new(SessionContext::new());
 
-        // Register the current DataFrame's table
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
-        // Register any CTEs associated with the current CustomDataFrame
-        for cte in &self.ctes {
-            Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
-        }
+        // for cte in &self.ctes {
+        //     Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
+        // }
 
-        // Register additional DataFrames
-        for df in additional_dfs {
-            Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
+        // for df in additional_dfs {
+        //     Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
             
-            // Register CTEs of additional DataFrames
-            for cte in &df.ctes {
-                Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
-            }
+        //     for cte in &df.ctes {
+        //         Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
+        //     }
+        // }
+
+        for df in dfs {
+            Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
         }
 
         let df = ctx.sql(sql).await.map_err(ElusionError::DataFusion)?;
@@ -1089,7 +1077,6 @@ impl CustomDataFrame {
     
         self
     }
-    
 
     /// UNION clause
     pub fn union(mut self, other: CustomDataFrame, all: bool) -> Self {
@@ -1130,8 +1117,8 @@ impl CustomDataFrame {
             // Parse column and alias (if provided)
             let as_keyword = Regex::new(r"(?i)\s+as\s+").unwrap(); // Case-insensitive " AS "
             let parts: Vec<&str> = as_keyword.split(c).map(|s| s.trim()).collect();
-            let column_name = normalize_column_name(parts[0]); // Normalize the column name
-            let alias: Option<String> = parts.get(1).map(|&alias| normalize_column_name(alias)); // Normalize alias if exists
+            let column_name = normalize_column_name(parts[0]); 
+            let alias: Option<String> = parts.get(1).map(|&alias| normalize_column_name(alias)); 
     
             let mut expr_resolved = false;
              //  if the column belongs to the current schema
@@ -1155,7 +1142,7 @@ impl CustomDataFrame {
                 }
             }
     
-            //if column is an aggregation alias in `alias_map`
+            // if column is an aggregation alias in `alias_map`
             if let Some((agg_alias, _)) = self.alias_map.iter().find(|(a, _)| a == &column_name) {
                 let expr = col(agg_alias.as_str());
                 if let Some(ref alias) = alias {
@@ -1168,7 +1155,7 @@ impl CustomDataFrame {
                 expr_resolved = true;
             }
     
-            // 2. Check if column exists in the current schema (including fully qualified names)
+            // if column exists in the current schema (including fully qualified names)
             if !expr_resolved {
                 if self.df.schema().fields().iter().any(|f| *f.name() == column_name) {
                     // Column name matches directly
@@ -1245,7 +1232,6 @@ impl CustomDataFrame {
         self
     }
     
-    
     /// GROUP BY clause
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
         let group_exprs: Vec<Expr> = group_columns
@@ -1311,7 +1297,6 @@ impl CustomDataFrame {
         self
     }
     
-    
     ///FILTER clause
     pub fn filter(mut self, condition: &str) -> Self {
         let expr = self.parse_condition_for_filter(condition);
@@ -1373,7 +1358,6 @@ impl CustomDataFrame {
         let left_column = left_col.split('.').last().unwrap();
         let right_column = right_col.split('.').last().unwrap();
     
-        // Handle CTE resolution for the left and right tables
         let left_df = if let Some(cte) = self.ctes.iter().find(|cte| cte.name == left_table) {
             cte.cte_df.df.clone()
         } else {
@@ -1386,7 +1370,6 @@ impl CustomDataFrame {
             other.df.clone()
         };
     
-        // Perform the join operation
         self.df = left_df
             .join(
                 right_df,
@@ -1397,13 +1380,12 @@ impl CustomDataFrame {
             )
             .expect("Failed to apply JOIN.");
     
-        // Record the join details, including the table
         self.joins.push(JoinClause {
             join_type: join_type_enum,
             table: if let Some(cte) = self.ctes.iter().find(|cte| cte.name == right_table) {
-                cte.name.clone() // Use the CTE name
+                cte.name.clone() 
             } else {
-                other.table_alias.clone() // Use the table alias
+                other.table_alias.clone() 
             },
             alias: other.table_alias.clone(),
             on_left: left_col.to_string(),
@@ -1480,8 +1462,7 @@ impl CustomDataFrame {
         condition: &str,
         alias_map: &[(String, Expr)],
     ) -> Expr {
-        // Condition is something like "total_sales > 1000"
-        // First parse: column = "total_sales", operator = ">", value = "1000"
+
         let re = Regex::new(r"^(.+?)\s*(=|!=|>|<|>=|<=)\s*(.+)$").unwrap();
         let caps = re.captures(condition).expect("Invalid HAVING format");
         let column = caps.get(1).unwrap().as_str().trim();
@@ -1590,8 +1571,8 @@ impl CustomDataFrame {
                                 let scale_usize = *scale as usize;
                                 let precision_usize = *precision as usize;
                         
-                                // If the number of digits is less than the scale, pad with leading zeros.
-                                // Example: scale=4, digits="12" => needed_zeros=2 => "0.0012"
+                                // if the number of digits is less than the scale, pad with leading zeros
+                                // scale=4, digits="12" => needed_zeros=2 => "0.0012"
                                 if scale_usize > 0 {
                                     if digits_len > scale_usize {
                                         let point_pos = digits_len - scale_usize;
@@ -1607,13 +1588,12 @@ impl CustomDataFrame {
                                     digits_str.insert(0, '-');
                                 }
                         
-                                // Count total digits (excluding decimal point and sign)
                                 let total_digits = digits_str.chars().filter(|c| c.is_ascii_digit()).count();
                         
-                                // If total digits exceed precision, truncate from the right.
-                                // Example: precision=5, number="123456.78" => too many digits, truncate extra from right.
+                                // if total digits exceed precision, truncate from the right.
+                                // precision=5, number="123456.78" => too many digits, truncate extra from right.
                                 if total_digits > precision_usize {
-                                    // Determine how many characters to remove. Only digits are counted, so we must find digits from the right.
+                                    
                                     let excess = total_digits - precision_usize;
                                     let mut digit_count = 0;
                                     let mut chars: Vec<char> = digits_str.chars().collect();
@@ -1623,8 +1603,6 @@ impl CustomDataFrame {
                                             if ch.is_ascii_digit() {
                                                 digit_count += 1;
                                             } else {
-                                                // If the popped char is not a digit, put it back 
-                                                // since we only count digits for precision
                                                 chars.push(ch);
                                                 break;
                                             }
@@ -1633,7 +1611,7 @@ impl CustomDataFrame {
                                         }
                                     }
                         
-                                    // If we end with a trailing '.', remove it
+                                    // if we end with a trailing '.', remove it
                                     if chars.last() == Some(&'.') {
                                         chars.pop();
                                     }
@@ -1656,7 +1634,6 @@ impl CustomDataFrame {
                                 .map(|d| d.to_string())
                                 .unwrap_or_else(|| "Invalid date".to_string())
                         }  
-                        //DAte 64
                         // Date64 (milliseconds since epoch)
                         else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
                             let millis_since_epoch = array.value(row);
