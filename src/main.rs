@@ -63,23 +63,23 @@ async fn main() -> ElusionResult<()> {
     let df_products = CustomDataFrame::new(products_data, products_columns, "products").await; 
 
 
-//     let join_df = df_sales.clone()
-//         .join(
-//             df_customers.clone(),
-//             "sales.CustomerKey == customers.CustomerKey",
-//             "INNER",
-//         )
-//         .select(vec![
-//             "sales.OrderDate",
-//             "sales.OrderQuantity",
-//             "customers.FirstName",
-//             "customers.LastName",
-//         ])
-//         .limit(10);
+    let join_df = df_sales.clone()
+        .join(
+            df_customers.clone(),
+            "sales.CustomerKey == customers.CustomerKey",
+            "INNER",
+        )
+        .select(vec![
+            "sales.OrderDate",
+            "sales.OrderQuantity",
+            "customers.FirstName",
+            "customers.LastName",
+        ])
+        .limit(10);
         
-//     join_df.display_query();
-//     join_df.display().await?;
-//     // join_df.display_query_plan();
+    join_df.display_query();
+    join_df.display().await?;
+    // join_df.display_query_plan();
 
 
 // //==================================
