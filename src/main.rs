@@ -8,7 +8,7 @@ async fn main() -> ElusionResult<()> {
 
    
     // std::env::set_var("RUST_LOG", "debug");
-    // env_logger::init();
+    env_logger::init();
 
     
     let sales_columns = vec![
@@ -63,26 +63,26 @@ async fn main() -> ElusionResult<()> {
     let df_products = CustomDataFrame::new(products_data, products_columns, "products").await; 
 
 
-    let join_df = df_sales.clone()
-        .join(
-            df_customers.clone(),
-            "sales.CustomerKey == customers.CustomerKey",
-            "INNER",
-        )
-        .select(vec![
-            "sales.OrderDate",
-            "sales.OrderQuantity",
-            "customers.FirstName",
-            "customers.LastName",
-        ])
-        .limit(10);
+//     let join_df = df_sales.clone()
+//         .join(
+//             df_customers.clone(),
+//             "sales.CustomerKey == customers.CustomerKey",
+//             "INNER",
+//         )
+//         .select(vec![
+//             "sales.OrderDate",
+//             "sales.OrderQuantity",
+//             "customers.FirstName",
+//             "customers.LastName",
+//         ])
+//         .limit(10);
         
-    join_df.display_query();
-    join_df.display().await?;
-    // join_df.display_query_plan();
+//     join_df.display_query();
+//     join_df.display().await?;
+//     // join_df.display_query_plan();
 
 
-//==================================
+// //==================================
 
     let sales_order_columns = vec![
         ("customer_name", "VARCHAR", false),
@@ -129,14 +129,14 @@ async fn main() -> ElusionResult<()> {
     result_df.display_query();
     result_df.display().await?;
 
-    //=================== ALIAS IN SELECT ==================
-    let sales_columns = df_sales.clone()
-        .select(vec!["CustomerKey as customer_key","StockDate AS date"])
-        .limit(10);
+//     //=================== ALIAS IN SELECT ==================
+//     let sales_columns = df_sales.clone()
+//         .select(vec!["CustomerKey as customer_key","StockDate AS date"])
+//         .limit(10);
 
-    sales_columns.display().await?;
+//     sales_columns.display().await?;
 
-    // ============ raw sql
+//     // ============ raw sql
 
     let sql_three = "
         SELECT
@@ -172,56 +172,50 @@ async fn main() -> ElusionResult<()> {
     result_three.display().await?;
 
     // =================== JSON
+    let json_columns = vec![
+        ("movie_title", "VARCHAR", true), 
+        ("genre", "VARCHAR", true),          
+        ("gross", "VARCHAR", true),          
+        ("imdbmetascore", "VARCHAR", true), 
+        ("popcornscore", "VARCHAR", true),  
+        ("rating", "VARCHAR", true),        
+        ("tomatoscore", "VARCHAR", true),   
+    ];
+    let json_path = "C:\\Borivoj\\RUST\\Elusion\\movies.json";
+    let json_df = CustomDataFrame::new(json_path, json_columns, "movies").await;
 
-    // let json_schema = vec![
-    //     "","",""
-    // ];
-    // let json_file_path = "C:\\Users\\BorivojGrujičić\\RUST\\divcibare\\test.json";
+    // let json_result = json_df
+    //         .select(vec!["movie_title", "genre", "imdb_metascore"]);
 
-    // let df_json = CustomDataFrame::load(json_file_path, json_schema, "my_json").await;
+    //     json_result.display().await?;
 
-    // df_json.display().await?;
+    let json_sql = "
+        SELECT
+            * 
+        FROM
+         movies
+    ";
 
-    // =============== CTE
+    let result_json = json_df.raw_sql(json_sql, "movies_all", &[]).await?;
 
-    // let aggregated_sales = df_sales.clone()
-    //         .aggregation(vec![
-    //             AggregationBuilder::new("OrderQuantity").sum().alias("total_order_quantity"),
-    //             AggregationBuilder::new("OrderLineItem").count().alias("total_orders"),
-    //         ])
-    //         .group_by(vec!["sales.CustomerKey"])
-    //         .with_cte( "agg_sales");
+    result_json.display().await?;
 
-    // let joined_df = agg_sales
-    //         .join(
-    //             df_customers,
-    //             "agg_sales.CustomerKey == cust.CustomerKey",
-    //             "INNER",
-    //         )
-    //         .select(vec![
-    //             "agg_sales.total_order_quantity", 
-    //             "cust.FirstName",
-    //             "cust.LastName",
-    //             "cust.EmailAddress",
-    //         ]);
 
-    //     joined_df.display().await?;
-
-    //======= writing parquet
+    // ======= writing parquet
 
     // raw_cte
     //     .write_to_parquet("overwrite", "C:\\Borivoj\\RUST\\Elusion\\raw_cte.parquet", None)
     //     .await
     //     .expect("Failed to write to Parquet");
 
-//     result_df
-//         .write_to_parquet(
-//             "append",
-//             "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
-//             None
-//         )
-//         .await
-//         .expect("Failed to append to Parquet");
+    // result_df
+    //     .write_to_parquet(
+    //         "append",
+    //         "C:\\Borivoj\\RUST\\Elusion\\test.parquet",
+    //         None
+    //     )
+    //     .await
+    //     .expect("Failed to append to Parquet");
 
     Ok(())
 }

@@ -11,13 +11,13 @@ use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::{NaiveDate,Datelike};
-use arrow::array::{StringArray, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array};
+use arrow::array::{StringBuilder,StringArray, BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array, ArrayBuilder, Float64Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
 use arrow::record_batch::RecordBatch;
-use arrow::datatypes::SchemaBuilder;
+use arrow::datatypes::{SchemaBuilder, SchemaRef};
 
 // ========= CSV defects
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read};
 use std::fs::OpenOptions;
 use std::io::Write;
 use encoding_rs::WINDOWS_1252;
@@ -33,6 +33,12 @@ use std::fs;
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 // use datafusion::parquet::file::writer::{SerializedColumnWriter,SerializedFileWriter, SerializedRowGroupWriter, SerializedPageWriter}; 
+
+// ========= JSON   
+use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use arrow::error::Result as ArrowResult;    
 // =========== ERRROR
 
 use std::fmt;
@@ -467,7 +473,7 @@ fn validate_schema(schema: &Schema, df: &DataFrame) {
 }
 
 fn normalize_column_name(name: &str) -> String {
-    name.to_lowercase()
+    name.trim().to_lowercase().replace(" ", "_")
 }
 
 /// Create a schema dynamically from the `DataFrame` as helper for with_cte
@@ -489,6 +495,395 @@ fn cte_schema(dataframe: &DataFrame, alias: &str) -> Arc<Schema> {
   
     Arc::new(Schema::new(fields))
 }
+
+// =================== JSON heler functions
+
+#[derive(Deserialize, Serialize, Debug)]
+struct GenericJson {
+    #[serde(flatten)]
+    fields: HashMap<String, Value>,
+}
+
+/// Deserializes a JSON string into the GenericJson struct.
+fn deserialize_generic_json(json_str: &str) -> serde_json::Result<GenericJson> {
+    serde_json::from_str(json_str)
+}
+
+fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map {
+                let new_key = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", prefix, k)
+                };
+                flatten_json_value(v, &new_key, out);
+            }
+        },
+        Value::Array(arr) => {
+            for (i, v) in arr.iter().enumerate() {
+                let new_key = if prefix.is_empty() {
+                    i.to_string()
+                } else {
+                    format!("{}.{}", prefix, i)
+                };
+                flatten_json_value(v, &new_key, out);
+            }
+        },
+        // If it's a primitive (String, Number, Bool, or Null), store as is.
+        other => {
+            out.insert(prefix.to_owned(), other.clone());
+        },
+    }
+}
+
+/// Flattens the GenericJson struct into a single-level HashMap.
+fn flatten_generic_json(data: GenericJson) -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    // Convert HashMap to serde_json::Map
+    let serde_map: Map<String, Value> = data.fields.clone().into_iter().collect();
+    flatten_json_value(&Value::Object(serde_map), "", &mut map);
+    map
+}
+
+// Function to infer schema from rows
+fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
+    let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
+    let mut keys_set: HashSet<String> = HashSet::new();
+
+    for row in rows {
+        for (k, v) in row {
+            keys_set.insert(k.clone());
+            let inferred_type = infer_arrow_type(v);
+            // If the key already exists, ensure the type is compatible (e.g., promote to Utf8 if types vary)
+            fields_map
+                .entry(k.clone())
+                .and_modify(|existing_type| {
+                    *existing_type = promote_types(existing_type.clone(), inferred_type.clone());
+                })
+                .or_insert(inferred_type);
+        }
+    }
+
+    let fields: Vec<Field> = keys_set.into_iter().map(|k| {
+        let data_type = fields_map.get(&k).unwrap_or(&ArrowDataType::Utf8).clone();
+        Field::new(&k, data_type, true)
+    }).collect();
+
+    Arc::new(Schema::new(fields))
+}
+
+fn infer_arrow_type(value: &Value) -> ArrowDataType {
+    match value {
+        Value::Null => ArrowDataType::Utf8, // Default to Utf8 for NULLs
+        Value::Bool(_) => ArrowDataType::Boolean,
+        Value::Number(n) => {
+            if n.is_i64() {
+                ArrowDataType::Int64
+            } else if n.is_u64() {
+                ArrowDataType::UInt64
+            } else {
+                ArrowDataType::Float64
+            }
+        },
+        Value::String(_) => ArrowDataType::Utf8,
+        Value::Array(_) => ArrowDataType::Utf8, // Simplify: store JSON arrays as strings
+        Value::Object(_) => ArrowDataType::Utf8, // Simplify: store JSON objects as strings
+    }
+}
+
+fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
+    use ArrowDataType::*;
+    match (a, b) {
+        (Utf8, _) | (_, Utf8) => Utf8,
+        (Boolean, Boolean) => Boolean,
+        (Int64, Int64) => Int64,
+        (UInt64, UInt64) => UInt64,
+        (Float64, Float64) => Float64,
+        // Add more type promotions as needed
+        _ => Utf8, // Default promotion to Utf8 for incompatible types
+    }
+}
+
+fn build_record_batch(
+    rows: &[HashMap<String, Value>],
+    schema: Arc<Schema>
+) -> ArrowResult<RecordBatch> {
+    let mut builders: Vec<Box<dyn ArrayBuilder>> = Vec::new();
+
+    // Initialize builders based on schema
+    for field in schema.fields() {
+        let builder: Box<dyn ArrayBuilder> = match field.data_type() {
+            ArrowDataType::Utf8 => Box::new(StringBuilder::new()),
+            ArrowDataType::Boolean => Box::new(BooleanBuilder::new()),
+            ArrowDataType::Int64 => Box::new(Int64Builder::new()),
+            ArrowDataType::UInt64 => Box::new(UInt64Builder::new()),
+            ArrowDataType::Float64 => Box::new(Float64Builder::new()),
+            // Add more types as needed
+            _ => Box::new(StringBuilder::new()), // Default to Utf8 for unsupported types
+        };
+        builders.push(builder);
+    }
+
+    // Populate builders with row data
+    for row in rows {
+        for (i, field) in schema.fields().iter().enumerate() {
+            let key = field.name();
+            let value = row.get(key);
+
+            match field.data_type() {
+                ArrowDataType::Utf8 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<StringBuilder>()
+                        .expect("Expected StringBuilder for Utf8 field");
+                    if let Some(Value::String(s)) = value {
+                        builder.append_value(s);
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::Boolean => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<BooleanBuilder>()
+                        .expect("Expected BooleanBuilder for Boolean field");
+                    if let Some(Value::Bool(b)) = value {
+                        builder.append_value(*b);
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::Int64 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<Int64Builder>()
+                        .expect("Expected Int64Builder for Int64 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(i) = n.as_i64() {
+                            builder.append_value(i);
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::UInt64 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<UInt64Builder>()
+                        .expect("Expected UInt64Builder for UInt64 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(u) = n.as_u64() {
+                            builder.append_value(u);
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::Float64 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<Float64Builder>()
+                        .expect("Expected Float64Builder for Float64 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(f) = n.as_f64() {
+                            builder.append_value(f);
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                _ => {
+                    // Default to appending as string
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<StringBuilder>()
+                        .expect("Expected StringBuilder for default field type");
+                    if let Some(Value::String(s)) = value {
+                        builder.append_value(s);
+                    } else {
+                        builder.append_null();
+                    }
+                },
+            }
+        }
+    }
+
+    // 9. Create the RecordBatch
+    let mut arrays: Vec<ArrayRef> = Vec::new();
+    for mut builder in builders {
+        arrays.push(builder.finish());
+    }
+
+    let record_batch = RecordBatch::try_new(schema.clone(), arrays)?;
+
+    Ok(record_batch)
+}
+
+fn read_file_to_string(file_path: &str) -> Result<String, io::Error> {
+    let mut file = File::open(file_path).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to open file '{}': {}", file_path, e),
+        )
+    })?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("Failed to read contents of file '{}': {}", file_path, e),
+        )
+    })?;
+    Ok(contents)
+}
+
+async fn create_dataframe_from_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
+    // Deserialize JSON into GenericJson struct
+    let generic_json: GenericJson = serde_json::from_str(json_str)
+    .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;    
+
+    // Flatten the data
+    let flattened = flatten_generic_json(generic_json);
+
+    // Collect all rows (for simplicity, assuming single record)
+    let rows = vec![flattened];
+
+    // Infer schema
+    let schema = infer_schema_from_json(&rows);
+
+    // Build RecordBatch
+    let record_batch = build_record_batch(&rows, schema.clone())
+    .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
+
+    // Create MemTable
+    let partitions = vec![vec![record_batch]];
+    let mem_table = MemTable::try_new(schema.clone(), partitions)
+    .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
+
+    // Create a new SessionContext
+    let ctx = SessionContext::new();
+
+    // Register the table
+    ctx.register_table(alias, Arc::new(mem_table))
+    .map_err(|e| DataFusionError::Execution(format!("Failed to register Table: {}", e)))?;
+
+    // Retrieve the DataFrame
+    let df = ctx.table(alias).await?;
+
+    Ok(df)
+}
+
+/// Creates a DataFusion DataFrame from multiple JSON records.
+async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
+    // 1. Deserialize JSON into Vec<GenericJson> struct
+    let generic_jsons: Vec<GenericJson> = serde_json::from_str(json_str)
+        .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;
+    
+    // 2. Flatten the data
+    let mut rows = Vec::new();
+    for generic_json in generic_jsons {
+        let flattened = flatten_generic_json(generic_json);
+        rows.push(flattened);
+    }
+    
+    // 3. Infer schema
+    let schema = infer_schema_from_json(&rows);
+    
+    // 4. Build RecordBatch
+    let record_batch = build_record_batch(&rows, schema.clone())
+        .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
+    
+    // 5. Create MemTable
+    let partitions = vec![vec![record_batch]];
+    let mem_table = MemTable::try_new(schema.clone(), partitions)
+        .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
+    
+    // 6. Create a new SessionContext
+    let ctx = SessionContext::new();
+    
+    // 7. Register the table
+    ctx.register_table(alias, Arc::new(mem_table))
+        .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
+    
+    // 8. Retrieve the DataFrame
+    let df = ctx.table(alias).await
+        .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
+    
+    Ok(df)
+}
+
+
+// async fn create_dataframe_from_large_json(file_path: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
+//     let file = File::open(file_path).map_err(|e| {
+//         DataFusionError::Execution(format!("Failed to open file '{}': {}", file_path, e))
+//     })?;
+//     let reader = BufReader::new(file);
+//     let stream = Deserializer::from_reader(reader).into_iter::<EntertainmentData>();
+
+//     let mut rows = Vec::new();
+//     for item in stream {
+//         match item {
+//             Ok(data) => rows.push(flatten_entertainment_data(data)),
+//             Err(e) => {
+//                 // Handle or log the error
+//                 eprintln!("Error deserializing JSON record: {}", e);
+//                 continue; // Skip the faulty record
+//             }
+//         }
+//     }
+
+//     // Proceed with schema inference and RecordBatch building
+//     let schema = infer_schema_from_json(&rows);
+//     let record_batch = build_record_batch(&rows, schema.clone())?;
+//     let partitions = vec![vec![record_batch]];
+//     let mem_table = MemTable::try_new(schema.clone(), partitions)?;
+//     let ctx = SessionContext::new();
+//     ctx.register_table(alias, Arc::new(mem_table))?;
+//     let df = ctx.table(alias).await?;
+//     Ok(df)
+// }
+
+// Function to create DataFrame from multiple JSON records
+// async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
+//     // Deserialize JSON into Vec<EntertainmentData> enum
+//     let entertainment_datas: Vec<EntertainmentData> = serde_json::from_str(json_str);
+
+//     // Flatten the data
+//     let mut rows = Vec::new();
+//     for data in entertainment_datas {
+//         let flattened = flatten_entertainment_data(data);
+//         rows.push(flattened);
+//     }
+
+//     // Infer schema
+//     let schema = infer_schema_from_rows(&rows);
+
+//     // Build RecordBatch
+//     let record_batch = build_record_batch(&rows, schema.clone())?;
+
+//     // Create MemTable
+//     let partitions = vec![vec![record_batch]];
+//     let mem_table = MemTable::try_new(schema.clone(), partitions)?;
+
+//     // Create a new SessionContext
+//     let ctx = SessionContext::new();
+
+//     // Register the table
+//     ctx.register_table(alias, Arc::new(mem_table))?;
+
+//     // Retrieve the DataFrame
+//     let df = ctx.table(alias).await?;
+
+//     Ok(df)
+// }
+
 
 
 // ============================= CUSTOM DATA FRAME ==============================//
@@ -563,9 +958,20 @@ pub struct AliasedDataFrame {
     pub alias: String,
 }
 
+// impl AliasedDataFrame {
+//     /// Displays the DataFrame using DataFusion's show method.
+//     pub async fn show(&self) -> Result<(), DataFusionError> {
+//         self.dataframe.clone().show().await.map_err(|e| {
+//             DataFusionError::Execution(format!("Failed to display DataFrame: {}", e))
+//         })
+//     }
+// }
+
 // =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 
 impl CustomDataFrame {
+
+    
     /// NEW method for loading and schema definition
     pub async fn new<'a>(
         file_path: &'a str,
@@ -714,9 +1120,10 @@ impl CustomDataFrame {
 
         Schema::new(fields)
     }
+    
 
     /// LOAD function for CSV file type
-    pub fn load<'a>(
+    pub fn load_csv<'a>(
         file_path: &'a str,
         schema: Arc<Schema>,
         alias: &'a str,
@@ -765,29 +1172,6 @@ impl CustomDataFrame {
                         }
                     }
                 }
-            // "json" => {
-            //     let json_options = NdJsonReadOptions::default();
-            //     json_options.clone()
-            //     .schema(&schema); 
-            //     json_options.clone()
-            //     .file_extension(".json"); // Ensure correct file extension
-
-            //     let result = ctx.read_json(file_path, json_options).await;
-
-            //         match result {
-            //             Ok(df) => {
-            //                 validate_schema(&schema, &df);
-            //                 df
-            //             }
-            //             Err(err) => {
-            //                 eprintln!(
-            //                     "Error reading JSON file '{}': {}. Ensure the file is properly formatted.",
-            //                     file_path, err
-            //                 );
-            //                 return Err(err.into());
-            //             }
-            //         }
-            //     }
                 _ => panic!("Unsupported file type: {}", file_extension),
             };
 
@@ -854,6 +1238,132 @@ impl CustomDataFrame {
             })
         })
     }
+
+    /// Loads a JSON file into a DataFusion DataFrame.
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the JSON file.
+    /// * `schema` - The Arrow schema defining the DataFrame columns.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    /// An `AliasedDataFrame` containing the DataFrame and its alias.
+    // pub fn load_json<'a>(
+    //     file_path: &'a str,
+    //     schema: Arc<Schema>,
+    //     alias: &'a str,
+    // ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    //     Box::pin(async move {
+    //         // 1. Create a DataFusion context.
+    //         let ctx = SessionContext::new();
+
+    //         // 2. Read the JSON file into a string.
+    //         let file_contents = read_file_to_string(file_path)
+    //             .map_err(|e| DataFusionError::Execution(format!("Failed to read file: {}", e)))?;
+
+    //         // 3. Parse the JSON string into a serde_json::Value.
+    //         let root_val: Value = serde_json::from_str(&file_contents)
+    //             .map_err(|e| DataFusionError::Execution(format!("Invalid JSON: {}", e)))?;
+
+    //         // 4. Transform single top-level map of movie titles to array of objects.
+    //         let transformed = transform_single_map_to_array(root_val);
+
+    //         // 5. Perform dynamic JSON parsing: unwind arrays, merge objects.
+    //         let parsed_docs = dynamic_json_parsing(transformed);
+
+    //         // 6. Flatten the JSON Values into row-based HashMaps with normalized keys.
+    //         let row_maps = flatten_to_row_maps(&parsed_docs);
+
+    //         // 7. Build an all-string RecordBatch according to the schema.
+    //         let string_record_batch = build_string_record_batch_from_rows(
+    //             &row_maps,     // The row maps with normalized keys.
+    //             schema.clone() // The user schema specifying column order & names.
+    //         ).map_err(|e| DataFusionError::Execution(format!("Build batch error: {}", e)))?;
+
+    //         // 8. Register MemTable with the string RecordBatch.
+    //         let partitions: Vec<Vec<RecordBatch>> = vec![vec![string_record_batch]];
+    //         let mem_table = MemTable::try_new(schema.clone(), partitions)
+    //             .map_err(|e| DataFusionError::Execution(format!("MemTable error: {}", e)))?;
+
+    //         ctx.register_table(alias, Arc::new(mem_table))
+    //             .map_err(|e| DataFusionError::Execution(format!("Register table error: {}", e)))?;
+
+    //         // 9. Retrieve the DataFrame from the context.
+    //         let df = ctx.table(alias).await.map_err(|e| {
+    //             DataFusionError::Execution(format!("Failed to retrieve table '{}': {}", alias, e))
+    //         })?;
+
+    //         // 10. Return the aliased DataFrame.
+    //         Ok(AliasedDataFrame {
+    //             dataframe: df,
+    //             alias: alias.to_string(),
+    //         })
+    //     })
+    // }
+
+    ///  load)json()  that handles both CSV and JSON in one pass,
+    /// with **only one** final MemTable registration to avoid duplicates.
+    /// Load JSON, transform single big object of movie titles into array of movie objects,
+/// flatten, and optionally apply typed parsing (like CSV).
+    pub fn load_json<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            // 1. Read the file contents.
+            let file_contents = read_file_to_string(file_path)
+                .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
+
+            // Debug: Print the raw JSON content
+            println!("Raw JSON Content:\n{}", file_contents);
+
+            // 2. Check if the JSON is an array or a single object
+            let is_array = match serde_json::from_str::<Value>(&file_contents) {
+                Ok(Value::Array(_)) => true,
+                Ok(Value::Object(_)) => false,
+                Ok(_) => false,
+                Err(e) => {
+                    return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
+                }
+            };
+
+            // 3. Depending on the JSON structure, parse accordingly
+            let df = if is_array {
+                // JSON is an array of objects
+                create_dataframe_from_multiple_json(&file_contents, alias).await?
+            } else {
+                // JSON is a single object
+                create_dataframe_from_json(&file_contents, alias).await?
+            };
+
+            
+            Ok(AliasedDataFrame {
+                dataframe: df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
+    
+
+
+    /// unified load() funciton
+    pub fn load<'a>(
+        file_path: &'a str,
+        schema: Arc<Schema>,
+        alias: &'a str // so we can pass transforms
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
+            match ext.as_str() {
+                "csv" => Self::load_csv(file_path, schema, alias).await,
+                "json" => Self::load_json(file_path, alias).await,
+                other => Err(DataFusionError::Execution(format!("Unsupported extension: {}", other))),
+            }
+        })
+    }
+
 
     /// DISPLAY Query Plan
     pub fn display_query_plan(&self) {
@@ -1502,219 +2012,224 @@ impl CustomDataFrame {
     }
 
     /// Display functions that display results to terminal
-    pub fn display(&self) -> BoxFuture<'_, ElusionResult<()>> {
-        let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
+    pub async fn display(&self) -> Result<(), DataFusionError> {
+        self.df.clone().show().await.map_err(|e| {
+            DataFusionError::Execution(format!("Failed to display DataFrame: {}", e))
+        })
+    }
+    // pub fn display(&self) -> BoxFuture<'_, ElusionResult<()>> {
+    //     let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
     
-        Box::pin(async move {
-            let batches = df.clone().collect().await?;
-            let schema = df.schema();
+    //     Box::pin(async move {
+    //         let batches = df.clone().collect().await?;
+    //         let schema = df.schema();
     
-            let column_names = schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>();
+    //         let column_names = schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>();
     
-            let header_row = column_names
-                .iter()
-                .map(|name| format!("{:<20}", name))
-                .collect::<Vec<String>>()
-                .join(" | ");
-            println!("{}", header_row);
+    //         let header_row = column_names
+    //             .iter()
+    //             .map(|name| format!("{:<20}", name))
+    //             .collect::<Vec<String>>()
+    //             .join(" | ");
+    //         println!("{}", header_row);
     
-            let separator_row = column_names
-                .iter()
-                .map(|_| format!("{}", "-".repeat(20)))
-                .collect::<Vec<String>>()
-                .join(" | ");
-            println!("{}", separator_row);
+    //         let separator_row = column_names
+    //             .iter()
+    //             .map(|_| format!("{}", "-".repeat(20)))
+    //             .collect::<Vec<String>>()
+    //             .join(" | ");
+    //         println!("{}", separator_row);
     
-            let mut row_count = 0;
-            'outer: for batch in &batches {
-                for row in 0..batch.num_rows() {
-                    if row_count >= 100 {
-                        break 'outer;
-                    }
+    //         let mut row_count = 0;
+    //         'outer: for batch in &batches {
+    //             for row in 0..batch.num_rows() {
+    //                 if row_count >= 100 {
+    //                     break 'outer;
+    //                 }
     
-                    let mut row_data = Vec::new();
-                    for (col_idx, column) in batch.columns().iter().enumerate() {
-                        let field = schema.field(col_idx);
-                        let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
-                            array.value(row).to_string()
-                        } 
-                         // Boolean
-                         else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
-                            array.value(row).to_string()
-                        }
+    //                 let mut row_data = Vec::new();
+    //                 for (col_idx, column) in batch.columns().iter().enumerate() {
+    //                     let field = schema.field(col_idx);
+    //                     let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
+    //                         array.value(row).to_string()
+    //                     } 
+    //                      // Boolean
+    //                      else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
+    //                         array.value(row).to_string()
+    //                     }
                         
-                        // Integers
-                        else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
-                            array.value(row).to_string()
-                        } else if let Some(array) = column.as_any().downcast_ref::<Int64Array>() {
-                            array.value(row).to_string()
-                        } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt32Array>() {
-                            array.value(row).to_string()
-                        } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt64Array>() {
-                            array.value(row).to_string()
-                        }
+    //                     // Integers
+    //                     else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
+    //                         array.value(row).to_string()
+    //                     } else if let Some(array) = column.as_any().downcast_ref::<Int64Array>() {
+    //                         array.value(row).to_string()
+    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt32Array>() {
+    //                         array.value(row).to_string()
+    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt64Array>() {
+    //                         array.value(row).to_string()
+    //                     }
                         
-                        // Floats
-                        else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
-                            format!("{:.4}", array.value(row))
-                        } 
-                        else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Float32Array>() {
-                            format!("{:.4}", array.value(row))
-                        }
-                        else if let Some(array) = column.as_any().downcast_ref::<Decimal128Array>() {
-                            if let ArrowDataType::Decimal128(precision, scale) = field.data_type() {
-                                let raw_value = array.value(row);
-                                let negative = raw_value < 0;
-                                let abs_value = raw_value.abs();
-                                let mut digits_str = abs_value.to_string();
-                                let digits_len = digits_str.len();
-                                let scale_usize = *scale as usize;
-                                let precision_usize = *precision as usize;
+    //                     // Floats
+    //                     else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
+    //                         format!("{:.4}", array.value(row))
+    //                     } 
+    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Float32Array>() {
+    //                         format!("{:.4}", array.value(row))
+    //                     }
+    //                     else if let Some(array) = column.as_any().downcast_ref::<Decimal128Array>() {
+    //                         if let ArrowDataType::Decimal128(precision, scale) = field.data_type() {
+    //                             let raw_value = array.value(row);
+    //                             let negative = raw_value < 0;
+    //                             let abs_value = raw_value.abs();
+    //                             let mut digits_str = abs_value.to_string();
+    //                             let digits_len = digits_str.len();
+    //                             let scale_usize = *scale as usize;
+    //                             let precision_usize = *precision as usize;
                         
-                                // if the number of digits is less than the scale, pad with leading zeros
-                                // scale=4, digits="12" => needed_zeros=2 => "0.0012"
-                                if scale_usize > 0 {
-                                    if digits_len > scale_usize {
-                                        let point_pos = digits_len - scale_usize;
-                                        digits_str.insert(point_pos, '.');
-                                    } else {
-                                        let needed_zeros = scale_usize - digits_len;
-                                        let zero_padding = "0".repeat(needed_zeros);
-                                        digits_str = format!("0.{}{}", zero_padding, digits_str);
-                                    }
-                                }
+    //                             // if the number of digits is less than the scale, pad with leading zeros
+    //                             // scale=4, digits="12" => needed_zeros=2 => "0.0012"
+    //                             if scale_usize > 0 {
+    //                                 if digits_len > scale_usize {
+    //                                     let point_pos = digits_len - scale_usize;
+    //                                     digits_str.insert(point_pos, '.');
+    //                                 } else {
+    //                                     let needed_zeros = scale_usize - digits_len;
+    //                                     let zero_padding = "0".repeat(needed_zeros);
+    //                                     digits_str = format!("0.{}{}", zero_padding, digits_str);
+    //                                 }
+    //                             }
                         
-                                if negative {
-                                    digits_str.insert(0, '-');
-                                }
+    //                             if negative {
+    //                                 digits_str.insert(0, '-');
+    //                             }
                         
-                                let total_digits = digits_str.chars().filter(|c| c.is_ascii_digit()).count();
+    //                             let total_digits = digits_str.chars().filter(|c| c.is_ascii_digit()).count();
                         
-                                // if total digits exceed precision, truncate from the right.
-                                // precision=5, number="123456.78" => too many digits, truncate extra from right.
-                                if total_digits > precision_usize {
+    //                             // if total digits exceed precision, truncate from the right.
+    //                             // precision=5, number="123456.78" => too many digits, truncate extra from right.
+    //                             if total_digits > precision_usize {
                                     
-                                    let excess = total_digits - precision_usize;
-                                    let mut digit_count = 0;
-                                    let mut chars: Vec<char> = digits_str.chars().collect();
-                                    while digit_count < excess {
-                                        // Remove characters from the end that are digits, skipping decimal and sign
-                                        if let Some(ch) = chars.pop() {
-                                            if ch.is_ascii_digit() {
-                                                digit_count += 1;
-                                            } else {
-                                                chars.push(ch);
-                                                break;
-                                            }
-                                        } else {
-                                            break;
-                                        }
-                                    }
+    //                                 let excess = total_digits - precision_usize;
+    //                                 let mut digit_count = 0;
+    //                                 let mut chars: Vec<char> = digits_str.chars().collect();
+    //                                 while digit_count < excess {
+    //                                     // Remove characters from the end that are digits, skipping decimal and sign
+    //                                     if let Some(ch) = chars.pop() {
+    //                                         if ch.is_ascii_digit() {
+    //                                             digit_count += 1;
+    //                                         } else {
+    //                                             chars.push(ch);
+    //                                             break;
+    //                                         }
+    //                                     } else {
+    //                                         break;
+    //                                     }
+    //                                 }
                         
-                                    // if we end with a trailing '.', remove it
-                                    if chars.last() == Some(&'.') {
-                                        chars.pop();
-                                    }
+    //                                 // if we end with a trailing '.', remove it
+    //                                 if chars.last() == Some(&'.') {
+    //                                     chars.pop();
+    //                                 }
                         
-                                    digits_str = chars.into_iter().collect();
-                                }
+    //                                 digits_str = chars.into_iter().collect();
+    //                             }
                         
-                                digits_str
-                            } else {
-                                array.value(row).to_string()
-                            }
-                        }
-                        
-                        
-                        
-                        //DATE 32   
-                        else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
-                            let days_since_epoch = array.value(row);
-                            NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch)
-                                .map(|d| d.to_string())
-                                .unwrap_or_else(|| "Invalid date".to_string())
-                        }  
-                        // Date64 (milliseconds since epoch)
-                        else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
-                            let millis_since_epoch = array.value(row);
-                            let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
-                            NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch as i32)
-                                .map(|d| d.to_string())
-                                .unwrap_or_else(|| "Invalid date".to_string())
-                        }
+    //                             digits_str
+    //                         } else {
+    //                             array.value(row).to_string()
+    //                         }
+    //                     }
                         
                         
-                      // Timestamps
-                    //   else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampNanosecondArray>() {
-                    //     // Timestamp is in nanoseconds
-                    //     let nanos = array.value(row);
-                    //     chrono::NaiveDateTime::from_timestamp_nanos(nanos)
-                    //         .map(|d| d.to_string())
-                    //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-                    // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMicrosecondArray>() {
-                    //     // Timestamp is in microseconds
-                    //     let micros = array.value(row);
-                    //     chrono::NaiveDateTime::from_timestamp_micros(micros)
-                    //         .map(|d| d.to_string())
-                    //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-                    // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMillisecondArray>() {
-                    //     // Timestamp is in milliseconds
-                    //     let millis = array.value(row);
-                    //     chrono::NaiveDateTime::from_timestamp_millis(millis)
-                    //         .map(|d| d.to_string())
-                    //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-                    // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampSecondArray>() {
-                    //     // Timestamp is in seconds
-                    //     let sec = array.value(row);
-                    //     chrono::NaiveDateTime::from_timestamp_opt(sec, 0)
-                    //         .map(|d| d.to_string())
-                    //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-                    // }
+                        
+    //                     //DATE 32   
+    //                     else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
+    //                         let days_since_epoch = array.value(row);
+    //                         NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch)
+    //                             .map(|d| d.to_string())
+    //                             .unwrap_or_else(|| "Invalid date".to_string())
+    //                     }  
+    //                     // Date64 (milliseconds since epoch)
+    //                     else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
+    //                         let millis_since_epoch = array.value(row);
+    //                         let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
+    //                         NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch as i32)
+    //                             .map(|d| d.to_string())
+    //                             .unwrap_or_else(|| "Invalid date".to_string())
+    //                     }
+                        
+                        
+    //                   // Timestamps
+    //                 //   else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampNanosecondArray>() {
+    //                 //     // Timestamp is in nanoseconds
+    //                 //     let nanos = array.value(row);
+    //                 //     chrono::NaiveDateTime::from_timestamp_nanos(nanos)
+    //                 //         .map(|d| d.to_string())
+    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
+    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMicrosecondArray>() {
+    //                 //     // Timestamp is in microseconds
+    //                 //     let micros = array.value(row);
+    //                 //     chrono::NaiveDateTime::from_timestamp_micros(micros)
+    //                 //         .map(|d| d.to_string())
+    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
+    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMillisecondArray>() {
+    //                 //     // Timestamp is in milliseconds
+    //                 //     let millis = array.value(row);
+    //                 //     chrono::NaiveDateTime::from_timestamp_millis(millis)
+    //                 //         .map(|d| d.to_string())
+    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
+    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampSecondArray>() {
+    //                 //     // Timestamp is in seconds
+    //                 //     let sec = array.value(row);
+    //                 //     chrono::NaiveDateTime::from_timestamp_opt(sec, 0)
+    //                 //         .map(|d| d.to_string())
+    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
+    //                 // }
                     
 
 
-                        // Binary data
-                        else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BinaryArray>() {
-                            let bytes = array.value(row);
-                            format!("0x{}", hex::encode(bytes))
-                        } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeBinaryArray>() {
-                            let bytes = array.value(row);
-                            format!("0x{}", hex::encode(bytes))
-                        }
-                        // Large string
-                        else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeStringArray>() {
-                            array.value(row).to_string()
-                        }    
+    //                     // Binary data
+    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BinaryArray>() {
+    //                         let bytes = array.value(row);
+    //                         format!("0x{}", hex::encode(bytes))
+    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeBinaryArray>() {
+    //                         let bytes = array.value(row);
+    //                         format!("0x{}", hex::encode(bytes))
+    //                     }
+    //                     // Large string
+    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeStringArray>() {
+    //                         array.value(row).to_string()
+    //                     }    
 
-                        else {
-                            "Unsupported Type".to_string()
-                        };
+    //                     else {
+    //                         "Unsupported Type".to_string()
+    //                     };
     
-                        row_data.push(value);
-                    }
+    //                     row_data.push(value);
+    //                 }
     
-                    let formatted_row = row_data
-                        .iter()
-                        .map(|v| format!("{:<20}", v))
-                        .collect::<Vec<String>>()
-                        .join(" | ");
-                    println!("{}", formatted_row);
+    //                 let formatted_row = row_data
+    //                     .iter()
+    //                     .map(|v| format!("{:<20}", v))
+    //                     .collect::<Vec<String>>()
+    //                     .join(" | ");
+    //                 println!("{}", formatted_row);
     
-                    row_count += 1;
-                }
-            }
+    //                 row_count += 1;
+    //             }
+    //         }
     
-            if row_count == 0 {
-                println!("No data to display.");
-            } else if row_count < 100 {
-                println!("\nDisplayed limit() number of rows.");
-            } else {
-                println!("\nDisplayed the first 100 rows.");
-            }
+    //         if row_count == 0 {
+    //             println!("No data to display.");
+    //         } else if row_count < 100 {
+    //             println!("\nDisplayed limit() number of rows.");
+    //         } else {
+    //             println!("\nDisplayed the first 100 rows.");
+    //         }
     
-            Ok(())
-        })
-    }
+    //         Ok(())
+    //     })
+    // }
 
     // ====================== WRITERS ==================== //
     
