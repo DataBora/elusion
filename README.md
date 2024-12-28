@@ -24,7 +24,7 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 - Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
 
 ### 🧹 Clean Query Construction
-- Construct readable and reusable SQL-like queries.
+- Construct readable and reusable SQL queries.
 - Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `INTERSECT`, `EXCEPT`).
 
 ### 🛠️ Easy-to-Use API
@@ -41,14 +41,14 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.1"
+elusion = "0.2.2"
 ```
 ---
 ## Dependencies that you need in Cargo.toml to use Elusion:
 
 ```toml
 [dependencies]
-elusion = "0.2.1"
+elusion = "0.2.2"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 
 ```
