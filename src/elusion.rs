@@ -11,7 +11,7 @@ use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::{NaiveDate,Datelike};
-use arrow::array::{StringBuilder,StringArray, BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array, ArrayBuilder, Float64Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
+use arrow::array::{StringBuilder,StringArray, BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{SchemaBuilder, SchemaRef};
 
@@ -505,9 +505,9 @@ struct GenericJson {
 }
 
 /// Deserializes a JSON string into the GenericJson struct.
-fn deserialize_generic_json(json_str: &str) -> serde_json::Result<GenericJson> {
-    serde_json::from_str(json_str)
-}
+// fn deserialize_generic_json(json_str: &str) -> serde_json::Result<GenericJson> {
+//     serde_json::from_str(json_str)
+// }
 
 fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
     match value {
@@ -616,10 +616,15 @@ fn build_record_batch(
     for field in schema.fields() {
         let builder: Box<dyn ArrayBuilder> = match field.data_type() {
             ArrowDataType::Utf8 => Box::new(StringBuilder::new()),
+            ArrowDataType::Binary => Box::new(BinaryBuilder::new()),
             ArrowDataType::Boolean => Box::new(BooleanBuilder::new()),
+            ArrowDataType::Int32 => Box::new(Int32Builder::new()),
             ArrowDataType::Int64 => Box::new(Int64Builder::new()),
+            ArrowDataType::UInt32 => Box::new(UInt32Builder::new()),
             ArrowDataType::UInt64 => Box::new(UInt64Builder::new()),
+            ArrowDataType::Float32 => Box::new(Float32Builder::new()),
             ArrowDataType::Float64 => Box::new(Float64Builder::new()),
+            ArrowDataType::Date32 => Box::new(Date32Builder::new()),
             // Add more types as needed
             _ => Box::new(StringBuilder::new()), // Default to Utf8 for unsupported types
         };
@@ -640,6 +645,22 @@ fn build_record_batch(
                         .expect("Expected StringBuilder for Utf8 field");
                     if let Some(Value::String(s)) = value {
                         builder.append_value(s);
+                    } else if let Some(Value::Number(n)) = value {
+                        // Handle numbers as strings
+                        builder.append_value(&n.to_string());
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::Binary => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<BinaryBuilder>()
+                        .expect("Expected BinaryBuilder for Binary field");
+                    if let Some(Value::String(s)) = value {
+                        // Assuming the binary data is base64 encoded or similar
+                        // Here, we'll convert the string to bytes directly
+                        builder.append_value(s.as_bytes());
                     } else {
                         builder.append_null();
                     }
@@ -655,6 +676,25 @@ fn build_record_batch(
                         builder.append_null();
                     }
                 },
+                ArrowDataType::Int32 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<Int32Builder>()
+                        .expect("Expected Int32Builder for Int32 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(i) = n.as_i64() {
+                            if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                                builder.append_value(i as i32);
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
                 ArrowDataType::Int64 => {
                     let builder = builders[i]
                         .as_any_mut()
@@ -663,6 +703,25 @@ fn build_record_batch(
                     if let Some(Value::Number(n)) = value {
                         if let Some(i) = n.as_i64() {
                             builder.append_value(i);
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
+                ArrowDataType::UInt32 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<UInt32Builder>()
+                        .expect("Expected UInt32Builder for UInt32 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(u) = n.as_u64() {
+                            if u <= u32::MAX as u64 {
+                                builder.append_value(u as u32);
+                            } else {
+                                builder.append_null();
+                            }
                         } else {
                             builder.append_null();
                         }
@@ -685,6 +744,21 @@ fn build_record_batch(
                         builder.append_null();
                     }
                 },
+                ArrowDataType::Float32 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<Float32Builder>()
+                        .expect("Expected Float32Builder for Float32 field");
+                    if let Some(Value::Number(n)) = value {
+                        if let Some(f) = n.as_f64() {
+                            builder.append_value(f as f32);
+                        } else {
+                            builder.append_null();
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
                 ArrowDataType::Float64 => {
                     let builder = builders[i]
                         .as_any_mut()
@@ -700,6 +774,27 @@ fn build_record_batch(
                         builder.append_null();
                     }
                 },
+                ArrowDataType::Date32 => {
+                    let builder = builders[i]
+                        .as_any_mut()
+                        .downcast_mut::<Date32Builder>()
+                        .expect("Expected Date32Builder for Date32 field");
+                    if let Some(Value::String(s)) = value {
+                        // Parse the date string into days since UNIX epoch
+                        // Here, we assume the date is in "YYYY-MM-DD" format
+                        match chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                            Ok(date) => {
+                                let days_since_epoch = date.num_days_from_ce() - chrono::NaiveDate::from_ymd(1970, 1, 1).num_days_from_ce();
+                                builder.append_value(days_since_epoch as i32);
+                            },
+                            Err(_) => {
+                                builder.append_null();
+                            }
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                },
                 _ => {
                     // Default to appending as string
                     let builder = builders[i]
@@ -708,6 +803,9 @@ fn build_record_batch(
                         .expect("Expected StringBuilder for default field type");
                     if let Some(Value::String(s)) = value {
                         builder.append_value(s);
+                    } else if let Some(v) = value {
+                        // Serialize other types to string
+                        builder.append_value(&v.to_string());
                     } else {
                         builder.append_null();
                     }
@@ -912,6 +1010,12 @@ pub struct CustomDataFrame {
     query: String,
     aggregated_df: Option<DataFrame>,
 }
+
+// /// Enum to specify file type
+// enum FileType<'a> {
+//     Csv(Vec<(&'a str, &'a str, bool)>),
+//     Json,
+// }
 
 #[derive(Clone)]
 struct JoinClause {
@@ -1346,8 +1450,6 @@ impl CustomDataFrame {
     }
 
     
-
-
     /// unified load() funciton
     pub fn load<'a>(
         file_path: &'a str,
