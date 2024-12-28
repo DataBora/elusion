@@ -41,14 +41,14 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.0"
+elusion = "0.2.1"
 ```
 ---
 ## Dependencies that you need in Cargo.toml to use Elusion:
 
 ```toml
 [dependencies]
-elusion = "0.2.0"
+elusion = "0.2.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 
 ```
@@ -266,11 +266,11 @@ let df_products = CustomDataFrame::new(products_data, products_columns, "product
 
 // Query on 1 DataFrame
 let sql_one = "
-        SELECT
-            CAST(BirthDate AS DATE) as date_of_birth,
-            CONCAT(firstname, ' ',lastname) as full_name
-            FROM CUSTOMERS
-        LIMIT 10;
+    SELECT
+        CAST(BirthDate AS DATE) as date_of_birth,
+        CONCAT(firstname, ' ',lastname) as full_name
+        FROM CUSTOMERS
+    LIMIT 10;
     ";
 
 let result_one = df_customers.raw_sql(sql_one, "customers_data", &[]).await?;
@@ -306,12 +306,8 @@ result_two.display().await?;
 
 // Query on 3 DataFrames (same approach is used on any number of DataFrames)
 let sql_three = "
-    SELECT
-        c.CustomerKey,
-        c.FirstName,
-        c.LastName,
-        p.ProductName,
-        SUM(s.OrderQuantity) AS TotalQuantity
+    SELECT c.CustomerKey, c.FirstName, c.LastName, p.ProductName,
+            SUM(s.OrderQuantity) AS TotalQuantity
     FROM
         sales s
     INNER JOIN
@@ -322,11 +318,7 @@ let sql_three = "
         products p
     ON
         s.ProductKey = p.ProductKey
-    GROUP BY
-        c.CustomerKey,
-        c.FirstName,
-        c.LastName,
-        p.ProductName
+    GROUP BY c.CustomerKey, c.FirstName, c.LastName, p.ProductName
     ORDER BY
         TotalQuantity DESC
     LIMIT 100;
@@ -336,6 +328,82 @@ let sql_three = "
     result_three.display().await?;
 
 ```
+# JSON files
+### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
+#### Schema and CustomDataFrame are initialized same as for CSV files
+```rust
+//example json structure
+{
+"name": "Adeel Solangi",
+"language": "Sindhi",
+"id": "V59OF92YF627HFY0",
+"bio": "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum.",
+"version": 6.1
+}
+
+let json_columns = vec![
+    ("name", "VARCHAR", true), 
+    ("language", "VARCHAR", true),          
+    ("id", "VARCHAR", true),          
+    ("bio", "VARCHAR", true), 
+    ("version", "VARCHAR", true)
+    
+];
+let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
+let json_df = CustomDataFrame::new(json_path, json_columns, "test").await;
+
+//example json structure
+{
+"someGUID": "e0bsg4d-d81c-4db6-8ad8-bc92cbcfsds06",
+"someGUID2": "58asd1f6-c7ca-4c51-8ca0-37678csgd9c7",
+"someName": "Some Name Here",
+"someVersion": "Version 0232",
+"emptyValue": null,
+"verInd": {
+    "$numberLong": "0"
+    },
+"elInd": {
+    "$numberLong": "1"
+    },
+"qId": "question1",
+"opId": {
+    "$numberLong": "0"
+    },
+"label": "Some Label Here",
+"labelValue": "45557",
+"someGUID3": "5854ff6-c7ca-4c51-8ca0-3767sds4319c7|qId|7"
+}
+
+// For JSON files that has arrays and objects you can OPTIONALLY add .array .object, WORKS WITHOUT IT AS WELL
+let json_columns = vec![
+        ("someGUID", "VARCHAR", true), 
+        ("someGUID2", "VARCHAR", true),          
+        ("someName", "VARCHAR", true),          
+        ("someVersion", "VARCHAR", true), 
+        ("emptyValue", "VARCHAR", true),  
+        ("verInd.$numberLong", "VARCHAR", true),
+        ("elInd.$numberLong", "VARCHAR", true),
+        ("qId", "VARCHAR", true),
+        ("opId.$numberLong", "VARCHAR", true),
+        ("label", "VARCHAR", true),
+        ("labelValue", "VARCHAR", true),
+        ("someGUID3", "VARCHAR", true),        
+      
+    ];
+let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
+let json_df = CustomDataFrame::new(json_path, json_columns, "test2").await;
+```
+#### Then you can do you business as usual either with DataFrame API or SQL API
+
+```rust
+    let json_sql = "
+        SELECT * FROM test LIMIT 10
+    ";
+
+    let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
+    result_json.display().await?;
+```
+
 ### Writing to Parquet File
 #### We have 2 writing modes: Overwrite and Append
 ```rust
