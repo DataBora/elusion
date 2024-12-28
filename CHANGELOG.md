@@ -1,3 +1,10 @@
+## [0.2.2] - 2024-12-28
+### Added
+- Dependencies: `serde`  `1.0.216`, `serde_json` `1.0.134`
+- Support for JSON files: Reading and Loading to CustomDataFrame
+### Fixed
+- Improved display() function for better formating.
+
 ## [0.2.0] - 2024-12-24
 ### Added
 - Full Raw SQL Querying support

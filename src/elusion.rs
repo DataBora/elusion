@@ -5,15 +5,17 @@ pub mod prelude;
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
 use datafusion::prelude::*;
-use datafusion::error::DataFusionError; 
+use datafusion::error::DataFusionError;
 use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::{NaiveDate,Datelike};
-use arrow::array::{StringBuilder,StringArray, BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date32Array,Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
+use arrow::array::{StringBuilder,StringArray, Date32Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{SchemaBuilder, SchemaRef};
+use ArrowDataType::*;
+// use arrow::array::{BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array};
 
 // ========= CSV defects
 use std::fs::File;
@@ -37,6 +39,7 @@ use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 // ========= JSON   
 use serde_json::{Map, Value};
 use serde::{Deserialize, Serialize};
+// use serde_json::Deserializer;
 use std::collections::{HashMap, HashSet};
 use arrow::error::Result as ArrowResult;    
 // =========== ERRROR
@@ -76,7 +79,6 @@ impl From<std::io::Error> for ElusionError {
 }
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
-
 
 // =================== DATA TYPES CONVERSIONS ==================== //
 
@@ -216,7 +218,7 @@ impl From<ArrowDataType> for SQLDataType {
 pub struct AggregationBuilder {
     column: String,
     pub agg_alias: Option<String>,
-    agg_fn: Option<Box<dyn Fn(Expr) -> Expr>>, // Store aggregation function
+    agg_fn: Option<Box<dyn Fn(Expr) -> Expr>>, 
 }
 
 impl AggregationBuilder {
@@ -224,7 +226,7 @@ impl AggregationBuilder {
         Self {
             column: column.to_string(),
             agg_alias: None,
-            agg_fn: None, // No aggregation function initially
+            agg_fn: None, 
         }
     }
 
@@ -297,30 +299,28 @@ impl AggregationBuilder {
         self
     }
     
-
-
     pub fn grouping(mut self) -> Self {
-        self.agg_fn = Some(Box::new(grouping)); // Store the grouping function
+        self.agg_fn = Some(Box::new(grouping)); 
         self
     }
 
     pub fn var_pop(mut self) -> Self {
-        self.agg_fn = Some(Box::new(var_pop)); // Store the population variance function
+        self.agg_fn = Some(Box::new(var_pop));
         self
     }
 
     pub fn stddev_pop(mut self) -> Self {
-        self.agg_fn = Some(Box::new(stddev_pop)); // Store the population standard deviation function
+        self.agg_fn = Some(Box::new(stddev_pop)); 
         self
     }
 
     pub fn array_agg(mut self) -> Self {
-        self.agg_fn = Some(Box::new(array_agg)); // Store the array aggregation function
+        self.agg_fn = Some(Box::new(array_agg)); 
         self
     }
 
     pub fn approx_percentile(mut self, percentile: f64) -> Self {
-        println!("Building approx_percentile for column: {}, percentile: {}", self.column, percentile); // Example log
+        println!("Building approx_percentile for column: {}, percentile: {}", self.column, percentile); 
         self.agg_fn = Some(Box::new(move |expr| {
             approx_percentile_cont(expr, Expr::Literal(percentile.into()), None)
         }));
@@ -351,7 +351,7 @@ impl From<&str> for AggregationBuilder {
 
 impl From<AggregationBuilder> for Expr {
     fn from(builder: AggregationBuilder) -> Self {
-        builder.build_expr("default_alias") // Replace "default_alias" if context requires
+        builder.build_expr("default_alias") 
     }
 }
 
@@ -509,34 +509,7 @@ struct GenericJson {
 //     serde_json::from_str(json_str)
 // }
 
-fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
-    match value {
-        Value::Object(map) => {
-            for (k, v) in map {
-                let new_key = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{}.{}", prefix, k)
-                };
-                flatten_json_value(v, &new_key, out);
-            }
-        },
-        Value::Array(arr) => {
-            for (i, v) in arr.iter().enumerate() {
-                let new_key = if prefix.is_empty() {
-                    i.to_string()
-                } else {
-                    format!("{}.{}", prefix, i)
-                };
-                flatten_json_value(v, &new_key, out);
-            }
-        },
-        // If it's a primitive (String, Number, Bool, or Null), store as is.
-        other => {
-            out.insert(prefix.to_owned(), other.clone());
-        },
-    }
-}
+
 
 /// Flattens the GenericJson struct into a single-level HashMap.
 fn flatten_generic_json(data: GenericJson) -> HashMap<String, Value> {
@@ -576,7 +549,7 @@ fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
 
 fn infer_arrow_type(value: &Value) -> ArrowDataType {
     match value {
-        Value::Null => ArrowDataType::Utf8, // Default to Utf8 for NULLs
+        Value::Null => ArrowDataType::Utf8, 
         Value::Bool(_) => ArrowDataType::Boolean,
         Value::Number(n) => {
             if n.is_i64() {
@@ -588,13 +561,13 @@ fn infer_arrow_type(value: &Value) -> ArrowDataType {
             }
         },
         Value::String(_) => ArrowDataType::Utf8,
-        Value::Array(_) => ArrowDataType::Utf8, // Simplify: store JSON arrays as strings
-        Value::Object(_) => ArrowDataType::Utf8, // Simplify: store JSON objects as strings
+        Value::Array(_) => ArrowDataType::Utf8, 
+        Value::Object(_) => ArrowDataType::Utf8, 
     }
 }
 
 fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
-    use ArrowDataType::*;
+   
     match (a, b) {
         (Utf8, _) | (_, Utf8) => Utf8,
         (Boolean, Boolean) => Boolean,
@@ -782,16 +755,25 @@ fn build_record_batch(
                     if let Some(Value::String(s)) = value {
                         // Parse the date string into days since UNIX epoch
                         // Here, we assume the date is in "YYYY-MM-DD" format
-                        match chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                        match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
                             Ok(date) => {
-                                let days_since_epoch = date.num_days_from_ce() - chrono::NaiveDate::from_ymd(1970, 1, 1).num_days_from_ce();
-                                builder.append_value(days_since_epoch as i32);
-                            },
+                                // Define the UNIX epoch
+                                let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
+                                    .expect("Failed to create epoch date");
+
+                                // Calculate the number of days since epoch
+                                let days_since_epoch = (date - epoch).num_days() as i32;
+
+                                // Append the value to the builder
+                                builder.append_value(days_since_epoch);
+                            }
                             Err(_) => {
+                                // If parsing fails, append a null
                                 builder.append_null();
                             }
                         }
                     } else {
+                        // If the value is not a string, append a null
                         builder.append_null();
                     }
                 },
@@ -880,109 +862,177 @@ async fn create_dataframe_from_json(json_str: &str, alias: &str) -> Result<DataF
 
 /// Creates a DataFusion DataFrame from multiple JSON records.
 async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-    // 1. Deserialize JSON into Vec<GenericJson> struct
+    // Deserialize JSON into Vec<GenericJson> struct
     let generic_jsons: Vec<GenericJson> = serde_json::from_str(json_str)
         .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;
     
-    // 2. Flatten the data
+    // Flatten the data
     let mut rows = Vec::new();
     for generic_json in generic_jsons {
         let flattened = flatten_generic_json(generic_json);
         rows.push(flattened);
     }
     
-    // 3. Infer schema
+    //  Infer schema
     let schema = infer_schema_from_json(&rows);
     
-    // 4. Build RecordBatch
+    // Build RecordBatch
     let record_batch = build_record_batch(&rows, schema.clone())
         .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
     
-    // 5. Create MemTable
+    // Create MemTable
     let partitions = vec![vec![record_batch]];
     let mem_table = MemTable::try_new(schema.clone(), partitions)
         .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
     
-    // 6. Create a new SessionContext
+    // Create a new SessionContext
     let ctx = SessionContext::new();
     
-    // 7. Register the table
+    // Register the table
     ctx.register_table(alias, Arc::new(mem_table))
         .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
     
-    // 8. Retrieve the DataFrame
+    // Retrieve the DataFrame
     let df = ctx.table(alias).await
         .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
     
     Ok(df)
 }
 
+    // Helper function to process a batch of records
+    /// Processes a batch of JSON records and updates the RecordBatch list.
+    /// Returns the schema used for the batch.
+    //  #[allow(dead_code)]
+    // fn process_batch(
+    //     rows_batch: &mut Vec<HashMap<String, Value>>,
+    //     all_record_batches: &mut Vec<RecordBatch>,
+    //     current_schema: Option<SchemaRef>,
+    // ) -> Result<SchemaRef, DataFusionError> {
+    //     // Infer schema if not already set
+    //     let schema = if let Some(schema) = current_schema {
+    //         schema
+    //     } else {
+    //         infer_schema_from_json(&rows_batch)
+    //     };
 
-// async fn create_dataframe_from_large_json(file_path: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-//     let file = File::open(file_path).map_err(|e| {
-//         DataFusionError::Execution(format!("Failed to open file '{}': {}", file_path, e))
-//     })?;
-//     let reader = BufReader::new(file);
-//     let stream = Deserializer::from_reader(reader).into_iter::<EntertainmentData>();
+    //     // Build RecordBatch
+    //     let record_batch = build_record_batch(&rows_batch, schema.clone())
+    //     .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
+    //     all_record_batches.push(record_batch);
 
-//     let mut rows = Vec::new();
-//     for item in stream {
-//         match item {
-//             Ok(data) => rows.push(flatten_entertainment_data(data)),
-//             Err(e) => {
-//                 // Handle or log the error
-//                 eprintln!("Error deserializing JSON record: {}", e);
-//                 continue; // Skip the faulty record
-//             }
-//         }
-//     }
+    //     // Clear the batch for the next set of records
+    //     rows_batch.clear();
 
-//     // Proceed with schema inference and RecordBatch building
-//     let schema = infer_schema_from_json(&rows);
-//     let record_batch = build_record_batch(&rows, schema.clone())?;
-//     let partitions = vec![vec![record_batch]];
-//     let mem_table = MemTable::try_new(schema.clone(), partitions)?;
-//     let ctx = SessionContext::new();
-//     ctx.register_table(alias, Arc::new(mem_table))?;
-//     let df = ctx.table(alias).await?;
-//     Ok(df)
-// }
+    //     Ok(schema)
+    // }
+    // /// Creates a DataFrame from a large JSON file by processing it in batches.
+    // async fn create_dataframe_from_large_json(
+    //     json_file_path: &str,
+    //     alias: &str,
+    //     batch_size: usize,
+    // ) -> Result<DataFrame, DataFusionError> {
+    //     // 1. Open the JSON file
+    //     let file = File::open(json_file_path).map_err(|e| {
+    //         DataFusionError::Execution(format!("Failed to open file '{}': {}", json_file_path, e))
+    //     })?;
+    //     let reader = BufReader::new(file);
+    
+    //     //  Create a JSON stream deserializer
+    //     let stream = serde_json::Deserializer::from_reader(reader);
+    //     let iterator = stream.into_iter::<GenericJson>();
+    
+    //     //  Initialize variables for batching
+    //     let mut rows_batch: Vec<HashMap<String, Value>> = Vec::with_capacity(batch_size);
+    //     let mut all_record_batches: Vec<RecordBatch> = Vec::new();
+    //     let mut schema: Option<SchemaRef> = None;
+    
+    //     //  Process each JSON record
+    //     for item in iterator {
+    //         match item {
+    //             Ok(data) => {
+    //                 let flattened = flatten_generic_json(data);
+    //                 rows_batch.push(flattened);
+    
+    //                 // If batch is full, process it
+    //                 if rows_batch.len() == batch_size {
+    //                     schema = Some(process_batch(
+    //                         &mut rows_batch,
+    //                         &mut all_record_batches,
+    //                         schema,
+    //                     )?);
+    //                 }
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("Error deserializing JSON record: {}", e);
+    //                 continue;
+    //             }
+    //         }
+    //     }
+    
+    //     //  Process any remaining records
+    //     if !rows_batch.is_empty() {
+    //         schema = Some(process_batch(
+    //             &mut rows_batch,
+    //             &mut all_record_batches,
+    //             schema,
+    //         )?);
+    //     }
+    
+    //     //  Create MemTable with all RecordBatches
+    //     if all_record_batches.is_empty() {
+    //         return Err(DataFusionError::Execution("No valid JSON records found".to_string()));
+    //     }
+    
+    //     let schema = schema.ok_or_else(|| 
+    //         DataFusionError::Execution("No schema was inferred from the data".to_string()))?;
+    //     let partitions = vec![all_record_batches];
+    //     let mem_table = MemTable::try_new(schema.clone(), partitions)
+    //         .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
+    
+    //     //  Create a new SessionContext and register the table
+    //     let ctx = SessionContext::new();
+    //     ctx.register_table(alias, Arc::new(mem_table))
+    //         .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
+    
+    //     // Retrieve the DataFrame
+    //     let df = ctx
+    //         .table(alias)
+    //         .await
+    //         .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
+    
+    //     Ok(df)
+    // }
+    
 
-// Function to create DataFrame from multiple JSON records
-// async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-//     // Deserialize JSON into Vec<EntertainmentData> enum
-//     let entertainment_datas: Vec<EntertainmentData> = serde_json::from_str(json_str);
-
-//     // Flatten the data
-//     let mut rows = Vec::new();
-//     for data in entertainment_datas {
-//         let flattened = flatten_entertainment_data(data);
-//         rows.push(flattened);
-//     }
-
-//     // Infer schema
-//     let schema = infer_schema_from_rows(&rows);
-
-//     // Build RecordBatch
-//     let record_batch = build_record_batch(&rows, schema.clone())?;
-
-//     // Create MemTable
-//     let partitions = vec![vec![record_batch]];
-//     let mem_table = MemTable::try_new(schema.clone(), partitions)?;
-
-//     // Create a new SessionContext
-//     let ctx = SessionContext::new();
-
-//     // Register the table
-//     ctx.register_table(alias, Arc::new(mem_table))?;
-
-//     // Retrieve the DataFrame
-//     let df = ctx.table(alias).await?;
-
-//     Ok(df)
-// }
-
-
+    /// Recursively flattens JSON values, serializing objects and arrays to strings.
+    fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    let new_key = if prefix.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{}.{}", prefix, k)
+                    };
+                    flatten_json_value(v, &new_key, out);
+                }
+            },
+            Value::Array(arr) => {
+                for (i, v) in arr.iter().enumerate() {
+                    let new_key = if prefix.is_empty() {
+                        i.to_string()
+                    } else {
+                        format!("{}.{}", prefix, i)
+                    };
+                    flatten_json_value(v, &new_key, out);
+                }
+            },
+            // If it's a primitive (String, Number, Bool, or Null), store as is.
+            other => {
+                out.insert(prefix.to_owned(), other.clone());
+            },
+        }
+    }
 
 // ============================= CUSTOM DATA FRAME ==============================//
 
@@ -1343,7 +1393,8 @@ impl CustomDataFrame {
         })
     }
 
-    /// Loads a JSON file into a DataFusion DataFrame.
+
+     /// Loads a JSON file into a DataFusion DataFrame.
     /// # Arguments
     ///
     /// * `file_path` - The path to the JSON file.
@@ -1352,77 +1403,18 @@ impl CustomDataFrame {
     ///
     /// # Returns
     ///
-    /// An `AliasedDataFrame` containing the DataFrame and its alias.
-    // pub fn load_json<'a>(
-    //     file_path: &'a str,
-    //     schema: Arc<Schema>,
-    //     alias: &'a str,
-    // ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-    //     Box::pin(async move {
-    //         // 1. Create a DataFusion context.
-    //         let ctx = SessionContext::new();
-
-    //         // 2. Read the JSON file into a string.
-    //         let file_contents = read_file_to_string(file_path)
-    //             .map_err(|e| DataFusionError::Execution(format!("Failed to read file: {}", e)))?;
-
-    //         // 3. Parse the JSON string into a serde_json::Value.
-    //         let root_val: Value = serde_json::from_str(&file_contents)
-    //             .map_err(|e| DataFusionError::Execution(format!("Invalid JSON: {}", e)))?;
-
-    //         // 4. Transform single top-level map of movie titles to array of objects.
-    //         let transformed = transform_single_map_to_array(root_val);
-
-    //         // 5. Perform dynamic JSON parsing: unwind arrays, merge objects.
-    //         let parsed_docs = dynamic_json_parsing(transformed);
-
-    //         // 6. Flatten the JSON Values into row-based HashMaps with normalized keys.
-    //         let row_maps = flatten_to_row_maps(&parsed_docs);
-
-    //         // 7. Build an all-string RecordBatch according to the schema.
-    //         let string_record_batch = build_string_record_batch_from_rows(
-    //             &row_maps,     // The row maps with normalized keys.
-    //             schema.clone() // The user schema specifying column order & names.
-    //         ).map_err(|e| DataFusionError::Execution(format!("Build batch error: {}", e)))?;
-
-    //         // 8. Register MemTable with the string RecordBatch.
-    //         let partitions: Vec<Vec<RecordBatch>> = vec![vec![string_record_batch]];
-    //         let mem_table = MemTable::try_new(schema.clone(), partitions)
-    //             .map_err(|e| DataFusionError::Execution(format!("MemTable error: {}", e)))?;
-
-    //         ctx.register_table(alias, Arc::new(mem_table))
-    //             .map_err(|e| DataFusionError::Execution(format!("Register table error: {}", e)))?;
-
-    //         // 9. Retrieve the DataFrame from the context.
-    //         let df = ctx.table(alias).await.map_err(|e| {
-    //             DataFusionError::Execution(format!("Failed to retrieve table '{}': {}", alias, e))
-    //         })?;
-
-    //         // 10. Return the aliased DataFrame.
-    //         Ok(AliasedDataFrame {
-    //             dataframe: df,
-    //             alias: alias.to_string(),
-    //         })
-    //     })
-    // }
-
-    ///  load)json()  that handles both CSV and JSON in one pass,
-    /// with **only one** final MemTable registration to avoid duplicates.
-    /// Load JSON, transform single big object of movie titles into array of movie objects,
-/// flatten, and optionally apply typed parsing (like CSV).
     pub fn load_json<'a>(
         file_path: &'a str,
         alias: &'a str,
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
-            // 1. Read the file contents.
+           
             let file_contents = read_file_to_string(file_path)
                 .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
 
-            // Debug: Print the raw JSON content
-            println!("Raw JSON Content:\n{}", file_contents);
+         
+            //println!("Raw JSON Content:\n{}", file_contents);
 
-            // 2. Check if the JSON is an array or a single object
             let is_array = match serde_json::from_str::<Value>(&file_contents) {
                 Ok(Value::Array(_)) => true,
                 Ok(Value::Object(_)) => false,
@@ -1431,13 +1423,13 @@ impl CustomDataFrame {
                     return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
                 }
             };
-
-            // 3. Depending on the JSON structure, parse accordingly
+            
+         
             let df = if is_array {
-                // JSON is an array of objects
+         
                 create_dataframe_from_multiple_json(&file_contents, alias).await?
             } else {
-                // JSON is a single object
+              
                 create_dataframe_from_json(&file_contents, alias).await?
             };
 
