@@ -1,3 +1,7 @@
+## [0.2.3] - 2024-12-29
+### Added
+- CSV writer
+
 ## [0.2.2] - 2024-12-28
 ### Added
 - Dependencies: `serde`  `1.0.216`, `serde_json` `1.0.134`
