@@ -1,6 +1,5 @@
 // ==================== IMPORTS ==================//
 pub mod prelude;
-
 // ========== DataFrame
 use datafusion::logical_expr::{Expr, col, SortExpr};
 use regex::Regex;
@@ -15,13 +14,13 @@ use arrow::array::{StringBuilder,StringArray, Date32Array, ArrayRef, Array, Arra
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{SchemaBuilder, SchemaRef};
 use ArrowDataType::*;
+use arrow::csv::writer::WriterBuilder;
 // use arrow::array::{BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array};
 
 // ========= CSV defects
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Write, BufWriter};
+
 use encoding_rs::WINDOWS_1252;
 
 //======== AGGREGATION FUNCTIONS 
@@ -31,9 +30,9 @@ use datafusion::functions_aggregate::expr_fn::{
 };
 
 //============ WRITERS
-use std::fs;
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
+use tokio::task;
 // use datafusion::parquet::file::writer::{SerializedColumnWriter,SerializedFileWriter, SerializedRowGroupWriter, SerializedPageWriter}; 
 
 // ========= JSON   
@@ -62,7 +61,7 @@ impl fmt::Display for ElusionError {
             ElusionError::Custom(err) => write!(f, "{}", err),
         }
     }
-}
+}   
 
 impl Error for ElusionError {}
 
@@ -899,111 +898,6 @@ async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Res
     Ok(df)
 }
 
-    // Helper function to process a batch of records
-    /// Processes a batch of JSON records and updates the RecordBatch list.
-    /// Returns the schema used for the batch.
-    //  #[allow(dead_code)]
-    // fn process_batch(
-    //     rows_batch: &mut Vec<HashMap<String, Value>>,
-    //     all_record_batches: &mut Vec<RecordBatch>,
-    //     current_schema: Option<SchemaRef>,
-    // ) -> Result<SchemaRef, DataFusionError> {
-    //     // Infer schema if not already set
-    //     let schema = if let Some(schema) = current_schema {
-    //         schema
-    //     } else {
-    //         infer_schema_from_json(&rows_batch)
-    //     };
-
-    //     // Build RecordBatch
-    //     let record_batch = build_record_batch(&rows_batch, schema.clone())
-    //     .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
-    //     all_record_batches.push(record_batch);
-
-    //     // Clear the batch for the next set of records
-    //     rows_batch.clear();
-
-    //     Ok(schema)
-    // }
-    // /// Creates a DataFrame from a large JSON file by processing it in batches.
-    // async fn create_dataframe_from_large_json(
-    //     json_file_path: &str,
-    //     alias: &str,
-    //     batch_size: usize,
-    // ) -> Result<DataFrame, DataFusionError> {
-    //     // 1. Open the JSON file
-    //     let file = File::open(json_file_path).map_err(|e| {
-    //         DataFusionError::Execution(format!("Failed to open file '{}': {}", json_file_path, e))
-    //     })?;
-    //     let reader = BufReader::new(file);
-    
-    //     //  Create a JSON stream deserializer
-    //     let stream = serde_json::Deserializer::from_reader(reader);
-    //     let iterator = stream.into_iter::<GenericJson>();
-    
-    //     //  Initialize variables for batching
-    //     let mut rows_batch: Vec<HashMap<String, Value>> = Vec::with_capacity(batch_size);
-    //     let mut all_record_batches: Vec<RecordBatch> = Vec::new();
-    //     let mut schema: Option<SchemaRef> = None;
-    
-    //     //  Process each JSON record
-    //     for item in iterator {
-    //         match item {
-    //             Ok(data) => {
-    //                 let flattened = flatten_generic_json(data);
-    //                 rows_batch.push(flattened);
-    
-    //                 // If batch is full, process it
-    //                 if rows_batch.len() == batch_size {
-    //                     schema = Some(process_batch(
-    //                         &mut rows_batch,
-    //                         &mut all_record_batches,
-    //                         schema,
-    //                     )?);
-    //                 }
-    //             }
-    //             Err(e) => {
-    //                 eprintln!("Error deserializing JSON record: {}", e);
-    //                 continue;
-    //             }
-    //         }
-    //     }
-    
-    //     //  Process any remaining records
-    //     if !rows_batch.is_empty() {
-    //         schema = Some(process_batch(
-    //             &mut rows_batch,
-    //             &mut all_record_batches,
-    //             schema,
-    //         )?);
-    //     }
-    
-    //     //  Create MemTable with all RecordBatches
-    //     if all_record_batches.is_empty() {
-    //         return Err(DataFusionError::Execution("No valid JSON records found".to_string()));
-    //     }
-    
-    //     let schema = schema.ok_or_else(|| 
-    //         DataFusionError::Execution("No schema was inferred from the data".to_string()))?;
-    //     let partitions = vec![all_record_batches];
-    //     let mem_table = MemTable::try_new(schema.clone(), partitions)
-    //         .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
-    
-    //     //  Create a new SessionContext and register the table
-    //     let ctx = SessionContext::new();
-    //     ctx.register_table(alias, Arc::new(mem_table))
-    //         .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
-    
-    //     // Retrieve the DataFrame
-    //     let df = ctx
-    //         .table(alias)
-    //         .await
-    //         .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
-    
-    //     Ok(df)
-    // }
-    
-
     /// Recursively flattens JSON values, serializing objects and arrays to strings.
     fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
         match value {
@@ -1034,6 +928,193 @@ async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Res
         }
     }
 
+
+
+//======================= CSV WRITING OPTION ============================//
+
+/// constants for validating date and time formats
+// const ALLOWED_DATE_FORMATS: &[&str] = &[
+//     "%Y-%m-%d",
+//     "%d.%m.%Y",
+//     "%m/%d/%Y",
+//     "%d-%b-%Y",
+//     "%a, %d %b %Y",
+//     "%Y/%m/%d",
+//     "%d%b%Y",
+// ];
+
+// const ALLOWED_TIME_FORMATS: &[&str] = &[
+//     "%H:%M:%S",
+//     "%H-%M-%S",
+//     "%I:%M:%S %p",
+// ];
+
+// const ALLOWED_TIMESTAMP_FORMATS: &[&str] = &[
+   
+//     "%Y-%m-%d %H:%M:%S",
+//     "%d.%m.%Y %H:%M:%S",
+// ];
+
+// const ALLOWED_TIMESTAMP_TZ_FORMATS: &[&str] = &[
+//     "%Y-%m-%dT%H:%M:%S%z",
+// ];
+
+/// Struct to encapsulate CSV write options
+#[derive(Debug, Clone)]
+pub struct CsvWriteOptions {
+    pub delimiter: u8,
+    pub escape: u8,
+    pub quote: u8,
+    pub double_quote: bool,
+    // pub date_format: Option<String>,
+    // pub time_format: Option<String>,
+    // pub timestamp_format: Option<String>,
+    // pub timestamp_tz_format: Option<String>,
+    pub null_value: String,
+}
+
+impl Default for CsvWriteOptions {
+    fn default() -> Self {
+        Self {
+            delimiter: b',',
+            escape: b'\\',
+            quote: b'"',
+            double_quote: true,
+            // date_format: None,// "%Y-%m-%d".to_string(),
+            // time_format: None, // "%H-%M-%S".to_string(),
+            // timestamp_format: None, //"%Y-%m-%d %H:%M:%S".to_string(),
+            // timestamp_tz_format: None, // "%Y-%m-%dT%H:%M:%S%z".to_string(),
+            null_value: "NULL".to_string(),
+        }
+    }
+}
+
+impl CsvWriteOptions {
+    pub fn validate(&self) -> Result<(), ElusionError> {
+
+        // Validate delimiter
+        if !self.delimiter.is_ascii() {
+            return Err(ElusionError::Custom(format!(
+                "Delimiter '{}' is not a valid ASCII character.",
+                self.delimiter as char
+            )));
+        }
+        
+        // Validate escape character
+        if !self.escape.is_ascii() {
+            return Err(ElusionError::Custom(format!(
+                "Escape character '{}' is not a valid ASCII character.",
+                self.escape as char
+            )));
+        }
+
+        // Validate quote character
+        if !self.quote.is_ascii() {
+            return Err(ElusionError::Custom(format!(
+                "Quote character '{}' is not a valid ASCII character.",
+                self.quote as char
+            )));
+        }
+        
+        // Validate date_format
+        // if let Some(ref tf) = self.date_format {
+        //     if tf.trim().is_empty() {
+        //         return Err(ElusionError::Custom("Time format cannot be empty.".to_string()));
+        //     }
+            
+        //     if !ALLOWED_DATE_FORMATS.contains(&tf.as_str()) {
+        //         return Err(ElusionError::Custom(format!(
+        //             "Time format '{}' is not supported. Supported formats are: {:?}",
+        //             tf, ALLOWED_DATE_FORMATS
+        //         )));
+        //     }
+            
+        //     let sample_time = "2024-10-24";
+        //     NaiveTime::parse_from_str(sample_time, tf)
+        //         .map_err(|e| ElusionError::Custom(format!("Invalid date format '{}': {}", tf, e)))?;
+        // }
+        
+        // // Validate time_format if provided
+        // if let Some(ref tf) = self.time_format {
+        //     if tf.trim().is_empty() {
+        //         return Err(ElusionError::Custom("Time format cannot be empty.".to_string()));
+        //     }
+            
+        //     if !ALLOWED_TIME_FORMATS.contains(&tf.as_str()) {
+        //         return Err(ElusionError::Custom(format!(
+        //             "Time format '{}' is not supported. Supported formats are: {:?}",
+        //             tf, ALLOWED_TIME_FORMATS
+        //         )));
+        //     }
+            
+        //     let sample_time = "23:59:59";
+        //     NaiveTime::parse_from_str(sample_time, tf)
+        //         .map_err(|e| ElusionError::Custom(format!("Invalid time format '{}': {}", tf, e)))?;
+        // }
+        
+        // // Validate timestamp_format if provided
+        // if let Some(ref tsf) = self.timestamp_format {
+        //     if tsf.trim().is_empty() {
+        //         return Err(ElusionError::Custom("Timestamp format cannot be empty.".to_string()));
+        //     }
+            
+        //     if !ALLOWED_TIMESTAMP_FORMATS.contains(&tsf.as_str()) {
+        //         return Err(ElusionError::Custom(format!(
+        //             "Timestamp format '{}' is not supported. Supported formats are: {:?}",
+        //             tsf, ALLOWED_TIMESTAMP_FORMATS
+        //         )));
+        //     }
+            
+        //     let sample_timestamp = "2023-12-31T23:59:59+0000";
+        //     NaiveDateTime::parse_from_str(sample_timestamp, tsf)
+        //         .map_err(|e| ElusionError::Custom(format!("Invalid timestamp format '{}': {}", tsf, e)))?;
+        // }
+
+        // if let Some(ref tsf) = self.timestamp_format {
+        //     if tsf.trim().is_empty() {
+        //         return Err(ElusionError::Custom("Timestamp format cannot be empty.".to_string()));
+        //     }
+            
+        //     if !ALLOWED_TIMESTAMP_TZ_FORMATS.contains(&tsf.as_str()) {
+        //         return Err(ElusionError::Custom(format!(
+        //             "Timestamp format '{}' is not supported. Supported formats are: {:?}",
+        //             tsf, ALLOWED_TIMESTAMP_TZ_FORMATS
+        //         )));
+        //     }
+            
+        //     let sample_timestamp = "2023-12-31T23:59:59+0000Z";
+        //     NaiveDateTime::parse_from_str(sample_timestamp, tsf)
+        //         .map_err(|e| ElusionError::Custom(format!("Invalid timestamp format '{}': {}", tsf, e)))?;
+        // }
+        
+        // Validate null_value
+        if self.null_value.trim().is_empty() {
+            return Err(ElusionError::Custom("Null value representation cannot be empty.".to_string()));
+        }
+        
+        // Ensure null_value does not contain delimiter or quote characters
+        let delimiter_char = self.delimiter as char;
+        let quote_char = self.quote as char;
+        
+        if self.null_value.contains(delimiter_char) {
+            return Err(ElusionError::Custom(format!(
+                "Null value '{}' cannot contain the delimiter '{}'.",
+                self.null_value, delimiter_char
+            )));
+        }
+        
+        if self.null_value.contains(quote_char) {
+            return Err(ElusionError::Custom(format!(
+                "Null value '{}' cannot contain the quote character '{}'.",
+                self.null_value, quote_char
+            )));
+        }
+        
+        Ok(())
+    }
+}
+
+// =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 // ============================= CUSTOM DATA FRAME ==============================//
 
 // ================ STRUCTS ==================//
@@ -1121,11 +1202,7 @@ pub struct AliasedDataFrame {
 //     }
 // }
 
-// =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
-
 impl CustomDataFrame {
-
-    
     /// NEW method for loading and schema definition
     pub async fn new<'a>(
         file_path: &'a str,
@@ -1203,18 +1280,6 @@ impl CustomDataFrame {
 
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
-        // for cte in &self.ctes {
-        //     Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
-        // }
-
-        // for df in additional_dfs {
-        //     Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
-            
-        //     for cte in &df.ctes {
-        //         Self::register_df_as_table(&ctx, &cte.name, &cte.cte_df.df).await?;
-        //     }
-        // }
-
         for df in dfs {
             Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
         }
@@ -1274,8 +1339,8 @@ impl CustomDataFrame {
 
         Schema::new(fields)
     }
-    
 
+    
     /// LOAD function for CSV file type
     pub fn load_csv<'a>(
         file_path: &'a str,
@@ -2376,7 +2441,7 @@ impl CustomDataFrame {
                         "Append mode requires an existing file at '{}'",
                         path
                     )));
-                }
+                }   
             }
             _ => {
                 return Err(ElusionError::Custom(format!(
@@ -2395,6 +2460,187 @@ impl CustomDataFrame {
             _ => unreachable!(),
         }
       
+        Ok(())
+    }
+
+    /// Writes the DataFrame to a CSV file in either "overwrite" or "append" mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - The write mode, either "overwrite" or "append".
+    /// * `path` - The file path where the CSV will be written.
+    /// * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
+    ///
+    /// # Returns
+    ///
+    /// * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
+    pub async fn write_to_csv(
+        &self,
+        mode: &str,
+        path: &str,
+        csv_options: CsvWriteOptions,
+    ) -> ElusionResult<()> {
+        // let write_options = csv_options.unwrap_or_else(CsvWriteOptions::default);
+        csv_options.validate()?;
+
+        let mut df = self.df.clone();
+    
+        // Get the schema
+        let schema = df.schema();
+
+        let mut cast_expressions = Vec::new();
+        
+        for field in schema.fields() {
+            let cast_expr = match field.data_type() {
+                // For floating point types and decimals, cast to Decimal
+                ArrowDataType::Float32 | ArrowDataType::Float64 | 
+                ArrowDataType::Decimal128(_, _) | ArrowDataType::Decimal256(_, _) => {
+                    Some((
+                        field.name().to_string(),
+                        cast(col(field.name()), ArrowDataType::Decimal128(20, 4))
+                    ))
+                },
+                // For integer types, cast to Int64
+                ArrowDataType::Int8 | ArrowDataType::Int16 | ArrowDataType::Int32 | ArrowDataType::Int64 |
+                ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 | ArrowDataType::UInt64 => {
+                    Some((
+                        field.name().to_string(),
+                        cast(col(field.name()), ArrowDataType::Int64)
+                    ))
+                },
+                // Leave other types as they are
+                _ => None,
+            };
+            
+            if let Some(expr) = cast_expr {
+                cast_expressions.push(expr);
+            }
+        }
+        
+        // Apply all transformations at once
+        for (name, cast_expr) in cast_expressions {
+            df = df.with_column(&name, cast_expr)?;
+        }
+    
+        match mode {
+            "overwrite" => {
+                // Remove existing file or directory if it exists
+                if fs::metadata(path).is_ok() {
+                    fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to delete existing file or directory at '{}': {}",
+                            path, e
+                        ))
+                    })?;
+                }
+            }
+            "append" => {
+                // Ensure the file exists for append mode
+                if !fs::metadata(path).is_ok() {
+                    return Err(ElusionError::Custom(format!(
+                        "Append mode requires an existing file at '{}'",
+                        path
+                    )));
+                }
+            }
+            _ => {
+                return Err(ElusionError::Custom(format!(
+                    "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
+                    mode
+                )));
+            }
+        }
+
+        // RecordBatches from the DataFrame
+        let batches = self.df.clone().collect().await.map_err(|e| {
+            ElusionError::DataFusion(DataFusionError::Execution(format!(
+                "Failed to collect RecordBatches from DataFrame: {}",
+                e
+            )))
+        })?;
+
+        if batches.is_empty() {
+            return Err(ElusionError::Custom("No data to write.".to_string()));
+        }
+
+        // clone data for the blocking task
+        let batches_clone = batches.clone();
+        let mode_clone = mode.to_string();
+        let path_clone = path.to_string();
+        let write_options_clone = csv_options.clone();
+
+        // Spawn a blocking task to handle synchronous CSV writing
+        task::spawn_blocking(move || -> Result<(), ElusionError> {
+            // Open the file with appropriate options based on the mode
+            let file = match mode_clone.as_str() {
+                "overwrite" => OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&path_clone)
+                    .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+                "append" => OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(&path_clone)
+                    .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+                _ => unreachable!(), // Mode already validated
+            };
+
+            let writer = BufWriter::new(file);
+
+            let has_headers = match mode_clone.as_str() {
+                "overwrite" => true,
+                "append" => false,
+                _ => true, 
+            };
+            // initialize the CSV writer with the provided options
+            let mut csv_writer = WriterBuilder::new()
+                .with_header(has_headers)
+                .with_delimiter(write_options_clone.delimiter)
+                .with_escape(write_options_clone.escape)
+                .with_quote(write_options_clone.quote)
+                .with_double_quote(write_options_clone.double_quote)
+                .with_null(write_options_clone.null_value)
+                .build(writer);
+                
+
+                // if let Some(date_fmt) = write_options_clone.date_format {
+                //     builder = builder.with_date_format(date_fmt);
+                // }
+                // if let Some(time_fmt) = write_options_clone.time_format {
+                //     builder = builder.with_time_format(time_fmt);
+                // }
+                // if let Some(timestamp_fmt) = write_options_clone.timestamp_format {
+                //     builder = builder.with_timestamp_format(timestamp_fmt);
+                // }
+                // if let Some(timestamp_tz_fmt) = write_options_clone.timestamp_tz_format {
+                //     builder = builder.with_timestamp_tz_format(timestamp_tz_fmt);
+                // }
+
+               
+                // Write each batch 
+                for batch in batches_clone {
+                    csv_writer.write(&batch).map_err(|e| {
+                        ElusionError::Custom(format!("Failed to write RecordBatch to CSV: {}", e))
+                    })?;
+                }
+            
+            
+                csv_writer.into_inner().flush().map_err(|e| {
+                    ElusionError::Custom(format!("Failed to flush buffer: {}", e))
+                })?;
+                
+            Ok(())
+        }).await.map_err(|e| ElusionError::Custom(format!("Failed to write to CSV: {}", e)))??;
+
+        // Confirm successful write
+        match mode {
+            "overwrite" => println!("Data successfully overwritten to '{}'.", path),
+            "append" => println!("Data successfully appended to '{}'.", path),
+            _ => unreachable!(),
+        }
+
         Ok(())
     }
 

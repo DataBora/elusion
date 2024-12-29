@@ -17,6 +17,7 @@ pub use datafusion::arrow::array::{
 pub use datafusion::arrow::record_batch::RecordBatch;
 pub use arrow::error::Result as ArrowResult;
 pub use ArrowDataType::*;
+pub use arrow::csv::writer::WriterBuilder;
 
 pub use datafusion::functions_aggregate::expr_fn::{
     sum, min, max, avg, stddev, count, count_distinct, corr, first_value, grouping, var_pop,
@@ -24,6 +25,7 @@ pub use datafusion::functions_aggregate::expr_fn::{
 };
 
 pub use futures::future::BoxFuture;
+pub use tokio::task;
 
 pub use chrono::{NaiveDate, Datelike};
 
@@ -39,11 +41,11 @@ pub use std::fmt;
 pub use std::error::Error;
 pub use std::path::Path;
 pub use std::fs::{self, File, OpenOptions};
-pub use std::io::{self, BufRead, BufReader, Write, Read};
+pub use std::io::{self, BufRead, BufReader, Write, Read, BufWriter};
 
 pub use encoding_rs::WINDOWS_1252;
 
-pub use crate::{AggregationBuilder, CustomDataFrame, SQLDataType};
+pub use crate::{AggregationBuilder, CustomDataFrame, SQLDataType, AliasedDataFrame, CsvWriteOptions};
 
 pub use crate::{ElusionError, ElusionResult};
 

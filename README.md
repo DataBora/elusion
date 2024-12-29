@@ -1,10 +1,12 @@
 # Elusion 🦀 DataFrame Library for Everybody!
 
-Elusion is a high-performance, flexible DataFrame library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance, for in-memory data formats (.csv, .json), DataFrame library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+
+SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json).
 
 # Motivation
 
-I believe that DataFusion has great potential in Data Engineering / Data Analytics world, but I also believe that design choices for SQL and DataFrame API do not resemble popular DataFrame soultions out there, and I am here to narrow this gap, by creating easily chainable constructs for anybody to use and understand.
+DataFusion SQL engine has great potential in Data Engineering / Data Analytics world, but I believe that design choices for SQL and DataFrame API do not resemble popular DataFrame solutions out there, and I am here to narrow this gap, by rewriting, from scratch, all functions, readers, writers... and creating easily chainable constructs for anybody to use and understand. 
 
 ## Key Features
 
@@ -38,23 +40,14 @@ I believe that DataFusion has great potential in Data Engineering / Data Analyti
 
 ## Installation
 
-To add **Elusion** to your Rust project, include the following line in your `Cargo.toml` under `[dependencies]`:
+To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.2"
-```
----
-## Dependencies that you need in Cargo.toml to use Elusion:
-
-```toml
-[dependencies]
-elusion = "0.2.2"
+elusion = "0.2.3"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
-
 ```
-
 ---
-## Usage examples:
+# Usage examples:
 
 ### MAIN function
 
@@ -90,7 +83,6 @@ async fn main() -> ElusionResult<()> {
     Ok(())
 }
 ```
-
 ### Schema establishing
 #### **Column Name**, **SQL DataType** and If is **Null**-able (true, false) needs to be provided
 
@@ -144,7 +136,8 @@ let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
 let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
 let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await;
 ```
-### RULE of thumb: ALL Column names and Dataframe alias names, will be LOWERCASE() regardles of how you write it, or how they are writen in CSV file.
+## RULE of thumb: 
+#### ALL Column names and Dataframe alias names, will be LOWERCASE(), TRIM(), REPLACE(" ", "_"), regardles of how you write it, or how they are writen in CSV file.
 
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
@@ -173,7 +166,7 @@ let join_df = df_sales
 
 ### SELECT without Aggregation
 ```rust
-let result_sales = sales_order_data.clone()
+let result_sales = sales_order_data
     .select(vec!["customer_name", "order_date", "billable_value"])
     .filter("billable_value > 100.0")
     .order_by(vec!["order_date"], vec![true])
@@ -202,7 +195,7 @@ let result_df = sales_order_data
 
 ### FILTER 
 ```rust
- let result_sales = sales_order_data.clone()
+ let result_sales = sales_order_data
     .select(vec!["customer_name", "order_date", "billable_value"])
     .filter("billable_value > 100.0")
     .order_by(vec!["order_date"], vec![true])
@@ -212,8 +205,8 @@ let result_df = sales_order_data
     result_sales.display().await?;
 ```
 
-### Raw SQL Querying
-#### FULL SQL SUPPORT is available
+# Raw SQL Querying
+### FULL SQL SUPPORT is available
 ```rust
 let sales_columns = vec![
     ("OrderDate", "DATE", false),
@@ -330,7 +323,8 @@ let sql_three = "
 ```
 # JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
-#### Schema and CustomDataFrame are initialized same as for CSV files
+#### Schema and CustomDataFrame are initialized same as for CSV files, 
+#### but for JSON all field types are tranfered to VARCHAR
 ```rust
 //example json structure
 {
@@ -347,7 +341,6 @@ let json_columns = vec![
     ("id", "VARCHAR", true),          
     ("bio", "VARCHAR", true), 
     ("version", "VARCHAR", true)
-    
 ];
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
 let json_df = CustomDataFrame::new(json_path, json_columns, "test").await;
@@ -403,21 +396,64 @@ let json_df = CustomDataFrame::new(json_path, json_columns, "test2").await;
     let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
     result_json.display().await?;
 ```
+# WRITERS
 
-### Writing to Parquet File
+## Writing to Parquet File
 #### We have 2 writing modes: Overwrite and Append
 ```rust
 // overwrite existing file
 result_df
-    .write_to_parquet("overwrite","C:\\Path\\To\\Your\\test.parquet",None)
+    .write_to_parquet(
+        "overwrite",
+        "C:\\Path\\To\\Your\\test.parquet",
+        None // I've set WriteOptions to default for writing Parquet files, so keep it None
+    )
     .await
     .expect("Failed to write to Parquet");
 
 //append to exisiting file
 result_df
-    .write_to_parquet("append","C:\\Path\\To\\Your\\test.parquet",None)
+    .write_to_parquet(
+        "append",
+        "C:\\Path\\To\\Your\\test.parquet",
+        None // I've set WriteOptions to default for writing Parquet files, so keep it None
+    ) 
     .await
     .expect("Failed to append to Parquet");
+```
+## Writing to CSV File
+#### CSV Writing options are mandatory
+##### has_headers: TRUE is dynamically set for Overwrite mode, and FALSE for Append mode.
+```rust
+let custom_csv_options = CsvWriteOptions {
+        delimiter: b',',
+        escape: b'\\',
+        quote: b'"',
+        double_quote: false,
+        null_value: "NULL".to_string(),
+    };
+```
+#### We have 2 writing modes: Overwrite and Append
+```rust
+// overwrite existing file
+result_df
+    .write_to_csv(
+        "overwrite", 
+        "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+        custom_csv_options
+    )
+    .await
+    .expect("Failed to overwrite CSV file");
+
+//append to exisiting file
+result_df
+    .write_to_csv(
+        "append", 
+        "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+        custom_csv_options
+    )
+    .await
+    .expect("Failed to append to CSV file");
 ```
 
 ---
