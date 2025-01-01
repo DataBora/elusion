@@ -10,12 +10,12 @@ use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::{NaiveDate,Datelike};
-use arrow::array::{StringBuilder,StringArray, Date32Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder,  };
+use arrow::array::{StringBuilder,StringArray, Date32Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder, };
+
 use arrow::record_batch::RecordBatch;
 use arrow::datatypes::{SchemaBuilder, SchemaRef};
 use ArrowDataType::*;
 use arrow::csv::writer::WriterBuilder;
-// use arrow::array::{BinaryArray, BooleanArray, UInt64Array, UInt32Array, Date64Array, Float64Array, Decimal128Array, Int32Array, Int64Array};
 
 // ========= CSV defects
 use std::fs::{self, File, OpenOptions};
@@ -33,7 +33,6 @@ use datafusion::functions_aggregate::expr_fn::{
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 use tokio::task;
-// use datafusion::parquet::file::writer::{SerializedColumnWriter,SerializedFileWriter, SerializedRowGroupWriter, SerializedPageWriter}; 
 
 // ========= JSON   
 use serde_json::{Map, Value};
@@ -41,6 +40,16 @@ use serde::{Deserialize, Serialize};
 // use serde_json::Deserializer;
 use std::collections::{HashMap, HashSet};
 use arrow::error::Result as ArrowResult;    
+
+// delta table writer
+// use deltalake::writer::{RecordBatchWriter, WriteMode};
+// use deltalake::{DeltaTable, DeltaTableError};
+// //DELTA WRITER
+// use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
+// use datafusion::common::ScalarValue;
+// use datafusion::arrow::datatypes::TimeUnit;
+
+
 // =========== ERRROR
 
 use std::fmt;
@@ -215,6 +224,7 @@ impl From<ArrowDataType> for SQLDataType {
 // =====================  AGGREGATION BUILDER =============== //
 
 pub struct AggregationBuilder {
+    
     column: String,
     pub agg_alias: Option<String>,
     agg_fn: Option<Box<dyn Fn(Expr) -> Expr>>, 
@@ -229,16 +239,20 @@ impl AggregationBuilder {
         }
     }
 
-    pub fn build_expr(&self, _table_alias: &str) -> Expr {
-        // Directly reference the column without qualification
-        let base_column = col(self.column.as_str());
-    
-        let base_expr = if let Some(agg_fn) = &self.agg_fn {
-            agg_fn(base_column) 
+    pub fn build_expr(&self, table_alias: &str) -> Expr {
+        // Fully qualify the column name with the table alias
+        let qualified_column = if self.column.contains('.') {
+            col(&self.column)
         } else {
-            base_column
+            col_with_relation(table_alias, &self.column)
         };
-    
+
+        let base_expr = if let Some(ref agg_fn) = self.agg_fn {
+            agg_fn(qualified_column) 
+        } else {
+            qualified_column
+        };
+
         // Apply alias if present
         if let Some(alias) = &self.agg_alias {
             base_expr.alias(alias.clone())
@@ -249,7 +263,8 @@ impl AggregationBuilder {
     
 
     pub fn alias(mut self, alias: &str) -> Self {
-        self.agg_alias = Some(alias.to_string());
+        let norm_alias = alias.to_lowercase();
+        self.agg_alias = Some(norm_alias.to_string());
         self
     }
 
@@ -439,23 +454,23 @@ pub fn parse_date_with_formats(date_str: &str) -> Option<i32> {
 
 // ===================== SCHEMA VALIDATION ===================== //
 
-fn col_with_relation(relation: &str, column: &str) -> Expr {
-    if column.contains('.') {
-        col(column) // Already qualified
-    } else {
-        col(&format!("{}.{}", relation, column)) // Add table alias
-    }
-}
-
 // fn col_with_relation(relation: &str, column: &str) -> Expr {
 //     if column.contains('.') {
 //         col(column) // Already qualified
-//     } else if !relation.is_empty() {
-//         col(&format!("{}.{}", relation, column)) // Add table alias
 //     } else {
-//         col(column) // Use column name as is
+//         col(&format!("{}.{}", relation, column)) // Add table alias
 //     }
 // }
+
+fn col_with_relation(relation: &str, column: &str) -> Expr {
+    if column.contains('.') {
+        col(column) // Already qualified
+    } else if !relation.is_empty() {
+        col(&format!("{}.{}", relation, column)) // Add table alias
+    } else {
+        col(column) // Use column name as is
+    }
+}
 
 fn validate_schema(schema: &Schema, df: &DataFrame) {
     let df_fields = df.schema().fields();
@@ -473,6 +488,10 @@ fn validate_schema(schema: &Schema, df: &DataFrame) {
 
 fn normalize_column_name(name: &str) -> String {
     name.trim().to_lowercase().replace(" ", "_")
+}
+
+fn normalize_condition(condition: &str) -> String {
+    condition.trim().to_lowercase()
 }
 
 /// Create a schema dynamically from the `DataFrame` as helper for with_cte
@@ -716,6 +735,7 @@ fn build_record_batch(
                         builder.append_null();
                     }
                 },
+                
                 ArrowDataType::Float32 => {
                     let builder = builders[i]
                         .as_any_mut()
@@ -1016,77 +1036,6 @@ impl CsvWriteOptions {
             )));
         }
         
-        // Validate date_format
-        // if let Some(ref tf) = self.date_format {
-        //     if tf.trim().is_empty() {
-        //         return Err(ElusionError::Custom("Time format cannot be empty.".to_string()));
-        //     }
-            
-        //     if !ALLOWED_DATE_FORMATS.contains(&tf.as_str()) {
-        //         return Err(ElusionError::Custom(format!(
-        //             "Time format '{}' is not supported. Supported formats are: {:?}",
-        //             tf, ALLOWED_DATE_FORMATS
-        //         )));
-        //     }
-            
-        //     let sample_time = "2024-10-24";
-        //     NaiveTime::parse_from_str(sample_time, tf)
-        //         .map_err(|e| ElusionError::Custom(format!("Invalid date format '{}': {}", tf, e)))?;
-        // }
-        
-        // // Validate time_format if provided
-        // if let Some(ref tf) = self.time_format {
-        //     if tf.trim().is_empty() {
-        //         return Err(ElusionError::Custom("Time format cannot be empty.".to_string()));
-        //     }
-            
-        //     if !ALLOWED_TIME_FORMATS.contains(&tf.as_str()) {
-        //         return Err(ElusionError::Custom(format!(
-        //             "Time format '{}' is not supported. Supported formats are: {:?}",
-        //             tf, ALLOWED_TIME_FORMATS
-        //         )));
-        //     }
-            
-        //     let sample_time = "23:59:59";
-        //     NaiveTime::parse_from_str(sample_time, tf)
-        //         .map_err(|e| ElusionError::Custom(format!("Invalid time format '{}': {}", tf, e)))?;
-        // }
-        
-        // // Validate timestamp_format if provided
-        // if let Some(ref tsf) = self.timestamp_format {
-        //     if tsf.trim().is_empty() {
-        //         return Err(ElusionError::Custom("Timestamp format cannot be empty.".to_string()));
-        //     }
-            
-        //     if !ALLOWED_TIMESTAMP_FORMATS.contains(&tsf.as_str()) {
-        //         return Err(ElusionError::Custom(format!(
-        //             "Timestamp format '{}' is not supported. Supported formats are: {:?}",
-        //             tsf, ALLOWED_TIMESTAMP_FORMATS
-        //         )));
-        //     }
-            
-        //     let sample_timestamp = "2023-12-31T23:59:59+0000";
-        //     NaiveDateTime::parse_from_str(sample_timestamp, tsf)
-        //         .map_err(|e| ElusionError::Custom(format!("Invalid timestamp format '{}': {}", tsf, e)))?;
-        // }
-
-        // if let Some(ref tsf) = self.timestamp_format {
-        //     if tsf.trim().is_empty() {
-        //         return Err(ElusionError::Custom("Timestamp format cannot be empty.".to_string()));
-        //     }
-            
-        //     if !ALLOWED_TIMESTAMP_TZ_FORMATS.contains(&tsf.as_str()) {
-        //         return Err(ElusionError::Custom(format!(
-        //             "Timestamp format '{}' is not supported. Supported formats are: {:?}",
-        //             tsf, ALLOWED_TIMESTAMP_TZ_FORMATS
-        //         )));
-        //     }
-            
-        //     let sample_timestamp = "2023-12-31T23:59:59+0000Z";
-        //     NaiveDateTime::parse_from_str(sample_timestamp, tsf)
-        //         .map_err(|e| ElusionError::Custom(format!("Invalid timestamp format '{}': {}", tsf, e)))?;
-        // }
-        
         // Validate null_value
         if self.null_value.trim().is_empty() {
             return Err(ElusionError::Custom("Null value representation cannot be empty.".to_string()));
@@ -1113,6 +1062,221 @@ impl CsvWriteOptions {
         Ok(())
     }
 }
+
+// =============== DELTA TABLE writing
+
+/// Helper function to extract partition values from a RecordBatch based on partition columns.
+/// Assumes that each RecordBatch has a single unique partition value.
+// fn get_partition_values(
+//     batch: &RecordBatch,
+//     partition_columns: &[String],
+// ) -> Result<HashMap<String, ScalarValue>, DeltaTableError> {
+//     let mut partition_values = HashMap::new();
+
+//     for column in partition_columns {
+//         let idx = batch
+//             .schema()
+//             .index_of(column)
+//             .map_err(|_| DeltaTableError::generic(format!("Partition column '{}' not found in schema", column)))?;
+
+//         let array = batch.column(idx);
+
+//         // Helper macro to reduce boilerplate for numeric types
+//         macro_rules! handle_numeric_array {
+//             ($array_type:ty, $scalar_variant:path) => {{
+//                 let typed_array = array
+//                     .as_any()
+//                     .downcast_ref::<$array_type>()
+//                     .ok_or_else(|| {
+//                         DeltaTableError::generic(format!(
+//                             "Partition column '{}' downcast failed",
+//                             column
+//                         ))
+//                     })?;
+
+//                 if typed_array.len() == 0 || typed_array.is_null(0) {
+//                     return Err(DeltaTableError::generic(format!(
+//                         "Partition column '{}' has no non-null values",
+//                         column
+//                     )));
+//                 }
+
+//                 $scalar_variant(Some(typed_array.value(0)))
+//             }};
+//         }
+
+//         let scalar = match array.data_type() {
+//             // String types
+//             ArrowDataType::Utf8 => {
+//                 let string_array = array
+//                     .as_any()
+//                     .downcast_ref::<StringArray>()
+//                     .ok_or_else(|| {
+//                         DeltaTableError::generic(format!(
+//                             "Partition column '{}' is not a StringArray",
+//                             column
+//                         ))
+//                     })?;
+
+//                 if string_array.len() == 0 || string_array.is_null(0) {
+//                     return Err(DeltaTableError::generic(format!(
+//                         "Partition column '{}' has no non-null values",
+//                         column
+//                     )));
+//                 }
+
+//                 ScalarValue::Utf8(Some(string_array.value(0).to_string()))
+//             },
+//             ArrowDataType::LargeUtf8 => {
+//                 let string_array = array
+//                     .as_any()
+//                     .downcast_ref::<LargeStringArray>()
+//                     .ok_or_else(|| {
+//                         DeltaTableError::generic(format!(
+//                             "Partition column '{}' is not a LargeStringArray",
+//                             column
+//                         ))
+//                     })?;
+
+//                 if string_array.len() == 0 || string_array.is_null(0) {
+//                     return Err(DeltaTableError::generic(format!(
+//                         "Partition column '{}' has no non-null values",
+//                         column
+//                     )));
+//                 }
+
+//                 ScalarValue::LargeUtf8(Some(string_array.value(0).to_string()))
+//             },
+
+//             // Integer types
+//             ArrowDataType::Int8 => handle_numeric_array!(Int8Array, ScalarValue::Int8),
+//             ArrowDataType::Int16 => handle_numeric_array!(Int16Array, ScalarValue::Int16),
+//             ArrowDataType::Int32 => handle_numeric_array!(Int32Array, ScalarValue::Int32),
+//             ArrowDataType::Int64 => handle_numeric_array!(Int64Array, ScalarValue::Int64),
+//             ArrowDataType::UInt8 => handle_numeric_array!(UInt8Array, ScalarValue::UInt8),
+//             ArrowDataType::UInt16 => handle_numeric_array!(UInt16Array, ScalarValue::UInt16),
+//             ArrowDataType::UInt32 => handle_numeric_array!(UInt32Array, ScalarValue::UInt32),
+//             ArrowDataType::UInt64 => handle_numeric_array!(UInt64Array, ScalarValue::UInt64),
+
+//             // Floating point types
+//             ArrowDataType::Float32 => handle_numeric_array!(Float32Array, ScalarValue::Float32),
+//             ArrowDataType::Float64 => handle_numeric_array!(Float64Array, ScalarValue::Float64),
+
+//             // Boolean type
+//             ArrowDataType::Boolean => {
+//                 let bool_array = array
+//                     .as_any()
+//                     .downcast_ref::<BooleanArray>()
+//                     .ok_or_else(|| {
+//                         DeltaTableError::generic(format!(
+//                             "Partition column '{}' is not a BooleanArray",
+//                             column
+//                         ))
+//                     })?;
+
+//                 if bool_array.len() == 0 || bool_array.is_null(0) {
+//                     return Err(DeltaTableError::generic(format!(
+//                         "Partition column '{}' has no non-null values",
+//                         column
+//                     )));
+//                 }
+
+//                 ScalarValue::Boolean(Some(bool_array.value(0)))
+//             },
+
+//             // Date/Time types
+//             ArrowDataType::Date32 => handle_numeric_array!(Date32Array, ScalarValue::Date32),
+//             ArrowDataType::Date64 => handle_numeric_array!(Date64Array, ScalarValue::Date64),
+//             ArrowDataType::Time32(TimeUnit::Second) => handle_numeric_array!(Time32SecondArray, ScalarValue::Time32Second),
+//             ArrowDataType::Time32(TimeUnit::Millisecond) => handle_numeric_array!(Time32MillisecondArray, ScalarValue::Time32Millisecond),
+//             ArrowDataType::Time64(TimeUnit::Microsecond) => handle_numeric_array!(Time64MicrosecondArray, ScalarValue::Time64Microsecond),
+//             ArrowDataType::Time64(TimeUnit::Nanosecond) => handle_numeric_array!(Time64NanosecondArray, ScalarValue::Time64Nanosecond),
+
+//             // Timestamp types
+//             ArrowDataType::Timestamp(unit, None) => {
+//                 let ts_array = match unit {
+//                     TimeUnit::Second => {
+//                         let arr = array.as_any().downcast_ref::<TimestampSecondArray>()
+//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
+//                         ScalarValue::TimestampSecond(Some(arr.value(0)), None)
+//                     },
+//                     TimeUnit::Millisecond => {
+//                         let arr = array.as_any().downcast_ref::<TimestampMillisecondArray>()
+//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
+//                         ScalarValue::TimestampMillisecond(Some(arr.value(0)), None)
+//                     },
+//                     TimeUnit::Microsecond => {
+//                         let arr = array.as_any().downcast_ref::<TimestampMicrosecondArray>()
+//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
+//                         ScalarValue::TimestampMicrosecond(Some(arr.value(0)), None)
+//                     },
+//                     TimeUnit::Nanosecond => {
+//                         let arr = array.as_any().downcast_ref::<TimestampNanosecondArray>()
+//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
+//                         ScalarValue::TimestampNanosecond(Some(arr.value(0)), None)
+//                     },
+//                 };
+//                 ts_array
+//             },
+
+//             // Binary types
+//             ArrowDataType::Binary => {
+//                 let binary_array = array
+//                     .as_any()
+//                     .downcast_ref::<BinaryArray>()
+//                     .ok_or_else(|| DeltaTableError::generic(format!("Downcast failed for column '{}'", column)))?;
+//                 ScalarValue::Binary(Some(binary_array.value(0).into()))
+//             },
+//             ArrowDataType::LargeBinary => {
+//                 let binary_array = array
+//                     .as_any()
+//                     .downcast_ref::<LargeBinaryArray>()
+//                     .ok_or_else(|| DeltaTableError::generic(format!("Downcast failed for column '{}'", column)))?;
+//                 ScalarValue::LargeBinary(Some(binary_array.value(0).into()))
+//             },
+
+//             // Unsupported types
+//             dt => {
+//                 return Err(DeltaTableError::generic(format!(
+//                     "Unsupported partition column type {:?} for '{}'",
+//                     dt, column
+//                 )));
+//             }
+//         };
+
+//         partition_values.insert(column.clone(), scalar);
+//     }
+
+//     Ok(partition_values)
+// }
+
+// Helper function to check schema compatibility
+// fn are_schemas_compatible(target: &Schema, source: &Schema) -> bool {
+//     // Implement schema compatibility checking logic
+//     // This could check for matching column names, types, and nullable properties
+//     // Return true if schemas are compatible, false otherwise
+//     true // Placeholder implementation
+// }
+
+// Helper struct for tracking progress
+// struct ProgressTracker {
+//     total_rows: u64,
+//     rows_processed: std::sync::atomic::AtomicU64,
+// }
+
+// impl ProgressTracker {
+//     fn new(total_rows: u64) -> Self {
+//         Self {
+//             total_rows,
+//             rows_processed: std::sync::atomic::AtomicU64::new(0),
+//         }
+//     }
+
+//     fn update(&self, rows: u64) -> f64 {
+//         let processed = self.rows_processed.fetch_add(rows, std::sync::atomic::Ordering::SeqCst) + rows;
+//         (processed as f64 / self.total_rows as f64) * 100.0
+//     }
+// }
 
 // =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 // ============================= CUSTOM DATA FRAME ==============================//
@@ -1141,12 +1305,6 @@ pub struct CustomDataFrame {
     query: String,
     aggregated_df: Option<DataFrame>,
 }
-
-// /// Enum to specify file type
-// enum FileType<'a> {
-//     Csv(Vec<(&'a str, &'a str, bool)>),
-//     Json,
-// }
 
 #[derive(Clone)]
 struct JoinClause {
@@ -1524,12 +1682,6 @@ impl CustomDataFrame {
     }
 
 
-    /// DISPLAY Query Plan
-    pub fn display_query_plan(&self) {
-        println!("Generated Logical Plan:");
-        println!("{:?}", self.df.logical_plan());
-    }
-
 
     // ======================= BUILDERS ==============================//
 
@@ -1715,7 +1867,8 @@ impl CustomDataFrame {
             let alias = builder
                 .agg_alias
                 .clone()
-                .unwrap_or_else(|| format!("{:?}", expr));
+                .unwrap_or_else(|| format!("{:?}", expr))
+            .to_lowercase();
             self.alias_map.push((alias.clone(), expr.clone()));
             self.aggregations.push((alias, expr));
         }
@@ -1781,16 +1934,37 @@ impl CustomDataFrame {
     pub fn select(mut self, columns: Vec<&str>) -> Self {
         let mut expressions: Vec<Expr> = Vec::new();
         let mut selected_columns: Vec<String> = Vec::new();
-    
+
+        // Compiling the regex once outside the loop for efficiency
+        let as_keyword = Regex::new(r"(?i)\s+as\s+").unwrap(); // Case-insensitive " AS "
+
         for c in columns {
             // Parse column and alias (if provided)
-            let as_keyword = Regex::new(r"(?i)\s+as\s+").unwrap(); // Case-insensitive " AS "
             let parts: Vec<&str> = as_keyword.split(c).map(|s| s.trim()).collect();
-            let column_name = normalize_column_name(parts[0]); 
-            let alias: Option<String> = parts.get(1).map(|&alias| normalize_column_name(alias)); 
-    
+            let column_name = normalize_column_name(parts[0]);
+            let alias: Option<String> = parts.get(1).map(|&alias| alias.to_string()); 
+
             let mut expr_resolved = false;
-             //  if the column belongs to the current schema
+
+            // if the column is an aggregation alias in `alias_map`
+            if let Some((_, agg_expr)) = self.alias_map.iter().find(|(a, _)| a == &column_name) {
+                let final_expr = if let Some(ref new_alias) = alias {
+                    agg_expr.clone().alias(new_alias.clone())
+                } else {
+                    col(column_name.as_str())
+                };
+                expressions.push(final_expr.clone());
+
+                // Add to selected_columns
+                if let Some(ref new_alias) = alias {
+                    selected_columns.push(new_alias.clone());
+                } else {
+                    selected_columns.push(column_name.to_string());
+                }
+                expr_resolved = true;
+            }
+
+            // If not an aggregation alias, check if the column name is fully qualified
             if !expr_resolved {
                 let qualified_column = if column_name.contains('.') {
                     column_name.clone()
@@ -1800,9 +1974,9 @@ impl CustomDataFrame {
 
                 if self.df.schema().fields().iter().any(|field| *field.name() == qualified_column) {
                     let expr = col(&qualified_column);
-                    if let Some(ref alias) = alias {
-                        expressions.push(expr.alias(alias));
-                        selected_columns.push(alias.clone());
+                    if let Some(ref new_alias) = alias {
+                        expressions.push(expr.alias(new_alias.clone()));
+                        selected_columns.push(new_alias.clone());
                     } else {
                         expressions.push(expr);
                         selected_columns.push(qualified_column.clone());
@@ -1810,28 +1984,15 @@ impl CustomDataFrame {
                     expr_resolved = true;
                 }
             }
-    
-            // if column is an aggregation alias in `alias_map`
-            if let Some((agg_alias, _)) = self.alias_map.iter().find(|(a, _)| a == &column_name) {
-                let expr = col(agg_alias.as_str());
-                if let Some(ref alias) = alias {
-                    expressions.push(expr.alias(alias));
-                    selected_columns.push(alias.clone());
-                } else {
-                    expressions.push(expr);
-                    selected_columns.push(agg_alias.clone());
-                }
-                expr_resolved = true;
-            }
-    
-            // if column exists in the current schema (including fully qualified names)
+
+            // 3. If still not resolved, check if the column exists without qualification
             if !expr_resolved {
                 if self.df.schema().fields().iter().any(|f| *f.name() == column_name) {
                     // Column name matches directly
                     let expr = col(&column_name);
-                    if let Some(ref alias) = alias {
-                        expressions.push(expr.alias(alias));
-                        selected_columns.push(alias.clone());
+                    if let Some(ref new_alias) = alias {
+                        expressions.push(expr.alias(new_alias.clone()));
+                        selected_columns.push(new_alias.clone());
                     } else {
                         expressions.push(expr);
                         selected_columns.push(column_name.clone());
@@ -1839,18 +2000,17 @@ impl CustomDataFrame {
                     expr_resolved = true;
                 }
             }
-    
-      
-            // if column belongs to a CTE via JoinClause
+
+            // 4. If not resolved yet, check if the column belongs to a CTE via JoinClause
             if !expr_resolved {
                 for join in &self.joins {
                     if let Some(cte) = self.ctes.iter().find(|cte| cte.name == join.table) {
                         let qualified_name = format!("{}.{}", cte.name, column_name); // Fully qualify column name
                         if cte.schema.fields().iter().any(|field| *field.name() == qualified_name) {
                             let expr = col(&qualified_name);
-                            if let Some(ref alias) = alias {
-                                expressions.push(expr.alias(alias));
-                                selected_columns.push(alias.clone());
+                            if let Some(ref new_alias) = alias {
+                                expressions.push(expr.alias(new_alias.clone()));
+                                selected_columns.push(new_alias.clone());
                             } else {
                                 expressions.push(expr);
                                 selected_columns.push(qualified_name.clone());
@@ -1861,21 +2021,21 @@ impl CustomDataFrame {
                     }
                 }
             }
-    
+
             // Fallback to table alias resolution for normal columns
             if !expr_resolved {
                 let col_name = normalize_column_name(c);
                 let expr = col_with_relation(&self.table_alias, &col_name);
-                if let Some(ref alias) = alias {
-                    expressions.push(expr.alias(alias));
-                    selected_columns.push(alias.clone());
+                if let Some(ref new_alias) = alias {
+                    expressions.push(expr.alias(new_alias.clone()));
+                    selected_columns.push(new_alias.clone());
                 } else {
                     expressions.push(expr);
                     selected_columns.push(col_name);
                 }
                 expr_resolved = true;
             }
-    
+
             if !expr_resolved {
                 panic!(
                     "Column '{}' not found in current table schema, alias map, or CTEs.",
@@ -1883,10 +2043,12 @@ impl CustomDataFrame {
                 );
             }
         }
-    
+
         self.selected_columns = selected_columns.clone();
         self.df = self.df.select(expressions).expect("Failed to apply SELECT.");
-    
+
+        // println!("SELECT Schema: {:?}", self.df.schema());
+
         // Update query string
         self.query = format!(
             "SELECT {} FROM {}",
@@ -1897,31 +2059,106 @@ impl CustomDataFrame {
                 .join(", "),
             self.table_alias
         );
-    
+
         self
     }
     
     /// GROUP BY clause
     pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
-        let group_exprs: Vec<Expr> = group_columns
+        let mut resolved_group_columns = Vec::new();
+        let schema = self.df.schema();
+
+        for col in group_columns {
+            //normalize columns
+            let normalized_col = normalize_column_name(col);
+            // Check if the column name is fully qualified
+            if normalized_col.contains('.') {
+                resolved_group_columns.push(col.to_string());
+                continue;
+            }
+
+            // Count how many times the column name appears across all tables
+            let count = schema.fields().iter().filter(|field| field.name().ends_with(&format!(".{}", col))).count();
+
+            if count > 1 {
+                panic!(
+                    "Ambiguous column reference '{}'. Please qualify it with the table alias (e.g., 'table.{}').",
+                    col, col
+                );
+            } else if count == 1 {
+                // Find the fully qualified column name
+                let qualified_col = schema.fields()
+                    .iter()
+                    .find(|field| field.name().ends_with(&format!(".{}", col)))
+                    .unwrap()
+                    .name()
+                    .clone();
+                resolved_group_columns.push(qualified_col);
+            } else {
+                // Column does not have a table alias, assume it's unique and present
+                resolved_group_columns.push(col.to_string());
+            }
+        }
+
+        let group_exprs: Vec<Expr> = resolved_group_columns
             .iter()
-            .map(|&col_name| col(col_name))
+            .map(|col_name| {
+                if col_name.contains('.') {
+                    col(col_name)
+                } else {
+                    col_with_relation(&self.table_alias, col_name)
+                }
+            })
             .collect();
-    
+
         let aggregate_exprs: Vec<Expr> = self
             .aggregations
             .iter()
             .map(|(_, expr)| expr.clone())
             .collect();
-    
+
         self.df = self
             .df
             .aggregate(group_exprs, aggregate_exprs)
             .expect("Failed to apply GROUP BY.");
-    
+
         self.aggregated_df = Some(self.df.clone());
+        self.group_by_columns = resolved_group_columns; // Update group_by_columns with resolved names
         self
     }
+
+    // pub fn group_by(mut self, group_columns: Vec<&str>) -> Result<Self, ElusionError> {
+    //     let mut resolved_group_columns = Vec::new();
+    //     let schema = self.df.schema();
+
+    //     for col in group_columns {
+    //         let resolved_col = if col.contains('.') {
+    //             col.to_string().to_lowercase()
+    //         } else {
+    //             format!("{}.{}", self.table_alias, col).to_lowercase()
+    //         };
+    //         resolved_group_columns.push(resolved_col);
+    //     }
+
+    //     let group_exprs: Vec<Expr> = resolved_group_columns
+    //         .iter()
+    //         .map(|col_name| col(col_name))
+    //         .collect();
+
+    //     let aggregate_exprs: Vec<Expr> = self
+    //         .aggregations
+    //         .iter()
+    //         .map(|(_, expr)| expr.clone())
+    //         .collect();
+
+    //     self.df = self
+    //         .df
+    //         .aggregate(group_exprs, aggregate_exprs)
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to apply GROUP BY: {}", e)))?;
+
+    //     self.group_by_columns = resolved_group_columns; // Update group_by_columns with resolved names
+    //     Ok(self)
+    // }
     
     /// ORDER BY clause
     pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
@@ -1929,32 +2166,73 @@ impl CustomDataFrame {
             columns.len() == ascending.len(),
             "The number of columns and sort directions must match"
         );
-    
+
         let mut sort_exprs = Vec::new();
-    
+        let schema = self.df.schema();
+
         for (&col_name, &asc) in columns.iter().zip(ascending.iter()) {
-            let is_agg_alias = self.aggregations.iter().any(|(alias, _)| alias == col_name);
-            let is_group_col = self.group_by_columns.iter().any(|gc| gc == col_name);
-            
-            let expr = if is_agg_alias || is_group_col {
-                col(col_name)
+
+            //normalize column names
+            let lower_col_name = normalize_column_name(col_name);
+            // Check if the column is an aggregation alias
+            if self.aggregations.iter().any(|(alias, _)| alias == &lower_col_name) {
+                // Use the aggregation alias directly
+                sort_exprs.push(SortExpr {
+                    expr: col(col_name),
+                    asc,
+                    nulls_first: true,
+                });
+                continue;
+            }
+
+            // Check if the column name is fully qualified
+            if col_name.contains('.') {
+                // Use the fully qualified column name directly
+                sort_exprs.push(SortExpr {
+                    expr: col(col_name),
+                    asc,
+                    nulls_first: true,
+                });
+                continue;
+            }
+
+            // Count how many times the column appears across all tables
+            let count = schema.fields().iter().filter(|field| field.name().ends_with(&format!(".{}", col_name))).count();
+
+            if count > 1 {
+                panic!(
+                    "Ambiguous column reference '{}'. Please qualify it with the table alias (e.g., 'table.{}').",
+                    col_name, col_name
+                );
+            } else if count == 1 {
+                // Find the fully qualified column name
+                let qualified_col = schema.fields()
+                    .iter()
+                    .find(|field| field.name().ends_with(&format!(".{}", col_name)))
+                    .unwrap()
+                    .name()
+                    .clone();
+                sort_exprs.push(SortExpr {
+                    expr: col(&qualified_col),
+                    asc,
+                    nulls_first: true,
+                });
             } else {
-                col(col_name)
-            };
-    
-            sort_exprs.push(SortExpr {
-                expr,
-                asc,
-                nulls_first: true,
-            });
+                // Column does not have a table alias and is assumed to be unique
+                sort_exprs.push(SortExpr {
+                    expr: col(col_name),
+                    asc,
+                    nulls_first: true,
+                });
+            }
         }
-    
+
         self.df = self.df.sort(sort_exprs).expect("Failed to apply ORDER BY.");
-    
+
         for (c, a) in columns.into_iter().zip(ascending.into_iter()) {
             self.order_by_columns.push((c.to_string(), a));
         }
-    
+
         self
     }
     
@@ -1965,40 +2243,65 @@ impl CustomDataFrame {
         self.aggregated_df = None; 
         self
     }
+
     
     ///FILTER clause
+    /// Applies a WHERE filter with automatic lowercasing
     pub fn filter(mut self, condition: &str) -> Self {
-        let expr = self.parse_condition_for_filter(condition);
-        self.df = self.df.filter(expr).expect("Failed to apply WHERE filter");
-        self.where_conditions.push(condition.to_string());
+        // Normalize the condition string to lowercase
+        let normalized_condition = normalize_condition(condition);
+
+        // Parse the normalized condition
+        let expr = self.parse_condition_for_filter(&normalized_condition);
+
+        // Apply the filter
+        self.df = self.df.filter(expr).expect("Can't apply Filter funciton.");
+
+        // Store the normalized condition
+        self.where_conditions.push(normalized_condition);
+
         self
     }
 
+    /// Applies a HAVING filter with automatic lowercasing
     pub fn having(mut self, condition: &str) -> Self {
         if self.aggregations.is_empty() {
-            panic!("HAVING must be applied after aggregation and group_by.");
+           panic!("HAVING must be applied after aggregation and group_by.");
         }
-    
-        let expr = Self::parse_condition_for_having(condition, &self.alias_map);
-    
+        // Normalizing to lowercase
+        let normalized_condition = normalize_condition(condition);
+
+        // Parsing normalized condition
+        let expr = Self::parse_condition_for_having(&normalized_condition, &self.alias_map);
+
         let agg_df = self.aggregated_df.as_ref().expect("Aggregated DataFrame not set after group_by()");
+
         let new_agg_df = agg_df
-            .clone()
-            .filter(expr)
-            .expect("Failed to apply HAVING filter.");
-    
-        self.aggregated_df = Some(new_agg_df);
-        self.having_conditions.push(condition.to_string());
+        .clone()
+        .filter(expr)
+        .expect("Failed to apply HAVING filter.");
+
+        // Update the aggregated DataFrame
+        self.aggregated_df = Some(new_agg_df.clone());
+
+        // Update the main DataFrame to the filtered aggregated DataFrame
+        self.df = new_agg_df;
+
+        // Store the normalized condition
+        self.having_conditions.push(normalized_condition);
+
         self
     }
+    
     
     /// JOIN clause
     pub fn join(
         mut self,
-         other: CustomDataFrame,
+        other: CustomDataFrame,
         condition: &str,
         join_type: &str,
     ) -> Self {
+        // Map join type string to DataFusion's JoinType
         let join_type_enum = match join_type.to_uppercase().as_str() {
             "INNER" => JoinType::Inner,
             "LEFT" => JoinType::Left,
@@ -2011,59 +2314,28 @@ impl CustomDataFrame {
             "LEFT MARK" => JoinType::LeftMark,
             _ => panic!("Unsupported join type: {}", join_type),
         };
-    
+
         // Parse the join condition
         let condition_parts: Vec<&str> = condition.split("==").map(|s| s.trim()).collect();
         if condition_parts.len() != 2 {
-            panic!("Invalid join condition format. Use: 'table.column == table.column'");
+            panic!("Unsupported join type: {}", join_type);
         }
-    
+
         let left_col = condition_parts[0];
         let right_col = condition_parts[1];
-    
-        let left_table = left_col.split('.').next().unwrap();
-        let right_table = right_col.split('.').next().unwrap();
-    
-        let left_column = left_col.split('.').last().unwrap();
-        let right_column = right_col.split('.').last().unwrap();
-    
-        let left_df = if let Some(cte) = self.ctes.iter().find(|cte| cte.name == left_table) {
-            cte.cte_df.df.clone()
-        } else {
-            self.df.clone()
-        };
-    
-        let right_df = if let Some(cte) = self.ctes.iter().find(|cte| cte.name == right_table) {
-            cte.cte_df.df.clone()
-        } else {
-            other.df.clone()
-        };
-    
-        self.df = left_df
-            .join(
-                right_df,
-                join_type_enum,
-                &[left_column],
-                &[right_column],
-                None,
-            )
-            .expect("Failed to apply JOIN.");
-    
-        self.joins.push(JoinClause {
-            join_type: join_type_enum,
-            table: if let Some(cte) = self.ctes.iter().find(|cte| cte.name == right_table) {
-                cte.name.clone() 
-            } else {
-                other.table_alias.clone() 
-            },
-            alias: other.table_alias.clone(),
-            on_left: left_col.to_string(),
-            on_right: right_col.to_string(),
-        });
-    
+
+        // Perform the join using DataFusion's API directly
+        self.df = self.df.join(
+            other.df,
+            join_type_enum,
+            &[left_col],
+            &[right_col],
+            None,
+        ).expect("Failed to apply JOIN.");
+
+        // println!("Schema after simple join: {:?}", self.df.schema());
         self
     }
-    
 
     /// WINDOW CLAUSE
     pub fn window(
@@ -2082,6 +2354,28 @@ impl CustomDataFrame {
             order_by: order_by.into_iter().map(|s| s.to_string()).collect(),
             alias: alias.map(|s| s.to_string()),
         });
+        self
+    }
+
+    //========= Functions on COlumns
+    /// CAST function
+    pub fn add_column_with_cast(mut self, column: &str, new_alias: &str, data_type: &str) -> Self {
+        let expr = format!("CAST({} AS {}) AS {}", column, data_type, new_alias);
+        self.selected_columns.push(expr);
+        self
+    }
+
+    /// TRIM funciton
+    pub fn add_column_with_trim(mut self, column: &str, new_alias: &str) -> Self {
+        let expr = format!("TRIM({}) AS {}", column, new_alias);
+        self.selected_columns.push(expr);
+        self
+    }
+
+    /// REGEX function
+    pub fn add_column_with_regex(mut self, column: &str, pattern: &str, new_alias: &str) -> Self {
+        let expr = format!("REGEXP_REPLACE({}, '{}', '') AS {}", column, pattern, new_alias);
+        self.selected_columns.push(expr);
         self
     }
 
@@ -2163,6 +2457,16 @@ impl CustomDataFrame {
     }
     
    
+    /// DISPLAY Query Plan
+    pub fn display_query_plan(&self) {
+        println!("Generated Logical Plan:");
+        println!("{:?}", self.df.logical_plan());
+    }
+    
+    /// Displays the current schema for debugging purposes.
+    pub fn display_schema(&self) {
+        println!("Current Schema for '{}': {:?}", self.table_alias, self.df.schema());
+    }
 
     /// Dipslaying query genereated from chained functions
     pub fn display_query(&self) {
@@ -2176,220 +2480,7 @@ impl CustomDataFrame {
             DataFusionError::Execution(format!("Failed to display DataFrame: {}", e))
         })
     }
-    // pub fn display(&self) -> BoxFuture<'_, ElusionResult<()>> {
-    //     let df = self.aggregated_df.as_ref().unwrap_or(&self.df);
     
-    //     Box::pin(async move {
-    //         let batches = df.clone().collect().await?;
-    //         let schema = df.schema();
-    
-    //         let column_names = schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>();
-    
-    //         let header_row = column_names
-    //             .iter()
-    //             .map(|name| format!("{:<20}", name))
-    //             .collect::<Vec<String>>()
-    //             .join(" | ");
-    //         println!("{}", header_row);
-    
-    //         let separator_row = column_names
-    //             .iter()
-    //             .map(|_| format!("{}", "-".repeat(20)))
-    //             .collect::<Vec<String>>()
-    //             .join(" | ");
-    //         println!("{}", separator_row);
-    
-    //         let mut row_count = 0;
-    //         'outer: for batch in &batches {
-    //             for row in 0..batch.num_rows() {
-    //                 if row_count >= 100 {
-    //                     break 'outer;
-    //                 }
-    
-    //                 let mut row_data = Vec::new();
-    //                 for (col_idx, column) in batch.columns().iter().enumerate() {
-    //                     let field = schema.field(col_idx);
-    //                     let value = if let Some(array) = column.as_any().downcast_ref::<StringArray>() {
-    //                         array.value(row).to_string()
-    //                     } 
-    //                      // Boolean
-    //                      else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BooleanArray>() {
-    //                         array.value(row).to_string()
-    //                     }
-                        
-    //                     // Integers
-    //                     else if let Some(array) = column.as_any().downcast_ref::<Int32Array>() {
-    //                         array.value(row).to_string()
-    //                     } else if let Some(array) = column.as_any().downcast_ref::<Int64Array>() {
-    //                         array.value(row).to_string()
-    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt32Array>() {
-    //                         array.value(row).to_string()
-    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::UInt64Array>() {
-    //                         array.value(row).to_string()
-    //                     }
-                        
-    //                     // Floats
-    //                     else if let Some(array) = column.as_any().downcast_ref::<Float64Array>() {
-    //                         format!("{:.4}", array.value(row))
-    //                     } 
-    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::Float32Array>() {
-    //                         format!("{:.4}", array.value(row))
-    //                     }
-    //                     else if let Some(array) = column.as_any().downcast_ref::<Decimal128Array>() {
-    //                         if let ArrowDataType::Decimal128(precision, scale) = field.data_type() {
-    //                             let raw_value = array.value(row);
-    //                             let negative = raw_value < 0;
-    //                             let abs_value = raw_value.abs();
-    //                             let mut digits_str = abs_value.to_string();
-    //                             let digits_len = digits_str.len();
-    //                             let scale_usize = *scale as usize;
-    //                             let precision_usize = *precision as usize;
-                        
-    //                             // if the number of digits is less than the scale, pad with leading zeros
-    //                             // scale=4, digits="12" => needed_zeros=2 => "0.0012"
-    //                             if scale_usize > 0 {
-    //                                 if digits_len > scale_usize {
-    //                                     let point_pos = digits_len - scale_usize;
-    //                                     digits_str.insert(point_pos, '.');
-    //                                 } else {
-    //                                     let needed_zeros = scale_usize - digits_len;
-    //                                     let zero_padding = "0".repeat(needed_zeros);
-    //                                     digits_str = format!("0.{}{}", zero_padding, digits_str);
-    //                                 }
-    //                             }
-                        
-    //                             if negative {
-    //                                 digits_str.insert(0, '-');
-    //                             }
-                        
-    //                             let total_digits = digits_str.chars().filter(|c| c.is_ascii_digit()).count();
-                        
-    //                             // if total digits exceed precision, truncate from the right.
-    //                             // precision=5, number="123456.78" => too many digits, truncate extra from right.
-    //                             if total_digits > precision_usize {
-                                    
-    //                                 let excess = total_digits - precision_usize;
-    //                                 let mut digit_count = 0;
-    //                                 let mut chars: Vec<char> = digits_str.chars().collect();
-    //                                 while digit_count < excess {
-    //                                     // Remove characters from the end that are digits, skipping decimal and sign
-    //                                     if let Some(ch) = chars.pop() {
-    //                                         if ch.is_ascii_digit() {
-    //                                             digit_count += 1;
-    //                                         } else {
-    //                                             chars.push(ch);
-    //                                             break;
-    //                                         }
-    //                                     } else {
-    //                                         break;
-    //                                     }
-    //                                 }
-                        
-    //                                 // if we end with a trailing '.', remove it
-    //                                 if chars.last() == Some(&'.') {
-    //                                     chars.pop();
-    //                                 }
-                        
-    //                                 digits_str = chars.into_iter().collect();
-    //                             }
-                        
-    //                             digits_str
-    //                         } else {
-    //                             array.value(row).to_string()
-    //                         }
-    //                     }
-                        
-                        
-                        
-    //                     //DATE 32   
-    //                     else if let Some(array) = column.as_any().downcast_ref::<Date32Array>() {
-    //                         let days_since_epoch = array.value(row);
-    //                         NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch)
-    //                             .map(|d| d.to_string())
-    //                             .unwrap_or_else(|| "Invalid date".to_string())
-    //                     }  
-    //                     // Date64 (milliseconds since epoch)
-    //                     else if let Some(array) = column.as_any().downcast_ref::<Date64Array>() {
-    //                         let millis_since_epoch = array.value(row);
-    //                         let days_since_epoch = millis_since_epoch / (1000 * 60 * 60 * 24);
-    //                         NaiveDate::from_num_days_from_ce_opt(1970 * 365 + days_since_epoch as i32)
-    //                             .map(|d| d.to_string())
-    //                             .unwrap_or_else(|| "Invalid date".to_string())
-    //                     }
-                        
-                        
-    //                   // Timestamps
-    //                 //   else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampNanosecondArray>() {
-    //                 //     // Timestamp is in nanoseconds
-    //                 //     let nanos = array.value(row);
-    //                 //     chrono::NaiveDateTime::from_timestamp_nanos(nanos)
-    //                 //         .map(|d| d.to_string())
-    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMicrosecondArray>() {
-    //                 //     // Timestamp is in microseconds
-    //                 //     let micros = array.value(row);
-    //                 //     chrono::NaiveDateTime::from_timestamp_micros(micros)
-    //                 //         .map(|d| d.to_string())
-    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampMillisecondArray>() {
-    //                 //     // Timestamp is in milliseconds
-    //                 //     let millis = array.value(row);
-    //                 //     chrono::NaiveDateTime::from_timestamp_millis(millis)
-    //                 //         .map(|d| d.to_string())
-    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-    //                 // } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::TimestampSecondArray>() {
-    //                 //     // Timestamp is in seconds
-    //                 //     let sec = array.value(row);
-    //                 //     chrono::NaiveDateTime::from_timestamp_opt(sec, 0)
-    //                 //         .map(|d| d.to_string())
-    //                 //         .unwrap_or_else(|| "Invalid timestamp".to_string())
-    //                 // }
-                    
-
-
-    //                     // Binary data
-    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::BinaryArray>() {
-    //                         let bytes = array.value(row);
-    //                         format!("0x{}", hex::encode(bytes))
-    //                     } else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeBinaryArray>() {
-    //                         let bytes = array.value(row);
-    //                         format!("0x{}", hex::encode(bytes))
-    //                     }
-    //                     // Large string
-    //                     else if let Some(array) = column.as_any().downcast_ref::<arrow::array::LargeStringArray>() {
-    //                         array.value(row).to_string()
-    //                     }    
-
-    //                     else {
-    //                         "Unsupported Type".to_string()
-    //                     };
-    
-    //                     row_data.push(value);
-    //                 }
-    
-    //                 let formatted_row = row_data
-    //                     .iter()
-    //                     .map(|v| format!("{:<20}", v))
-    //                     .collect::<Vec<String>>()
-    //                     .join(" | ");
-    //                 println!("{}", formatted_row);
-    
-    //                 row_count += 1;
-    //             }
-    //         }
-    
-    //         if row_count == 0 {
-    //             println!("No data to display.");
-    //         } else if row_count < 100 {
-    //             println!("\nDisplayed limit() number of rows.");
-    //         } else {
-    //             println!("\nDisplayed the first 100 rows.");
-    //         }
-    
-    //         Ok(())
-    //     })
-    // }
-
     // ====================== WRITERS ==================== //
     
     /// Write the DataFrame to a Parquet file.
@@ -2644,4 +2735,158 @@ impl CustomDataFrame {
         Ok(())
     }
 
+    // / Writes the DataFrame to a Delta Lake table in either "overwrite" or "append" mode.
+    // /
+    // / # Arguments
+    // /
+    // / * `mode` - The write mode, either "overwrite" or "append".
+    // / * `path` - The directory path where the Delta table resides or will be created.
+    // / * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
+    // /
+    // / # Returns
+    // /
+    // / * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
+    // pub async fn write_to_delta_table(
+    //     &self,
+    //     mode: &str,
+    //     path: &str,
+    //     options: Option<DataFrameWriteOptions>, // Extend this if Delta-specific options are needed
+    // ) -> ElusionResult<()> {
+    //     // Validate write mode
+    //     match mode {
+    //         "overwrite" | "append" | "merge" => (),
+    //         _ => {
+    //             return Err(ElusionError::Custom(format!(
+    //                 "Unsupported write mode: '{}'. Use 'overwrite', 'append', or 'merge'.",
+    //                 mode
+    //             )));
+    //         }
+    //     }
+
+    //     // Extract options or use defaults
+    //     let write_options = options.unwrap_or_default();
+    //     let batch_size = write_options.batch_size.unwrap_or(10000);
+    //     let transaction_size = write_options.transaction_size.unwrap_or(100000);
+
+    //     // Check if the Delta table exists using the correct method
+    //     let table_exists = DeltaTable::is_delta_table(path).await.map_err(|e| {
+    //         ElusionError::Custom(format!(
+    //             "Failed to check if Delta table exists at '{}': {}",
+    //             path, e
+    //         ))
+    //     })?;
+
+    //     // Handle write modes with transaction support
+    //     let mut delta_table = match mode {
+    //         "overwrite" => {
+    //             if table_exists {
+    //                 // Delete the existing Delta table directory
+    //                 fs::remove_dir_all(path).map_err(|e| {
+    //                     ElusionError::Custom(format!(
+    //                         "Failed to remove existing Delta table at '{}': {}",
+    //                         path, e
+    //                     ))
+    //                 })?;
+    //             }
+
+    //             // Create a new DeltaTable with the DataFrame's schema and partitioning
+    //             DeltaTable::create(path)
+    //                 .with_columns(self.df.dataframe.schema().clone())
+    //                 .with_partition_columns(
+    //                     write_options.partition_columns.clone().unwrap_or_default(),
+    //                 )
+    //                 .await
+    //         }
+    //         "append" => {
+    //             if !table_exists {
+    //                 return Err(ElusionError::Custom(format!(
+    //                     "Append mode requires an existing Delta table at '{}'",
+    //                     path
+    //                 )));
+    //             }
+    //             // Load the existing DeltaTable
+    //             DeltaTable::load(path).await
+    //         }
+    //         "merge" => {
+    //             if !table_exists {
+    //                 return Err(ElusionError::Custom(
+    //                     "Merge mode requires an existing Delta table".to_string(),
+    //                 ));
+    //             }
+    //             // Loading the table for merge operations
+    //             DeltaTable::load(path).await
+    //         }
+    //         _ => unreachable!(),
+    //     }
+    //     .map_err(|e| ElusionError::Custom(format!("DeltaTable operation failed: {}", e)))?;
+
+    //     // Retrieve partition columns from the Delta table metadata
+    //     let partition_columns = delta_table.get_meta().schema().partition_cols.clone();
+
+    //     // Initialize the RecordBatchWriter with configuration
+    //     let mut writer = RecordBatchWriter::for_table(&delta_table)
+    //         .map_err(|e| {
+    //             ElusionError::Custom(format!(
+    //                 "Failed to create RecordBatchWriter for table '{}': {}",
+    //                 path, e
+    //             ))
+    //         })?;
+
+    //     // Collect RecordBatches from the DataFrame
+    //     let batches = self.df.dataframe.collect().await.map_err(|e| {
+    //         ElusionError::DataFusion(DataFusionError::Execution(format!(
+    //             "Failed to collect RecordBatches from DataFrame: {}",
+    //             e
+    //         )))
+    //     })?;
+
+    //     // Iterate through each RecordBatch and write to Delta table
+    //     for batch in batches {
+    //         // Determine partition values based on partition columns
+    //         let partition_values = if !partition_columns.is_empty() {
+    //             get_partition_values(&batch, &partition_columns)
+    //         } else {
+    //             HashMap::new() // No partitioning
+    //         };
+
+    //         // Choose WriteMode based on your requirements
+    //         // Here, using Default which will error if schemas do not match
+    //         let write_mode = WriteMode::Default;
+
+    //         // Write the RecordBatch to the Delta table
+    //         writer
+    //             .write_partition(batch.clone(), &partition_values, write_mode)
+    //             .await
+    //             .map_err(|e| {
+    //                 ElusionError::Custom(format!("Failed to write RecordBatch to Delta table: {}", e))
+    //             })?;
+    //     }
+
+    //     // Flush and commit the writer to finalize the writes
+    //     writer
+    //         .flush_and_commit(&mut delta_table)
+    //         .await
+    //         .map_err(|e| {
+    //             ElusionError::Custom(format!(
+    //                 "Failed to flush and commit to Delta table: {}",
+    //                 e
+    //             ))
+    //         })?;
+
+    //     // Confirm successful write
+    //     match mode {
+    //         "overwrite" => println!("Data successfully overwritten to Delta table at '{}'.", path),
+    //         "append" => println!("Data successfully appended to Delta table at '{}'.", path),
+    //         "merge" => println!("Data successfully merged into Delta table at '{}'.", path),
+    //         _ => unreachable!(),
+    //     }
+
+    //     Ok(())
+    // }
+
+
+
+
 }
+
+
