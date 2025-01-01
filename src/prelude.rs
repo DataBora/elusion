@@ -8,11 +8,11 @@ pub use datafusion::prelude::SessionContext;
 
 pub use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use datafusion::arrow::datatypes::SchemaBuilder;
-pub use datafusion::arrow::array::{
-    Array, ArrayRef, StringArray,StringBuilder, Date32Array, Date64Array, Float64Array, Decimal128Array,
-    Int32Array, Int64Array, ArrayBuilder, BinaryBuilder, BooleanBuilder, Float64Builder, Float32Builder,
-    Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, 
-     Date32Builder, BinaryArray, BooleanArray, UInt64Array, UInt32Array
+pub use arrow::array::{
+    Array, ArrayRef, StringArray,StringBuilder, Date32Array, Decimal128Array,
+     ArrayBuilder, BinaryBuilder, BooleanBuilder, Float64Builder, Float32Builder,
+    Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, Date32Builder, Scalar,
+    Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array
 };
 pub use datafusion::arrow::record_batch::RecordBatch;
 pub use arrow::error::Result as ArrowResult;
@@ -49,8 +49,12 @@ pub use crate::{AggregationBuilder, CustomDataFrame, SQLDataType, AliasedDataFra
 
 pub use crate::{ElusionError, ElusionResult};
 
-// DataFusion Imports
-// pub use datafusion::prelude::*;
+//DElta imports
+// pub use deltalake::writer::{RecordBatchWriter, WriteMode};
+// pub use deltalake::{DeltaTable, DeltaTableError};
+// pub use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
+// pub use datafusion::common::ScalarValue;
+// pub use datafusion::arrow::datatypes::TimeUnit;
 
 
 

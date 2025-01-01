@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.3"
+elusion = "0.2.4"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ---
@@ -138,6 +138,7 @@ let df_customers = CustomDataFrame::new(customers_data, customers_columns, "cust
 ```
 ## RULE of thumb: 
 #### ALL Column names and Dataframe alias names, will be LOWERCASE(), TRIM(), REPLACE(" ", "_"), regardles of how you write it, or how they are writen in CSV file.
+### Aggregation column Aliases will be LOWERCASE() regardles of how you write it.
 
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
@@ -145,7 +146,21 @@ let customers_alias = df_customers
     .select(vec!["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
 ```
 ### JOIN
+#### currently implemented join types
 ```rust
+"INNER" => JoinType::Inner,
+"LEFT" => JoinType::Left,
+"RIGHT" => JoinType::Right,
+"FULL" => JoinType::Full,
+"LEFT SEMI" => JoinType::LeftSemi,
+"RIGHT SEMI" => JoinType::RightSemi,
+"LEFT ANTI" => JoinType::LeftAnti,
+"RIGHT ANTI" => JoinType::RightAnti,
+"LEFT MARK" => JoinType::LeftMark,
+```
+#### JOIN example with 2 dataframes
+```rust
+// join with 2 dataframes
 let join_df = df_sales
     .join(
         df_customers,
@@ -163,7 +178,43 @@ let join_df = df_sales
     join_df.display_query(); // if you want to see generated sql query
     join_df.display().await?;
 ```
-
+### JOIN with 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
+```rust
+let result_three = df_sales
+    .join(
+        df_customers,
+        "sales.CustomerKey == customers.CustomerKey",
+        "INNER"
+    )
+    .join(
+        df_products,
+        "sales.ProductKey == products.ProductKey",
+        "INNER"
+    )
+    .aggregation(vec![
+        AggregationBuilder::new("OrderQuantity") 
+            .sum()
+            .alias("total_quantity") 
+    ])
+    .group_by(vec![
+        "sales.orderdate",
+        "customers.customerkey",     
+        "customers.firstname",       
+        "customers.lastname",       
+        "products.productname" 
+    ])
+    .having("total_quantity > 10")
+    .select(vec![
+        "sales.orderdate",
+        "customers.customerkey", 
+        "customers.firstname",
+        "customers.lastname",
+        "products.productname",
+        "total_quantity"  
+    ])
+    .order_by(vec!["total_quantity"], vec![false])
+    .limit(10);
+```
 ### SELECT without Aggregation
 ```rust
 let result_sales = sales_order_data
@@ -176,7 +227,7 @@ let result_sales = sales_order_data
     result_sales.display().await?;
 ```
 
-### SELECT with Aggregation
+### SELECT with Mulitiple Aggregations
 ```rust
 let result_df = sales_order_data
     .aggregation(vec![
@@ -192,7 +243,6 @@ let result_df = sales_order_data
     result_df.display_query(); // if you want to see generated sql query
     result_df.display().await?;
 ```
-
 ### FILTER 
 ```rust
  let result_sales = sales_order_data

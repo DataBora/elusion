@@ -1,3 +1,8 @@
+## [0.2.4] - 2025-01-01
+### Fixed
+- JOIN for multiple dataframes
+- HAVING and FILTER functions fixed
+
 ## [0.2.3] - 2024-12-29
 ### Added
 - CSV writer
