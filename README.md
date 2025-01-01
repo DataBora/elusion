@@ -1,5 +1,7 @@
 # Elusion 🦀 DataFrame Library for Everybody!
 
+![Elusion Logo](images/elusion.png)
+
 Elusion is a high-performance, for in-memory data formats (.csv, .json), DataFrame library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json).
