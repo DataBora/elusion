@@ -1,3 +1,8 @@
+## [0.2.5] - 2025-01-02
+### Added
+- PARQUET reader
+- Removed manual SCHEMA declaration, now CustomDataFrame::new() only need file path and alias 
+
 ## [0.2.4] - 2025-01-01
 ### Fixed
 - JOIN for multiple dataframes

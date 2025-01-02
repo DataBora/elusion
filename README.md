@@ -2,7 +2,7 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance, for in-memory data formats (.csv, .json), DataFrame library built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance DataFrame library, for in-memory data formats (.csv, .json, .parquet). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json).
 
@@ -45,7 +45,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.4"
+elusion = "0.2.5"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ---
@@ -67,14 +67,9 @@ use elusion::prelude::*; // Import everything needed
 
 #[tokio::main]
 async fn main() -> ElusionResult<()> {
-    let sales_columns = vec![
-        ("OrderDate", "DATE", false),
-        ("StockDate", "DATE", false),
-        ("OrderNumber", "VARCHAR", false),
-    ];
 
     let sales_data = "path\\to\\sales_data.csv";
-    let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await?;
+    let df_sales = CustomDataFrame::new(sales_data, "sales").await?;
 
     let result = df_sales
         .select(vec!["OrderDate", "OrderNumber"])
@@ -86,57 +81,23 @@ async fn main() -> ElusionResult<()> {
 }
 ```
 ### Schema establishing
-#### **Column Name**, **SQL DataType** and If is **Null**-able (true, false) needs to be provided
+#### SCHEMA IS AUTOMATICALLY INFERED from v0.3.0
 
+### LOADing Files into CustomDAtaFrame
+#### File extensions are automatically recognized 
+#### All you have to do is to provide path to your file
+#### Currently supported data files: CSV, PARQUET, JSON
 ```rust
-let sales_columns = vec![
-    ("OrderDate", "DATE", false),
-    ("OrderNumber", "VARCHAR", false),
-    ("ProductKey", "INT", false),
-    ("CustomerKey", "INT", true),
-    ("OrderQuantity", "INT", false)
-    ];
-
-let customers_columns = vec![
-    ("CustomerKey", "INT", true),
-    ("FirstName", "VARCHAR", true),
-    ("LastName", "VARCHAR", true),
-    ("EmailAddress", "VARCHAR", true),
-    ("AnnualIncome", "INT", true)
-];
+let sales_data = "C:\\Path\\To\\Your\\sales_data.csv";
+let parq_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
+let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
 ```
-### Currently supported SQL Data Types
-```rust
-"CHAR" => SQLDataType::Char,
-"VARCHAR" => SQLDataType::Varchar,
-"TEXT" | "STRING" => SQLDataType::Text,
-"TINYINT" => SQLDataType::TinyInt,
-"SMALLINT" => SQLDataType::SmallInt,
-"INT" | "INTEGER" => SQLDataType::Int,
-"BIGINT" => SQLDataType::BigInt,
-"FLOAT" => SQLDataType::Float,
-"DOUBLE" => SQLDataType::Double,
-"DECIMAL" => SQLDataType::Decimal(20, 4), 
-"NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
-"DATE" => SQLDataType::Date,
-"TIME" => SQLDataType::Time,
-"TIMESTAMP" => SQLDataType::Timestamp,
-"BOOLEAN" => SQLDataType::Boolean,
-"BYTEA" => SQLDataType::ByteA
-```
-
-### CSV file paths
+### Creating CustomDataFrame
+#### 2 arguments needed:  *Path**, **Table Alias**
 
 ```rust
-let sales_data = "C:\\Path\\To\\Your\\FIle.csv";
-let customers_data = "C:\\Path\\To\\Your\\FIle.csv";
-```
-### Creating Custom data frame 
-#### 3 arguments needed:  **Path**, **Schema**, **Table Alias**
-
-```rust
-let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
-let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await;
+let df_sales = CustomDataFrame::new(sales_data, "sales").await; 
+let df_customers = CustomDataFrame::new(customers_data, "customers").await;
 ```
 ## RULE of thumb: 
 #### ALL Column names and Dataframe alias names, will be LOWERCASE(), TRIM(), REPLACE(" ", "_"), regardles of how you write it, or how they are writen in CSV file.
@@ -177,12 +138,11 @@ let join_df = df_sales
     ])
     .limit(10);
         
-    join_df.display_query(); // if you want to see generated sql query
     join_df.display().await?;
 ```
 ### JOIN with 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
 ```rust
-let result_three = df_sales
+let three_joins = df_sales
     .join(
         df_customers,
         "sales.CustomerKey == customers.CustomerKey",
@@ -216,6 +176,8 @@ let result_three = df_sales
     ])
     .order_by(vec!["total_quantity"], vec![false])
     .limit(10);
+
+    three_joins.display().await?;
 ```
 ### SELECT without Aggregation
 ```rust
@@ -225,7 +187,6 @@ let result_sales = sales_order_data
     .order_by(vec!["order_date"], vec![true])
     .limit(10);
 
-    result_sales.display_query(); // if you want to see generated sql query
     result_sales.display().await?;
 ```
 
@@ -242,7 +203,6 @@ let result_df = sales_order_data
     .order_by(vec!["total_sales"], vec![false])
     .limit(10);
 
-    result_df.display_query(); // if you want to see generated sql query
     result_df.display().await?;
 ```
 ### FILTER 
@@ -253,61 +213,20 @@ let result_df = sales_order_data
     .order_by(vec!["order_date"], vec![true])
     .limit(10);
 
-    result_sales.display_query();   
     result_sales.display().await?;
 ```
 
 # Raw SQL Querying
 ### FULL SQL SUPPORT is available
 ```rust
-let sales_columns = vec![
-    ("OrderDate", "DATE", false),
-    ("StockDate", "DATE", false),
-    ("OrderNumber", "VARCHAR", false),
-    ("ProductKey", "INT", false),
-    ("CustomerKey", "INT", true),
-    ("TerritoryKey", "INT", false),
-    ("OrderLineItem", "INT", false),
-    ("OrderQuantity", "INT", false)
-];
-
-let customers_columns = vec![
-    ("CustomerKey", "INT", true),
-    ("Prefix", "VARCHAR", true),
-    ("FirstName", "VARCHAR", true),
-    ("LastName", "VARCHAR", true),
-    ("BirthDate", "DATE", true),
-    ("MaritialStatus", "CHAR", true),
-    ("Gender", "VARCHAR", true),
-    ("EmailAddress", "VARCHAR", true),
-    ("AnnualIncome", "INT", true),
-    ("TotalChildren", "INT", true),
-    ("EducationLevel", "VARCHAR", true),
-    ("Occupation", "VARCHAR", true),
-    ("HomeOwner","CHAR", true)
-];
-
-let products_columns = vec![
-    ("ProductKey", "INT", false),
-    ("ProductSubcategoryKey", "INT", false),
-    ("ProductSKU", "VARCHAR", false),
-    ("ProductName", "VARCHAR", false),
-    ("ModelName", "VARCHAR", false),
-    ("ProductDescription", "VARCHAR", false),
-    ("ProductColor", "VARCHAR", false),
-    ("ProductSize", "VARCHAR", false),
-    ("ProductStyle", "VARCHAR", false),
-    ("ProductCost", "DOUBLE", false),
-    ("ProductPrice", "DOUBLE", false),
-];
 
 let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
 let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
 let products_data = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
 
-let df_sales = CustomDataFrame::new(sales_data, sales_columns, "sales").await; 
-let df_customers = CustomDataFrame::new(customers_data, customers_columns, "customers").await; 
-let df_products = CustomDataFrame::new(products_data, products_columns, "products").await; 
+let df_sales = CustomDataFrame::new(sales_data, "sales").await; 
+let df_customers = CustomDataFrame::new(customers_data, "customers").await; 
+let df_products = CustomDataFrame::new(products_data, "products").await; 
 
 // Query on 1 DataFrame
 let sql_one = "
@@ -368,17 +287,16 @@ let sql_three = "
         TotalQuantity DESC
     LIMIT 100;
     ";
-
-    let result_three = df_sales.raw_sql(sql_three, "customer_product_sales_summary", &[&df_customers, &df_products]).await?;
+    // we need to provide dataframe names in raw_sql that are included in query, as well as new alias ex:"sales_summary" for further use of dataframe if needed
+    let result_three = df_sales.raw_sql(sql_three, "sales_summary", &[&df_customers, &df_products]).await?;
     result_three.display().await?;
 
 ```
 # JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
-#### Schema and CustomDataFrame are initialized same as for CSV files, 
-#### but for JSON all field types are tranfered to VARCHAR
+#### for JSON, all field types are infered to VARCHAR/TEXT/STRING
 ```rust
-//example json structure
+// example json structure
 {
 "name": "Adeel Solangi",
 "language": "Sindhi",
@@ -387,17 +305,10 @@ let sql_three = "
 "version": 6.1
 }
 
-let json_columns = vec![
-    ("name", "VARCHAR", true), 
-    ("language", "VARCHAR", true),          
-    ("id", "VARCHAR", true),          
-    ("bio", "VARCHAR", true), 
-    ("version", "VARCHAR", true)
-];
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
-let json_df = CustomDataFrame::new(json_path, json_columns, "test").await;
+let json_df = CustomDataFrame::new(json_path, "test").await;
 
-//example json structure
+// example json structure
 {
 "someGUID": "e0bsg4d-d81c-4db6-8ad8-bc92cbcfsds06",
 "someGUID2": "58asd1f6-c7ca-4c51-8ca0-37678csgd9c7",
@@ -419,32 +330,16 @@ let json_df = CustomDataFrame::new(json_path, json_columns, "test").await;
 "someGUID3": "5854ff6-c7ca-4c51-8ca0-3767sds4319c7|qId|7"
 }
 
-// For JSON files that has arrays and objects you can OPTIONALLY add .array .object, WORKS WITHOUT IT AS WELL
-let json_columns = vec![
-        ("someGUID", "VARCHAR", true), 
-        ("someGUID2", "VARCHAR", true),          
-        ("someName", "VARCHAR", true),          
-        ("someVersion", "VARCHAR", true), 
-        ("emptyValue", "VARCHAR", true),  
-        ("verInd.$numberLong", "VARCHAR", true),
-        ("elInd.$numberLong", "VARCHAR", true),
-        ("qId", "VARCHAR", true),
-        ("opId.$numberLong", "VARCHAR", true),
-        ("label", "VARCHAR", true),
-        ("labelValue", "VARCHAR", true),
-        ("someGUID3", "VARCHAR", true),        
-      
-    ];
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
-let json_df = CustomDataFrame::new(json_path, json_columns, "test2").await;
+let json_df = CustomDataFrame::new(json_path, "test2").await;
 ```
-#### Then you can do you business as usual either with DataFrame API or SQL API
+#### Then you can do business as usual, either with DataFrame API or SQL API
 
 ```rust
     let json_sql = "
         SELECT * FROM test LIMIT 10
     ";
-
+    // "labels" is set as new alias for result_json dataframe
     let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
     result_json.display().await?;
 ```

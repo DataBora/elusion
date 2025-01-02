@@ -6,7 +6,7 @@ pub use datafusion::dataframe::{DataFrame, DataFrameWriteOptions};
 pub use datafusion::datasource::MemTable;
 pub use datafusion::prelude::SessionContext;
 
-pub use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
+pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use datafusion::arrow::datatypes::SchemaBuilder;
 pub use arrow::array::{
     Array, ArrayRef, StringArray,StringBuilder, Date32Array, Decimal128Array,
@@ -45,7 +45,7 @@ pub use std::io::{self, BufRead, BufReader, Write, Read, BufWriter};
 
 pub use encoding_rs::WINDOWS_1252;
 
-pub use crate::{AggregationBuilder, CustomDataFrame, SQLDataType, AliasedDataFrame, CsvWriteOptions};
+pub use crate::{AggregationBuilder, CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 
 pub use crate::{ElusionError, ElusionResult};
 
