@@ -8,12 +8,12 @@ use datafusion::error::DataFusionError;
 use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 use std::sync::Arc;
-use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
+use arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
 use chrono::{NaiveDate,Datelike};
-use arrow::array::{StringBuilder,StringArray, Date32Array, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder, };
+use arrow::array::{StringBuilder,StringArray, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder, Date32Array };
 
 use arrow::record_batch::RecordBatch;
-use arrow::datatypes::{SchemaBuilder, SchemaRef};
+use arrow::datatypes::SchemaRef;
 use ArrowDataType::*;
 use arrow::csv::writer::WriterBuilder;
 
@@ -52,7 +52,7 @@ use arrow::error::Result as ArrowResult;
 
 // =========== ERRROR
 
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::error::Error;
 
 #[derive(Debug)]
@@ -90,136 +90,143 @@ pub type ElusionResult<T> = Result<T, ElusionError>;
 
 // =================== DATA TYPES CONVERSIONS ==================== //
 
-#[derive(Debug, Clone)]
-pub enum SQLDataType {
-    // Character Types
-    Char,
-    Varchar,
-    Text,
-    String,
+// #[derive(Debug, Clone)]
+// pub enum SQLDataType {
+//     // Character Types
+//     Char,
+//     Varchar,
+//     Text,
+//     String,
 
-    // Numeric Types
-    TinyInt,
-    SmallInt,
-    Int,
-    BigInt,
-    TinyIntUnsigned,
-    SmallIntUnsigned,
-    IntUnsigned,
-    BigIntUnsigned,
-    Float,
-    Real,
-    Double,
-    Decimal(u8, u8), // precision, scale
+//     // Numeric Types
+//     TinyInt,
+//     SmallInt,
+//     Int,
+//     BigInt,
+//     TinyIntUnsigned,
+//     SmallIntUnsigned,
+//     IntUnsigned,
+//     BigIntUnsigned,
+//     Float,
+//     Real,
+//     Double,
+//     Decimal(u8, u8), // precision, scale
 
-    // Date/Time Types
-    Date,
-    Time,
-    Timestamp,
-    Interval,
+//     // Date/Time Types
+//     Date,
+//     Time,
+//     Timestamp,
+//     Interval,
 
-    // Boolean Types
-    Boolean,
+//     // Boolean Types
+//     Boolean,
 
-    // Binary Types
-    ByteA,
+//     // Binary Types
+//     ByteA,
 
-    // Unsupported Types
-    Unsupported(String),
-}
+//     // Unsupported Types
+//     Unsupported(String),
+// }
 
-impl From<SQLDataType> for ArrowDataType {
-    fn from(sql_type: SQLDataType) -> Self {
-        match sql_type {
-            // Character Types
-            SQLDataType::Char | SQLDataType::Varchar | SQLDataType::Text | SQLDataType::String => ArrowDataType::Utf8,
+// impl From<SQLDataType> for ArrowDataType {
+//     fn from(sql_type: SQLDataType) -> Self {
+//         match sql_type {
+//             // Character Types
+//             SQLDataType::Char | SQLDataType::Varchar | SQLDataType::Text | SQLDataType::String => ArrowDataType::Utf8,
 
-            // Numeric Types
-            SQLDataType::TinyInt => ArrowDataType::Int8,
-            SQLDataType::SmallInt => ArrowDataType::Int16,
-            SQLDataType::Int => ArrowDataType::Int32,
-            SQLDataType::BigInt => ArrowDataType::Int64,
-            SQLDataType::TinyIntUnsigned => ArrowDataType::UInt8,
-            SQLDataType::SmallIntUnsigned => ArrowDataType::UInt16,
-            SQLDataType::IntUnsigned => ArrowDataType::UInt32,
-            SQLDataType::BigIntUnsigned => ArrowDataType::UInt64,
-            SQLDataType::Float | SQLDataType::Real => ArrowDataType::Float32,
-            SQLDataType::Double => ArrowDataType::Float64,
-            
-            
-            // SQLDataType::Decimal(precision, scale) => 
-            // {
-            //     let precision_u8 = precision.try_into().unwrap();
-            //     let scale_i8 = scale.try_into().unwrap();
-            //     ArrowDataType::Decimal128(precision_u8, scale_i8)
-            // }
-            SQLDataType::Decimal(precision, scale) => ArrowDataType::Decimal128(precision.into(), scale.try_into().unwrap()),
+//             // Numeric Types
+//             SQLDataType::TinyInt => ArrowDataType::Int8,
+//             SQLDataType::SmallInt => ArrowDataType::Int16,
+//             SQLDataType::Int => ArrowDataType::Int32,
+//             SQLDataType::BigInt => ArrowDataType::Int64,
+//             SQLDataType::TinyIntUnsigned => ArrowDataType::UInt8,
+//             SQLDataType::SmallIntUnsigned => ArrowDataType::UInt16,
+//             SQLDataType::IntUnsigned => ArrowDataType::UInt32,
+//             SQLDataType::BigIntUnsigned => ArrowDataType::UInt64,
+//             SQLDataType::Float | SQLDataType::Real => ArrowDataType::Float32,
+//             SQLDataType::Double => ArrowDataType::Float64,
+//             SQLDataType::Decimal(precision, scale) => ArrowDataType::Decimal128(precision.into(), scale.try_into().unwrap()),
 
-            // Date/Time Types
-            SQLDataType::Date => ArrowDataType::Date32,
-            SQLDataType::Time => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Nanosecond),
-            SQLDataType::Timestamp => ArrowDataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Nanosecond, None),
-            SQLDataType::Interval => ArrowDataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano),
+//             // Date/Time Types
+//             SQLDataType::Date => ArrowDataType::Date32,
+//             SQLDataType::Time => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Nanosecond),
+//             SQLDataType::Timestamp => ArrowDataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Nanosecond, None),
+//             SQLDataType::Interval => ArrowDataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano),
 
-            // Boolean Types
-            SQLDataType::Boolean => ArrowDataType::Boolean,
+//             // Boolean Types
+//             SQLDataType::Boolean => ArrowDataType::Boolean,
 
-            // Binary Types
-            SQLDataType::ByteA => ArrowDataType::Binary,
+//             // Binary Types
+//             SQLDataType::ByteA => ArrowDataType::Binary,
 
-            // Unsupported
-            SQLDataType::Unsupported(msg) => panic!("Unsupported SQL type: {}", msg),
-        }
-    }
-}
+//             // Unsupported
+//             SQLDataType::Unsupported(msg) => panic!("Unsupported SQL type: {}", msg),
+//         }
+//     }
+// }
 
-impl SQLDataType {
-    pub fn from_str(data_type: &str) -> Self {
-        match data_type.to_uppercase().as_str() {
-            "CHAR" => SQLDataType::Char,
-            "VARCHAR" => SQLDataType::Varchar,
-            "TEXT" | "STRING" => SQLDataType::Text,
-            "TINYINT" => SQLDataType::TinyInt,
-            "SMALLINT" => SQLDataType::SmallInt,
-            "INT" | "INTEGER" => SQLDataType::Int,
-            "BIGINT" => SQLDataType::BigInt,
-            "FLOAT" => SQLDataType::Float,
-            "DOUBLE" => SQLDataType::Double,
-            "DECIMAL" => SQLDataType::Decimal(20, 4), 
-            "NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
-            "DATE" => SQLDataType::Date,
-            "TIME" => SQLDataType::Time,
-            "TIMESTAMP" => SQLDataType::Timestamp,
-            "BOOLEAN" => SQLDataType::Boolean,
-            "BYTEA" => SQLDataType::ByteA,
-            _ => SQLDataType::Unsupported(data_type.to_string()),
-        }
-    }
-}
+// impl SQLDataType {
+//     pub fn from_str(data_type: &str) -> Self {
+//         match data_type.to_uppercase().as_str() {
+//             "CHAR" => SQLDataType::Char,
+//             "VARCHAR" => SQLDataType::Varchar,
+//             "TEXT" | "STRING" | "UTF8" | "UTF8VIEW" | "UTF8LARGE" => SQLDataType::Varchar,
+//             // Signed Integer Types
+//             "TINYINT" | "INT8" => SQLDataType::TinyInt,
+//             "SMALLINT" | "INT16" => SQLDataType::SmallInt,
+//             "INT" | "INTEGER" | "INT32" => SQLDataType::Int,
+//             "BIGINT" | "INT64" => SQLDataType::BigInt,
+//             //integers unsigned
+//             "UINT8" => SQLDataType::TinyIntUnsigned,
+//             "UINT16" => SQLDataType::SmallIntUnsigned,
+//             "UINT32" => SQLDataType::IntUnsigned,
+//             "UINT64" => SQLDataType::BigIntUnsigned,
+//             // decimals/float poiint 
+//             "FLOAT" | "FLOAT32" => SQLDataType::Float,
+//             "DOUBLE" | "FLOAT64" => SQLDataType::Double,
+//             "DECIMAL" => SQLDataType::Decimal(20, 4), 
+//             "NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
 
-impl From<ArrowDataType> for SQLDataType {
-    fn from(arrow_type: ArrowDataType) -> Self {
-        match arrow_type {
-            ArrowDataType::Utf8 => SQLDataType::String,
-            ArrowDataType::Int8 => SQLDataType::TinyInt,
-            ArrowDataType::Int16 => SQLDataType::SmallInt,
-            ArrowDataType::Int32 => SQLDataType::Int,
-            ArrowDataType::Int64 => SQLDataType::BigInt,
-            ArrowDataType::UInt8 => SQLDataType::TinyIntUnsigned,
-            ArrowDataType::UInt16 => SQLDataType::SmallIntUnsigned,
-            ArrowDataType::UInt32 => SQLDataType::IntUnsigned,
-            ArrowDataType::UInt64 => SQLDataType::BigIntUnsigned,
-            ArrowDataType::Float32 => SQLDataType::Float,
-            ArrowDataType::Float64 => SQLDataType::Double,
-            ArrowDataType::Date32 => SQLDataType::Date,
-            ArrowDataType::Time64(_) => SQLDataType::Time,
-            ArrowDataType::Timestamp(_, _) => SQLDataType::Timestamp,
-            ArrowDataType::Boolean => SQLDataType::Boolean,
-            ArrowDataType::Binary => SQLDataType::ByteA,
-            _ => SQLDataType::Unsupported(format!("{:?}", arrow_type)),
-        }
-    }
-}
+//             "DATE" => SQLDataType::Date,
+//             "TIME" => SQLDataType::Time,
+//             "TIMESTAMP" => SQLDataType::Timestamp,
+//             "BOOLEAN" => SQLDataType::Boolean,
+//             "BYTEA" => SQLDataType::ByteA,
+//             _ => SQLDataType::Unsupported(data_type.to_string()),
+//         }
+//     }
+// }
+
+// impl From<ArrowDataType> for SQLDataType {
+//     fn from(arrow_type: ArrowDataType) -> Self {
+//         match arrow_type {
+//             ArrowDataType::Utf8 | ArrowDataType::Utf8View | ArrowDataType::LargeUtf8 => SQLDataType::Varchar,
+//             ArrowDataType::Int8 => SQLDataType::TinyInt,
+//             ArrowDataType::Int16 => SQLDataType::SmallInt,
+//             ArrowDataType::Int32 => SQLDataType::Int,
+//             ArrowDataType::Int64 => SQLDataType::BigInt,
+//             ArrowDataType::UInt8 => SQLDataType::TinyIntUnsigned,
+//             ArrowDataType::UInt16 => SQLDataType::SmallIntUnsigned,
+//             ArrowDataType::UInt32 => SQLDataType::IntUnsigned,
+//             ArrowDataType::UInt64 => SQLDataType::BigIntUnsigned,
+//             ArrowDataType::Float32 => SQLDataType::Float,
+//             ArrowDataType::Float64 => SQLDataType::Double,
+//             ArrowDataType::Date32 => SQLDataType::Date,
+//             ArrowDataType::Time64(_) => SQLDataType::Time,
+//             ArrowDataType::Timestamp(_, _) => SQLDataType::Timestamp,
+//             ArrowDataType::Boolean => SQLDataType::Boolean,
+//             ArrowDataType::Binary => SQLDataType::ByteA,
+//             _ => SQLDataType::Unsupported(format!("{:?}", arrow_type)),
+//         }
+//     }
+// }
+// fn normalize_arrow_data_type(data_type: &ArrowDataType) -> ArrowDataType {
+//     match data_type {
+//         ArrowDataType::Utf8 | ArrowDataType::Utf8View | ArrowDataType::LargeUtf8 => ArrowDataType::Utf8,
+//         _ => data_type.clone(),
+//     }
+// }
+
 
 // =====================  AGGREGATION BUILDER =============== //
 
@@ -426,7 +433,7 @@ pub fn convert_invalid_utf8(file_path: &str) -> Result<(), io::Error> {
 
 // ====================== PARSE DATES ======================== //
 
-pub fn parse_date_with_formats(date_str: &str) -> Option<i32> {
+fn parse_date_with_formats(date_str: &str) -> Option<i32> {
     let formats = vec![
         "%Y-%m-%d", "%d.%m.%Y", "%m/%d/%Y", "%d-%b-%Y", "%a, %d %b %Y",
         "%Y/%m/%d", "%Y/%m", "%Y-%m-%dT%H:%M:%S%z", "%d%b%Y",
@@ -472,27 +479,83 @@ fn col_with_relation(relation: &str, column: &str) -> Expr {
     }
 }
 
-fn validate_schema(schema: &Schema, df: &DataFrame) {
-    let df_fields = df.schema().fields();
+// fn validate_schema(schema: &Schema, df: &DataFrame) {
+//     let df_schema = df.schema();
 
-    for field in schema.fields() {
-        if !df_fields.iter().any(|f| f.name() == field.name()) {
-            panic!(
-                "Column '{}' not found in the loaded CSV file. Available columns: {:?}",
-                field.name(),
-                df_fields.iter().map(|f| f.name()).collect::<Vec<_>>()
-            );
-        }
-    }
-}
+//     // Validate column names and data types
+//     for field in schema.fields() {
+//         match df_schema.field_with_name(None, field.name()) {
+//             Ok(df_field) => {
+//                 // Check the actual data type in the DataFrame
+//                 let actual_data_type = df_field.data_type();
+//                 let expected_data_type: ArrowDataType = SQLDataType::from_str(&field.data_type().to_string()).into();
 
+//                 // let expected_type = normalize_arrow_data_type(field.data_type());
+//                 // let actual_type = normalize_arrow_data_type(df_field.data_type());
+
+//                 // Compare the data types without conversion
+//                 if expected_data_type != *actual_data_type {
+//                     panic!(
+//                         "Data type mismatch for column '{}': expected {:?}, found {:?}",
+//                         field.name(),
+//                         expected_data_type,
+//                         actual_data_type
+//                     );
+//                 }
+//             }
+//             Err(_) => panic!("Column '{}' not found in the schema.", field.name()),
+//         }
+//     }
+
+
+//     // Check for extra columns in the DataFrame schema that are not present in the provided schema
+//     for df_field in df_schema.fields() {
+//         if schema.field_with_name(df_field.name()).is_err() {
+//             panic!(
+//                 "Extra column '{}' found in the file that is not present in the provided schema.",
+//                 df_field.name()
+//             );
+//         }
+//     }
+
+    
+// }
+
+/// Normalizes column naame by trimming whitespace,converting it to lowercase and replacing empty spaces with underscore.
 fn normalize_column_name(name: &str) -> String {
     name.trim().to_lowercase().replace(" ", "_")
 }
 
+/// Normalizes an alias by trimming whitespace and converting it to lowercase.
+fn normalize_alias(alias: &str) -> String {
+    alias.trim().to_lowercase()
+}
+
+/// Normalizes a condition string by converting it to lowercase.
 fn normalize_condition(condition: &str) -> String {
     condition.trim().to_lowercase()
 }
+
+// =============== PArquet LOAD options
+// pub struct ParquetLoadOptions {
+//     pub sort_columns: Option<Vec<SortOption>>,
+//     pub partition_columns: Option<Vec<String>>
+// }
+
+// impl Default for ParquetLoadOptions {
+//     fn default() -> Self {
+//         ParquetLoadOptions {
+//             sort_columns: None,
+//             partition_columns: None,
+//         }
+//     }
+// }
+// pub struct SortOption {
+//     pub column: String,
+//     pub descending: bool,
+//     pub nulls_first: bool,
+// }
+
 
 /// Create a schema dynamically from the `DataFrame` as helper for with_cte
 fn cte_schema(dataframe: &DataFrame, alias: &str) -> Arc<Schema> {
@@ -1364,13 +1427,22 @@ impl CustomDataFrame {
     /// NEW method for loading and schema definition
     pub async fn new<'a>(
         file_path: &'a str,
-        columns: Vec<(&'a str, &'a str, bool)>,
+        // columns: Option<Vec<(&'a str, &'a str, bool)>>,
         alias: &'a str,
+        // sort_cols: Option<Vec<SortOption>>,     
+        // partition_cols: Option<Vec<String>>,
     ) -> Self {
-        let schema = Arc::new(Self::create_schema_from_str(columns));
+        
+        // let schema = if let Some(cols) = columns {
+        //     Some(Arc::new(Self::create_schema_from_str(cols)))
+        // } else {
+        //     None
+        // };
+
+    
 
         // Load the file into a DataFrame
-        let aliased_df = Self::load(file_path, schema.clone(), alias)
+        let aliased_df = Self::load(file_path, alias ) //sort_cols, partition_cols
             .await
             .expect("Failed to load file");
 
@@ -1480,29 +1552,58 @@ impl CustomDataFrame {
     }
 
     /// Utility function to create schema from user-defined column info
-    fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
-        let fields = columns
-            .into_iter()
-            .map(|(name, sql_type_str, nullable)| {
-                let sql_type = SQLDataType::from_str(sql_type_str);
-                // If the type is DATE, map it to Utf8 initially
-                let arrow_type = if matches!(sql_type, SQLDataType::Date) {
-                    ArrowDataType::Utf8
-                } else {
-                    sql_type.into()
-                };
-                Field::new(&normalize_column_name(name), arrow_type, nullable)
-            })
-            .collect::<Vec<_>>();
+    // fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
+    //     let fields = columns
+    //         .into_iter()
+    //         .map(|(name, sql_type_str, nullable)| {
+    //             let sql_type = SQLDataType::from_str(sql_type_str);
+    //             // If the type is DATE, map it to Utf8 initially
+    //             let arrow_type = if matches!(sql_type, SQLDataType::Date) {
+    //                 ArrowDataType::Utf8
+    //             } else {
+    //                 sql_type.into()
+    //             };
+    //             Field::new(&normalize_column_name(name), arrow_type, nullable)
+    //         })
+    //         .collect::<Vec<_>>();
 
-        Schema::new(fields)
-    }
+    //     Schema::new(fields)
+    // }
 
+    // fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
+    //     let fields = columns
+    //         .into_iter()
+    //         .map(|(name, sql_type_str, nullable)| {
+    //             let sql_type = SQLDataType::from_str(sql_type_str);
+                
+    //             // Map SQLDataType to ArrowDataType
+    //             let arrow_type = match sql_type {
+    //                 SQLDataType::Date => ArrowDataType::Utf8, // Initially map DATE to Utf8
+    //                 SQLDataType::Unsupported(_) => {
+    //                     panic!("Unsupported SQL type: {}", sql_type_str);
+    //                 }
+    //                 _ => sql_type.into(),
+    //             };
+                
+    //             Field::new(&normalize_column_name(name), arrow_type, nullable)
+    //         })
+    //         .collect::<Vec<_>>();
     
+    //     Schema::new(fields)
+    // }
+    
+
+    //=================== LOADERS ============================= //
     /// LOAD function for CSV file type
+    ///  /// # Arguments
+    ///
+    /// * `file_path` - The path to the JSON file.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
     pub fn load_csv<'a>(
         file_path: &'a str,
-        schema: Arc<Schema>,
         alias: &'a str,
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
@@ -1512,7 +1613,7 @@ impl CustomDataFrame {
                 .last()
                 .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
                 .to_lowercase();
-
+    
             // Detect and fix invalid UTF-8
             if let Err(err) = csv_detect_defect_utf8(file_path) {
                 eprintln!(
@@ -1521,25 +1622,20 @@ impl CustomDataFrame {
                 );
                 convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
             }
-
-            // Read and validate the CSV
+    
             let df = match file_extension.as_str() {
                 "csv" => {
                     let result = ctx
                         .read_csv(
                             file_path,
                             CsvReadOptions::new()
-                                .schema(&schema)
-                                .has_header(true)
-                                .file_extension(".csv"),
+                                .has_header(true) // Detect headers
+                                .schema_infer_max_records(1000), // Optional: how many records to scan for inference
                         )
                         .await;
-
+    
                     match result {
-                        Ok(df) => {
-                            validate_schema(&schema, &df);
-                            df
-                        }
+                        Ok(df) => df,
                         Err(err) => {
                             eprintln!(
                                 "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
@@ -1551,77 +1647,181 @@ impl CustomDataFrame {
                 }
                 _ => panic!("Unsupported file type: {}", file_extension),
             };
-
+    
             let batches = df.collect().await?;
-            let mut schema_builder = SchemaBuilder::new();
-            let mut new_batches = Vec::new();
-            let mut updated_fields = Vec::new();
-
-            // Process each batch for date conversion
-            for batch in &batches {
+            let mut updated_batches = Vec::new();
+    
+            for batch in batches {
                 let mut columns = Vec::new();
-
-                for (i, field) in schema.fields().iter().enumerate() {
-                    if field.data_type() == &ArrowDataType::Utf8 && field.name().contains("date") {
-                        let column = batch.column(i);
-                        let string_array = column
-                            .as_any()
-                            .downcast_ref::<StringArray>()
-                            .expect("Column is not a StringArray");
-                        
-                        let date_values = string_array
-                            .iter()
-                            .map(|value| value.and_then(|v| parse_date_with_formats(v)))
-                            .collect::<Vec<_>>();
-
-                        let date_array: ArrayRef = Arc::new(Date32Array::from(date_values));
-                        columns.push(date_array);
-                        updated_fields.push(Field::new(field.name(), ArrowDataType::Date32, field.is_nullable()));
-                    } else {
-                        // Retain other columns
-                        columns.push(batch.column(i).clone());
-                        updated_fields.push(field.as_ref().clone());
+                let mut updated_fields = Vec::new();
+    
+                for (i, field) in batch.schema().fields().iter().enumerate() {
+                    let column = batch.column(i);
+    
+                    match column.data_type() {
+                        ArrowDataType::Utf8 => {
+                            let string_array = column
+                                .as_any()
+                                .downcast_ref::<StringArray>()
+                                .expect("Column is not a StringArray");
+    
+                            if field.name().to_lowercase().contains("date") {
+                                // Attempt to parse dates
+                                let parsed_date_values = string_array
+                                    .iter()
+                                    .map(|value| value.and_then(|v| parse_date_with_formats(v)))
+                                    .collect::<Vec<_>>();
+    
+                                let date_array: ArrayRef = Arc::new(Date32Array::from(parsed_date_values));
+                                columns.push(date_array);
+                                updated_fields.push(Field::new(
+                                    field.name(),
+                                    ArrowDataType::Date32,
+                                    field.is_nullable(),
+                                ));
+                            } else {
+                                // Keep as Utf8
+                                columns.push(column.clone());
+                                updated_fields.push(field.as_ref().clone());
+                            }
+                        }
+                        ArrowDataType::Int32 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Int64 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Float64 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Boolean => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        _ => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
                     }
                 }
-
-                let temp_schema = Arc::new(Schema::new(updated_fields.clone()));
-                let new_batch = RecordBatch::try_new(temp_schema.clone(), columns)?;
-                new_batches.push(new_batch);
-                updated_fields.clear();
+    
+                // Normalize column names after parsing data types
+                let normalized_fields = updated_fields
+                    .iter()
+                    .map(|field| {
+                        let normalized_name = normalize_column_name(field.name());
+                        field.clone().with_name(&normalized_name)
+                    })
+                    .collect::<Vec<_>>();
+                let normalized_schema = Arc::new(Schema::new(normalized_fields));
+                let updated_batch = RecordBatch::try_new(normalized_schema.clone(), columns)?;
+                updated_batches.push(updated_batch);
             }
+    
+            // Normalize alias
+            let normalized_alias = normalize_alias(alias);
+    
+            // Create a MemTable and register it
+            let mem_table = MemTable::try_new(
+                Arc::new(Schema::new(
+                    updated_batches.first().unwrap().schema().fields().to_vec(),
+                )),
+                vec![updated_batches],
+            )?;
+            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
+    
+            Ok(AliasedDataFrame {
+                dataframe: ctx.table(&normalized_alias).await?,
+                alias: alias.to_string(),
+            })
+        })
+    }
+    
+    
+    
+    
 
-            for field in schema.fields() {
-                if field.data_type() == &ArrowDataType::Utf8 && field.name().contains("date") {
-                    schema_builder.push(Field::new(field.name(), ArrowDataType::Date32, field.is_nullable()));
-                } else {
-                    schema_builder.push(field.as_ref().clone());
+    /// LOAD function for Parquet file type
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the Parquet file.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
+    pub fn load_parquet<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+            let file_extension = file_path
+                .split('.')
+                .last()
+                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
+                .to_lowercase();
+            // Normalize alias
+            let normalized_alias = normalize_alias(alias);
+    
+            let df = match file_extension.as_str() {
+                "parquet" => {
+                    let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
+                    match result {
+                        Ok(df) => {
+                            println!("Successfully read Parquet file '{}'", file_path);
+                            df
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                                file_path, err
+                            );
+                            return Err(err);
+                        }
+                    }
                 }
-            }
-            let final_schema = Arc::new(schema_builder.finish());
-
-            let partitions: Vec<Vec<RecordBatch>> = new_batches.into_iter().map(|batch| vec![batch]).collect();
-            let mem_table = MemTable::try_new(final_schema.clone(), partitions)?;
-
-            ctx.register_table(alias, Arc::new(mem_table))?;
-
-            // println!("Registering table with alias: {}", alias);
-            // println!("Loading file: {}", file_path);
-            // println!("Loaded schema: {:?}", final_schema);
-
-            let aliased_df = ctx.table(alias).await.expect("Failed to retrieve aliased table");
+                _ => {
+                    eprintln!(
+                        "File type '{}' is not explicitly supported. Skipping file '{}'.",
+                        file_extension, file_path
+                    );
+                    return Err(DataFusionError::Plan(format!(
+                        "Unsupported file type: {}",
+                        file_extension
+                    )));
+                }
+            };
+    
+            // Collect batches and build a MemTable
+            let batches = df.clone().collect().await?;
+            let schema = df.schema().clone();
+            let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
+    
+            // Register the MemTable with the alias
+            ctx.register_table(normalized_alias, Arc::new(mem_table))?;
+    
+            // Retrieve the registered table as a DataFrame
+            let aliased_df = ctx
+                .table(alias)
+                .await
+                .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
+    
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
                 alias: alias.to_string(),
             })
         })
     }
-
-
-     /// Loads a JSON file into a DataFusion DataFrame.
+    
+    /// Loads a JSON file into a DataFusion DataFrame.
     /// # Arguments
     ///
     /// * `file_path` - The path to the JSON file.
-    /// * `schema` - The Arrow schema defining the DataFrame columns.
     /// * `alias` - The alias name for the table within DataFusion.
     ///
     /// # Returns
@@ -1665,21 +1865,59 @@ impl CustomDataFrame {
     }
 
     
-    /// unified load() funciton
+    /// Unified load function that determines the file type based on extension
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the data file (CSV, JSON, Parquet).
+    /// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
     pub fn load<'a>(
         file_path: &'a str,
-        schema: Arc<Schema>,
         alias: &'a str // so we can pass transforms
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
             let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
             match ext.as_str() {
-                "csv" => Self::load_csv(file_path, schema, alias).await,
+                "csv" => Self::load_csv(file_path, alias).await,
                 "json" => Self::load_json(file_path, alias).await,
+                "parquet" => Self::load_parquet(file_path, alias).await,
                 other => Err(DataFusionError::Execution(format!("Unsupported extension: {}", other))),
             }
         })
     }
+    // pub fn load<'a>(
+    //     file_path: &'a str,
+    //     schema: Option<Arc<Schema>>,
+    //     alias: &'a str,
+    // ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    //     Box::pin(async move {
+    //         let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
+    //         match ext.as_str() {
+    //             "csv" => {
+    //                 // Ensure schema is provided for CSV
+    //                 if let Some(schema) = schema {
+    //                     Self::load_csv(file_path, schema, alias).await
+    //                 } else {
+    //                     Err(DataFusionError::Plan(
+    //                         "Schema must be provided for CSV files.".to_string(),
+    //                     ))
+    //                 }
+    //             }
+    //             "json" => Self::load_json(file_path, alias).await,
+    //             "parquet" => Self::load_parquet(file_path, alias).await,
+    //             other => Err(DataFusionError::Execution(format!(
+    //                 "Unsupported extension: {}",
+    //                 other
+    //             ))),
+    //         }
+    //     })
+    // }
+    
 
 
 
@@ -2127,39 +2365,6 @@ impl CustomDataFrame {
         self
     }
 
-    // pub fn group_by(mut self, group_columns: Vec<&str>) -> Result<Self, ElusionError> {
-    //     let mut resolved_group_columns = Vec::new();
-    //     let schema = self.df.schema();
-
-    //     for col in group_columns {
-    //         let resolved_col = if col.contains('.') {
-    //             col.to_string().to_lowercase()
-    //         } else {
-    //             format!("{}.{}", self.table_alias, col).to_lowercase()
-    //         };
-    //         resolved_group_columns.push(resolved_col);
-    //     }
-
-    //     let group_exprs: Vec<Expr> = resolved_group_columns
-    //         .iter()
-    //         .map(|col_name| col(col_name))
-    //         .collect();
-
-    //     let aggregate_exprs: Vec<Expr> = self
-    //         .aggregations
-    //         .iter()
-    //         .map(|(_, expr)| expr.clone())
-    //         .collect();
-
-    //     self.df = self
-    //         .df
-    //         .aggregate(group_exprs, aggregate_exprs)
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to apply GROUP BY: {}", e)))?;
-
-    //     self.group_by_columns = resolved_group_columns; // Update group_by_columns with resolved names
-    //     Ok(self)
-    // }
-    
     /// ORDER BY clause
     pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
         assert!(
@@ -2883,9 +3088,6 @@ impl CustomDataFrame {
 
     //     Ok(())
     // }
-
-
-
 
 }
 

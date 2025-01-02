@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is DataFrame library, built on top of DataFusion SQL engine, for easy usage, with familiar DataFrame syntax like: PySpark, Pandas, Polars. Also RAW SQL usage is FULLY supported!"
@@ -20,12 +20,10 @@ futures = "0.3.31"
 chrono = "0.4.39"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
-hex = "0.4.3"
 serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.134"
 env_logger = "0.11.5"
 log = "0.4.22"
-# deltalake = "0.22.3"
 
 [lib]
 name = "elusion"
