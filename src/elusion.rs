@@ -8,12 +8,11 @@ use datafusion::error::DataFusionError;
 use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 use std::sync::Arc;
-use arrow::datatypes::{Field, DataType as ArrowDataType, Schema};
+use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 use chrono::{NaiveDate,Datelike};
 use arrow::array::{StringBuilder,StringArray, ArrayRef, Array, ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder, Date32Array };
 
 use arrow::record_batch::RecordBatch;
-use arrow::datatypes::SchemaRef;
 use ArrowDataType::*;
 use arrow::csv::writer::WriterBuilder;
 
@@ -43,11 +42,26 @@ use arrow::error::Result as ArrowResult;
 
 // delta table writer
 // use deltalake::writer::{RecordBatchWriter, WriteMode};
-// use deltalake::{DeltaTable, DeltaTableError};
-// //DELTA WRITER
+// use deltalake::{DeltaTable, DeltaTableError,  DeltaTableBuilder,DeltaTableConfig,
+//     ObjectStore,
+//     Path,
+//     storage::*};
+//     use deltalake::operations::DeltaOps;
+//DELTA WRITER
 // use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
 // use datafusion::common::ScalarValue;
 // use datafusion::arrow::datatypes::TimeUnit;
+
+use deltalake_core::writer::{RecordBatchWriter, WriteMode,DeltaWriter};
+use deltalake_core::table::builder::DeltaTableBuilder;
+use deltalake_core::operations::DeltaOps;
+use deltalake_core::errors::DeltaTableError;
+use deltalake_core::kernel::Schema as DeltaSchema;
+use deltalake_core::protocol::SaveMode;
+use std::result::Result;
+use std::path::Path;
+
+
 
 
 // =========== ERRROR
@@ -1127,9 +1141,89 @@ impl CsvWriteOptions {
 }
 
 // =============== DELTA TABLE writing
+    /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
+    /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
+    /// or an error
+    async fn glean_arrow_schema(df: &DataFrame) -> Result<SchemaRef, DataFusionError> {
+
+        let limited_df = df.clone().limit(0, Some(1))?;
+        
+        let batches = limited_df.collect().await?;
+
+        if let Some(first_batch) = batches.get(0) {
+            Ok(first_batch.schema())
+        } else {
+            let empty_fields: Vec<Field> = vec![];
+            let empty_schema = Schema::new(empty_fields);
+            Ok(Arc::new(empty_schema))
+        }
+    }
+
+    /// This is the lower-level writer function that actually does the work
+    async fn write_to_delta_impl(
+            df: &DataFrame,
+            path: &str,
+            partition_columns: Option<Vec<String>>,
+            overwrite: bool,
+            write_mode: WriteMode,
+        ) -> Result<(), DeltaTableError> {
+
+            if overwrite {
+            if let Err(e) = fs::remove_dir_all(path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(DeltaTableError::Generic(format!(
+                        "Failed to remove existing directory at '{}': {e}",
+                        path
+                    )));
+                }
+            }
+        }
+
+        let batches = df.clone()
+            .collect()
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("DataFusion collect error: {e}")))?;
+
+        let arrow_schema_ref = glean_arrow_schema(df)
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Could not glean Arrow schema: {e}")))?;
+
+
+            if overwrite {
+                // Convert Arrow schema -> Delta schema
+                let delta_schema = DeltaSchema::try_from(arrow_schema_ref.as_ref())
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to convert to Delta schema: {e}")))?;
+        
+                // Use `DeltaOps` from `deltalake_core` (or `deltalake`) to create an empty table
+                // with the specified partition columns & schema
+                DeltaOps::try_from_uri(path)
+                    .await
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
+                    .create()
+                    .with_save_mode(SaveMode::Overwrite) // Overwrite if anything is leftover
+                    .with_columns(delta_schema)          // set columns from our gleaned schema
+                    .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                    .await
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to create Delta table at '{path}': {e}")))?;
+            }
+
+        let mut writer = RecordBatchWriter::try_new(path, arrow_schema_ref, partition_columns, None)?;
+
+  
+        for batch in batches {
+            writer.write_with_mode(batch, write_mode).await?;
+        }
+
+        let mut table = DeltaTableBuilder::from_uri(path).build()?;
+        let version = writer.flush_and_commit(&mut table).await?;
+
+        println!("Wrote data to Delta table at version: {version}");
+        Ok(())
+    }
+
+
 
 /// Helper function to extract partition values from a RecordBatch based on partition columns.
-/// Assumes that each RecordBatch has a single unique partition value.
 // fn get_partition_values(
 //     batch: &RecordBatch,
 //     partition_columns: &[String],
@@ -1313,7 +1407,7 @@ impl CsvWriteOptions {
 //     Ok(partition_values)
 // }
 
-// Helper function to check schema compatibility
+// ///Helper function to check schema compatibility
 // fn are_schemas_compatible(target: &Schema, source: &Schema) -> bool {
 //     // Implement schema compatibility checking logic
 //     // This could check for matching column names, types, and nullable properties
@@ -1321,7 +1415,7 @@ impl CsvWriteOptions {
 //     true // Placeholder implementation
 // }
 
-// Helper struct for tracking progress
+// ///Helper struct for tracking progress
 // struct ProgressTracker {
 //     total_rows: u64,
 //     rows_processed: std::sync::atomic::AtomicU64,
@@ -1740,10 +1834,6 @@ impl CustomDataFrame {
         })
     }
     
-    
-    
-    
-
     /// LOAD function for Parquet file type
     ///
     /// # Arguments
@@ -1864,6 +1954,44 @@ impl CustomDataFrame {
         })
     }
 
+    /// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
+    /// 
+    /// # Usage
+    /// ```no_run
+    /// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
+    /// ```
+    pub fn load_delta<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+
+            // Optionally, try `deltalake::DeltaTable::open_table(file_path).await` to verify
+            // but for local usage is_dir + `_delta_log` might be enough.
+
+            // Then let DataFusion read the directory of Parquet files
+            let df = ctx.read_parquet(file_path, ParquetReadOptions::default()).await?;
+
+            // Collect to build MemTable
+            let batches = df.clone().collect().await?;
+            let schema = df.schema().clone().into();
+
+            // Build MemTable
+            let mem_table = MemTable::try_new(schema, vec![batches])?;
+            let normalized_alias = normalize_alias(alias);
+            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
+            
+            // Retrieve table
+            let aliased_df = ctx.table(&normalized_alias).await?;
+            Ok(AliasedDataFrame {
+                dataframe: aliased_df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
+
     
     /// Unified load function that determines the file type based on extension
     ///
@@ -1878,18 +2006,41 @@ impl CustomDataFrame {
     /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
     pub fn load<'a>(
         file_path: &'a str,
-        alias: &'a str // so we can pass transforms
+        alias: &'a str,
     ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
         Box::pin(async move {
-            let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
+            let ext = file_path
+                .split('.')
+                .last()
+                .unwrap_or_default()
+                .to_lowercase();
+
             match ext.as_str() {
+                // If recognized extension, call the corresponding loader
                 "csv" => Self::load_csv(file_path, alias).await,
                 "json" => Self::load_json(file_path, alias).await,
                 "parquet" => Self::load_parquet(file_path, alias).await,
-                other => Err(DataFusionError::Execution(format!("Unsupported extension: {}", other))),
+                "" => {
+                    // If there's **no** extension, maybe it's a directory (Delta?).
+                    // Check if `_delta_log` subfolder exists. If yes => load Delta
+                    let p = Path::new(file_path);
+                    let delta_log_path = p.join("_delta_log");
+                    if delta_log_path.is_dir() {
+                        // If there's a `_delta_log` dir => load Delta
+                        Self::load_delta(file_path, alias).await
+                    } else {
+                        Err(DataFusionError::Execution(format!(
+                            "Unsupported file or directory: {file_path}"
+                        )))
+                    }
+                }
+                other => Err(DataFusionError::Execution(format!(
+                    "Unsupported extension: {other}"
+                ))),
             }
         })
     }
+
     // pub fn load<'a>(
     //     file_path: &'a str,
     //     schema: Option<Arc<Schema>>,
@@ -2951,144 +3102,64 @@ impl CustomDataFrame {
     // / # Returns
     // /
     // / * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
-    // pub async fn write_to_delta_table(
-    //     &self,
-    //     mode: &str,
-    //     path: &str,
-    //     options: Option<DataFrameWriteOptions>, // Extend this if Delta-specific options are needed
-    // ) -> ElusionResult<()> {
-    //     // Validate write mode
-    //     match mode {
-    //         "overwrite" | "append" | "merge" => (),
-    //         _ => {
-    //             return Err(ElusionError::Custom(format!(
-    //                 "Unsupported write mode: '{}'. Use 'overwrite', 'append', or 'merge'.",
-    //                 mode
-    //             )));
-    //         }
-    //     }
+    /// Writes a DataFusion `DataFrame` to a Delta table at `path`, using the new `DeltaOps` API.
+    /// 
+    /// # Parameters
+    /// - `df`: The DataFusion DataFrame to write.
+    /// - `path`: URI for the Delta table (e.g., "file:///tmp/mytable" or "s3://bucket/mytable").
+    /// - `partition_cols`: Optional list of columns for partitioning.
+    /// - `mode`: "overwrite" or "append" (extend as needed).
+    ///
+    /// # Returns
+    /// - `Ok(())` on success
+    /// - `Err(DeltaOpsError)` if creation or writing fails.
+    ///
+    /// # Notes
+    /// 1. "overwrite" first re-creates the table (wiping old data, depending on the implementation),
+    ///    then writes the new data.
+    /// 2. "append" attempts to create if the table doesn’t exist, otherwise appends rows to an existing table.
+    pub async fn write_to_delta_table(
+        &self,
+        mode: &str,
+        path: &str,
+        partition_columns: Option<Vec<String>>,
+    ) -> Result<(), DeltaTableError> {
+        // Match on the user-supplied string to set `overwrite` and `write_mode`.
+        let (overwrite, write_mode) = match mode {
+            "overwrite" => {
+                // Overwrite => remove existing data if it exists
+                (true, WriteMode::Default)
+            }
+            "append" => {
+                // Don’t remove existing data, just keep writing
+                (false, WriteMode::Default)
+            }
+            "merge" => {
+                // Example: you could define "merge" to auto-merge schema
+                (false, WriteMode::MergeSchema)
+            }
+            "default" => {
+                // Another alias for (false, WriteMode::Default)
+                (false, WriteMode::Default)
+            }
+            // If you want to handle more modes or do something special, add more arms here.
+            other => {
+                return Err(DeltaTableError::Generic(format!(
+                    "Unsupported write mode: {other}"
+                )));
+            }
+        };
 
-    //     // Extract options or use defaults
-    //     let write_options = options.unwrap_or_default();
-    //     let batch_size = write_options.batch_size.unwrap_or(10000);
-    //     let transaction_size = write_options.transaction_size.unwrap_or(100000);
+        write_to_delta_impl(
+            &self.df,   // The underlying DataFusion DataFrame
+            path,
+            partition_columns,
+            overwrite,
+            write_mode,
+        )
+        .await
+    }
 
-    //     // Check if the Delta table exists using the correct method
-    //     let table_exists = DeltaTable::is_delta_table(path).await.map_err(|e| {
-    //         ElusionError::Custom(format!(
-    //             "Failed to check if Delta table exists at '{}': {}",
-    //             path, e
-    //         ))
-    //     })?;
-
-    //     // Handle write modes with transaction support
-    //     let mut delta_table = match mode {
-    //         "overwrite" => {
-    //             if table_exists {
-    //                 // Delete the existing Delta table directory
-    //                 fs::remove_dir_all(path).map_err(|e| {
-    //                     ElusionError::Custom(format!(
-    //                         "Failed to remove existing Delta table at '{}': {}",
-    //                         path, e
-    //                     ))
-    //                 })?;
-    //             }
-
-    //             // Create a new DeltaTable with the DataFrame's schema and partitioning
-    //             DeltaTable::create(path)
-    //                 .with_columns(self.df.dataframe.schema().clone())
-    //                 .with_partition_columns(
-    //                     write_options.partition_columns.clone().unwrap_or_default(),
-    //                 )
-    //                 .await
-    //         }
-    //         "append" => {
-    //             if !table_exists {
-    //                 return Err(ElusionError::Custom(format!(
-    //                     "Append mode requires an existing Delta table at '{}'",
-    //                     path
-    //                 )));
-    //             }
-    //             // Load the existing DeltaTable
-    //             DeltaTable::load(path).await
-    //         }
-    //         "merge" => {
-    //             if !table_exists {
-    //                 return Err(ElusionError::Custom(
-    //                     "Merge mode requires an existing Delta table".to_string(),
-    //                 ));
-    //             }
-    //             // Loading the table for merge operations
-    //             DeltaTable::load(path).await
-    //         }
-    //         _ => unreachable!(),
-    //     }
-    //     .map_err(|e| ElusionError::Custom(format!("DeltaTable operation failed: {}", e)))?;
-
-    //     // Retrieve partition columns from the Delta table metadata
-    //     let partition_columns = delta_table.get_meta().schema().partition_cols.clone();
-
-    //     // Initialize the RecordBatchWriter with configuration
-    //     let mut writer = RecordBatchWriter::for_table(&delta_table)
-    //         .map_err(|e| {
-    //             ElusionError::Custom(format!(
-    //                 "Failed to create RecordBatchWriter for table '{}': {}",
-    //                 path, e
-    //             ))
-    //         })?;
-
-    //     // Collect RecordBatches from the DataFrame
-    //     let batches = self.df.dataframe.collect().await.map_err(|e| {
-    //         ElusionError::DataFusion(DataFusionError::Execution(format!(
-    //             "Failed to collect RecordBatches from DataFrame: {}",
-    //             e
-    //         )))
-    //     })?;
-
-    //     // Iterate through each RecordBatch and write to Delta table
-    //     for batch in batches {
-    //         // Determine partition values based on partition columns
-    //         let partition_values = if !partition_columns.is_empty() {
-    //             get_partition_values(&batch, &partition_columns)
-    //         } else {
-    //             HashMap::new() // No partitioning
-    //         };
-
-    //         // Choose WriteMode based on your requirements
-    //         // Here, using Default which will error if schemas do not match
-    //         let write_mode = WriteMode::Default;
-
-    //         // Write the RecordBatch to the Delta table
-    //         writer
-    //             .write_partition(batch.clone(), &partition_values, write_mode)
-    //             .await
-    //             .map_err(|e| {
-    //                 ElusionError::Custom(format!("Failed to write RecordBatch to Delta table: {}", e))
-    //             })?;
-    //     }
-
-    //     // Flush and commit the writer to finalize the writes
-    //     writer
-    //         .flush_and_commit(&mut delta_table)
-    //         .await
-    //         .map_err(|e| {
-    //             ElusionError::Custom(format!(
-    //                 "Failed to flush and commit to Delta table: {}",
-    //                 e
-    //             ))
-    //         })?;
-
-    //     // Confirm successful write
-    //     match mode {
-    //         "overwrite" => println!("Data successfully overwritten to Delta table at '{}'.", path),
-    //         "append" => println!("Data successfully appended to Delta table at '{}'.", path),
-    //         "merge" => println!("Data successfully merged into Delta table at '{}'.", path),
-    //         _ => unreachable!(),
-    //     }
-
-    //     Ok(())
-    // }
 
 }
-
 

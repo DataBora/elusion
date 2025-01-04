@@ -55,6 +55,8 @@ pub use crate::{ElusionError, ElusionResult};
 // pub use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
 // pub use datafusion::common::ScalarValue;
 // pub use datafusion::arrow::datatypes::TimeUnit;
-
-
-
+pub use deltalake_core::writer::{RecordBatchWriter, WriteMode,DeltaWriter};
+pub use deltalake_core::DeltaTable;
+pub use deltalake_core::table::builder::DeltaTableBuilder;
+pub use deltalake_core::errors::DeltaTableError;
+pub use std::result::Result;

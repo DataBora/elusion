@@ -48,6 +48,10 @@ To add **Elusion** to your Rust project, include the following lines in your `Ca
 elusion = "0.2.5"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
+## Rust version needed
+```toml
+>= 1.81
+```
 ---
 # Usage examples:
 
