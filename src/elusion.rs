@@ -50,13 +50,14 @@ use arrow::error::Result as ArrowResult;
 //DELTA WRITER
 // use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
 // use datafusion::common::ScalarValue;
-// use datafusion::arrow::datatypes::TimeUnit;
+use datafusion::arrow::datatypes::TimeUnit;
 
 use deltalake_core::writer::{RecordBatchWriter, WriteMode,DeltaWriter};
 use deltalake_core::table::builder::DeltaTableBuilder;
 use deltalake_core::operations::DeltaOps;
 use deltalake_core::errors::DeltaTableError;
-use deltalake_core::kernel::Schema as DeltaSchema;
+use deltalake_core::kernel::DataType as DeltaType;
+use deltalake_core::kernel::StructField;
 use deltalake_core::protocol::SaveMode;
 use std::result::Result;
 use std::path::Path;
@@ -1161,14 +1162,32 @@ impl CsvWriteOptions {
 
     /// This is the lower-level writer function that actually does the work
     async fn write_to_delta_impl(
-            df: &DataFrame,
-            path: &str,
-            partition_columns: Option<Vec<String>>,
-            overwrite: bool,
-            write_mode: WriteMode,
-        ) -> Result<(), DeltaTableError> {
-
-            if overwrite {
+        df: &DataFrame,
+        path: &str,
+        partition_columns: Option<Vec<String>>,
+        overwrite: bool,
+        write_mode: WriteMode,
+    ) -> Result<(), DeltaTableError> {
+        // First, get the Arrow schema
+        let arrow_schema_ref = glean_arrow_schema(df)
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Could not glean Arrow schema: {e}")))?;
+    
+        // Convert Arrow schema to Delta schema fields
+        let delta_fields: Vec<StructField> = arrow_schema_ref
+            .fields()
+            .iter()
+            .map(|field| {
+                let nullable = field.is_nullable();
+                let name = field.name().clone();
+                let data_type = arrow_to_delta_type(field.data_type());
+                StructField::new(name, data_type, nullable)
+            })
+            .collect();
+    
+        // Initialize or get the Delta table
+        let mut table = if overwrite {
+            // If overwrite is true, try to remove existing directory
             if let Err(e) = fs::remove_dir_all(path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(DeltaTableError::Generic(format!(
@@ -1177,263 +1196,73 @@ impl CsvWriteOptions {
                     )));
                 }
             }
+            
+            // Create new table with schema
+            DeltaOps::try_from_uri(path)
+                .await
+                .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
+                .create()
+                .with_columns(delta_fields)
+                .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                .with_save_mode(SaveMode::Overwrite)
+                .await
+        } else {
+            // If not overwriting, try to load existing table or create new one if it doesn't exist
+            match DeltaTableBuilder::from_uri(path).build() {
+                Ok(existing_table) => Ok(existing_table),
+                Err(_) => {
+                    // Table doesn't exist, create new one
+                    DeltaOps::try_from_uri(path)
+                        .await
+                        .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
+                        .create()
+                        .with_columns(delta_fields)
+                        .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                        .with_save_mode(SaveMode::Append)
+                        .await
+                }
+            }
         }
-
-        let batches = df.clone()
+        .map_err(|e| DeltaTableError::Generic(format!("Failed to create/load Delta table at '{path}': {e}")))?;
+    
+        // Collect the data
+        let batches = df
+            .clone()
             .collect()
             .await
             .map_err(|e| DeltaTableError::Generic(format!("DataFusion collect error: {e}")))?;
-
-        let arrow_schema_ref = glean_arrow_schema(df)
-            .await
-            .map_err(|e| DeltaTableError::Generic(format!("Could not glean Arrow schema: {e}")))?;
-
-
-            if overwrite {
-                // Convert Arrow schema -> Delta schema
-                let delta_schema = DeltaSchema::try_from(arrow_schema_ref.as_ref())
-                    .map_err(|e| DeltaTableError::Generic(format!("Failed to convert to Delta schema: {e}")))?;
-        
-                // Use `DeltaOps` from `deltalake_core` (or `deltalake`) to create an empty table
-                // with the specified partition columns & schema
-                DeltaOps::try_from_uri(path)
-                    .await
-                    .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
-                    .create()
-                    .with_save_mode(SaveMode::Overwrite) // Overwrite if anything is leftover
-                    .with_columns(delta_schema)          // set columns from our gleaned schema
-                    .with_partition_columns(partition_columns.clone().unwrap_or_default())
-                    .await
-                    .map_err(|e| DeltaTableError::Generic(format!("Failed to create Delta table at '{path}': {e}")))?;
-            }
-
+    
+        // Write the data
         let mut writer = RecordBatchWriter::try_new(path, arrow_schema_ref, partition_columns, None)?;
-
-  
+        
         for batch in batches {
             writer.write_with_mode(batch, write_mode).await?;
         }
-
-        let mut table = DeltaTableBuilder::from_uri(path).build()?;
+    
         let version = writer.flush_and_commit(&mut table).await?;
-
+    
         println!("Wrote data to Delta table at version: {version}");
         Ok(())
     }
-
-
-
-/// Helper function to extract partition values from a RecordBatch based on partition columns.
-// fn get_partition_values(
-//     batch: &RecordBatch,
-//     partition_columns: &[String],
-// ) -> Result<HashMap<String, ScalarValue>, DeltaTableError> {
-//     let mut partition_values = HashMap::new();
-
-//     for column in partition_columns {
-//         let idx = batch
-//             .schema()
-//             .index_of(column)
-//             .map_err(|_| DeltaTableError::generic(format!("Partition column '{}' not found in schema", column)))?;
-
-//         let array = batch.column(idx);
-
-//         // Helper macro to reduce boilerplate for numeric types
-//         macro_rules! handle_numeric_array {
-//             ($array_type:ty, $scalar_variant:path) => {{
-//                 let typed_array = array
-//                     .as_any()
-//                     .downcast_ref::<$array_type>()
-//                     .ok_or_else(|| {
-//                         DeltaTableError::generic(format!(
-//                             "Partition column '{}' downcast failed",
-//                             column
-//                         ))
-//                     })?;
-
-//                 if typed_array.len() == 0 || typed_array.is_null(0) {
-//                     return Err(DeltaTableError::generic(format!(
-//                         "Partition column '{}' has no non-null values",
-//                         column
-//                     )));
-//                 }
-
-//                 $scalar_variant(Some(typed_array.value(0)))
-//             }};
-//         }
-
-//         let scalar = match array.data_type() {
-//             // String types
-//             ArrowDataType::Utf8 => {
-//                 let string_array = array
-//                     .as_any()
-//                     .downcast_ref::<StringArray>()
-//                     .ok_or_else(|| {
-//                         DeltaTableError::generic(format!(
-//                             "Partition column '{}' is not a StringArray",
-//                             column
-//                         ))
-//                     })?;
-
-//                 if string_array.len() == 0 || string_array.is_null(0) {
-//                     return Err(DeltaTableError::generic(format!(
-//                         "Partition column '{}' has no non-null values",
-//                         column
-//                     )));
-//                 }
-
-//                 ScalarValue::Utf8(Some(string_array.value(0).to_string()))
-//             },
-//             ArrowDataType::LargeUtf8 => {
-//                 let string_array = array
-//                     .as_any()
-//                     .downcast_ref::<LargeStringArray>()
-//                     .ok_or_else(|| {
-//                         DeltaTableError::generic(format!(
-//                             "Partition column '{}' is not a LargeStringArray",
-//                             column
-//                         ))
-//                     })?;
-
-//                 if string_array.len() == 0 || string_array.is_null(0) {
-//                     return Err(DeltaTableError::generic(format!(
-//                         "Partition column '{}' has no non-null values",
-//                         column
-//                     )));
-//                 }
-
-//                 ScalarValue::LargeUtf8(Some(string_array.value(0).to_string()))
-//             },
-
-//             // Integer types
-//             ArrowDataType::Int8 => handle_numeric_array!(Int8Array, ScalarValue::Int8),
-//             ArrowDataType::Int16 => handle_numeric_array!(Int16Array, ScalarValue::Int16),
-//             ArrowDataType::Int32 => handle_numeric_array!(Int32Array, ScalarValue::Int32),
-//             ArrowDataType::Int64 => handle_numeric_array!(Int64Array, ScalarValue::Int64),
-//             ArrowDataType::UInt8 => handle_numeric_array!(UInt8Array, ScalarValue::UInt8),
-//             ArrowDataType::UInt16 => handle_numeric_array!(UInt16Array, ScalarValue::UInt16),
-//             ArrowDataType::UInt32 => handle_numeric_array!(UInt32Array, ScalarValue::UInt32),
-//             ArrowDataType::UInt64 => handle_numeric_array!(UInt64Array, ScalarValue::UInt64),
-
-//             // Floating point types
-//             ArrowDataType::Float32 => handle_numeric_array!(Float32Array, ScalarValue::Float32),
-//             ArrowDataType::Float64 => handle_numeric_array!(Float64Array, ScalarValue::Float64),
-
-//             // Boolean type
-//             ArrowDataType::Boolean => {
-//                 let bool_array = array
-//                     .as_any()
-//                     .downcast_ref::<BooleanArray>()
-//                     .ok_or_else(|| {
-//                         DeltaTableError::generic(format!(
-//                             "Partition column '{}' is not a BooleanArray",
-//                             column
-//                         ))
-//                     })?;
-
-//                 if bool_array.len() == 0 || bool_array.is_null(0) {
-//                     return Err(DeltaTableError::generic(format!(
-//                         "Partition column '{}' has no non-null values",
-//                         column
-//                     )));
-//                 }
-
-//                 ScalarValue::Boolean(Some(bool_array.value(0)))
-//             },
-
-//             // Date/Time types
-//             ArrowDataType::Date32 => handle_numeric_array!(Date32Array, ScalarValue::Date32),
-//             ArrowDataType::Date64 => handle_numeric_array!(Date64Array, ScalarValue::Date64),
-//             ArrowDataType::Time32(TimeUnit::Second) => handle_numeric_array!(Time32SecondArray, ScalarValue::Time32Second),
-//             ArrowDataType::Time32(TimeUnit::Millisecond) => handle_numeric_array!(Time32MillisecondArray, ScalarValue::Time32Millisecond),
-//             ArrowDataType::Time64(TimeUnit::Microsecond) => handle_numeric_array!(Time64MicrosecondArray, ScalarValue::Time64Microsecond),
-//             ArrowDataType::Time64(TimeUnit::Nanosecond) => handle_numeric_array!(Time64NanosecondArray, ScalarValue::Time64Nanosecond),
-
-//             // Timestamp types
-//             ArrowDataType::Timestamp(unit, None) => {
-//                 let ts_array = match unit {
-//                     TimeUnit::Second => {
-//                         let arr = array.as_any().downcast_ref::<TimestampSecondArray>()
-//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
-//                         ScalarValue::TimestampSecond(Some(arr.value(0)), None)
-//                     },
-//                     TimeUnit::Millisecond => {
-//                         let arr = array.as_any().downcast_ref::<TimestampMillisecondArray>()
-//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
-//                         ScalarValue::TimestampMillisecond(Some(arr.value(0)), None)
-//                     },
-//                     TimeUnit::Microsecond => {
-//                         let arr = array.as_any().downcast_ref::<TimestampMicrosecondArray>()
-//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
-//                         ScalarValue::TimestampMicrosecond(Some(arr.value(0)), None)
-//                     },
-//                     TimeUnit::Nanosecond => {
-//                         let arr = array.as_any().downcast_ref::<TimestampNanosecondArray>()
-//                             .ok_or_else(|| DeltaTableError::generic("Downcast failed".to_string()))?;
-//                         ScalarValue::TimestampNanosecond(Some(arr.value(0)), None)
-//                     },
-//                 };
-//                 ts_array
-//             },
-
-//             // Binary types
-//             ArrowDataType::Binary => {
-//                 let binary_array = array
-//                     .as_any()
-//                     .downcast_ref::<BinaryArray>()
-//                     .ok_or_else(|| DeltaTableError::generic(format!("Downcast failed for column '{}'", column)))?;
-//                 ScalarValue::Binary(Some(binary_array.value(0).into()))
-//             },
-//             ArrowDataType::LargeBinary => {
-//                 let binary_array = array
-//                     .as_any()
-//                     .downcast_ref::<LargeBinaryArray>()
-//                     .ok_or_else(|| DeltaTableError::generic(format!("Downcast failed for column '{}'", column)))?;
-//                 ScalarValue::LargeBinary(Some(binary_array.value(0).into()))
-//             },
-
-//             // Unsupported types
-//             dt => {
-//                 return Err(DeltaTableError::generic(format!(
-//                     "Unsupported partition column type {:?} for '{}'",
-//                     dt, column
-//                 )));
-//             }
-//         };
-
-//         partition_values.insert(column.clone(), scalar);
-//     }
-
-//     Ok(partition_values)
-// }
-
-// ///Helper function to check schema compatibility
-// fn are_schemas_compatible(target: &Schema, source: &Schema) -> bool {
-//     // Implement schema compatibility checking logic
-//     // This could check for matching column names, types, and nullable properties
-//     // Return true if schemas are compatible, false otherwise
-//     true // Placeholder implementation
-// }
-
-// ///Helper struct for tracking progress
-// struct ProgressTracker {
-//     total_rows: u64,
-//     rows_processed: std::sync::atomic::AtomicU64,
-// }
-
-// impl ProgressTracker {
-//     fn new(total_rows: u64) -> Self {
-//         Self {
-//             total_rows,
-//             rows_processed: std::sync::atomic::AtomicU64::new(0),
-//         }
-//     }
-
-//     fn update(&self, rows: u64) -> f64 {
-//         let processed = self.rows_processed.fetch_add(rows, std::sync::atomic::Ordering::SeqCst) + rows;
-//         (processed as f64 / self.total_rows as f64) * 100.0
-//     }
-// }
+    
+    // Helper function to convert Arrow DataType to Delta DataType
+    fn arrow_to_delta_type(arrow_type: &ArrowDataType) -> DeltaType {
+    
+        match arrow_type {
+            ArrowDataType::Boolean => DeltaType::BOOLEAN,
+            ArrowDataType::Int8 => DeltaType::BYTE,
+            ArrowDataType::Int16 => DeltaType::SHORT,
+            ArrowDataType::Int32 => DeltaType::INTEGER,
+            ArrowDataType::Int64 => DeltaType::LONG,
+            ArrowDataType::Float32 => DeltaType::FLOAT,
+            ArrowDataType::Float64 => DeltaType::DOUBLE,
+            ArrowDataType::Utf8 => DeltaType::STRING,
+            ArrowDataType::Date32 => DeltaType::DATE,
+            ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => DeltaType::TIMESTAMP,
+            ArrowDataType::Binary => DeltaType::BINARY,
+            _ => DeltaType::STRING, // Default to String for unsupported types
+        }
+    }
 
 // =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 // ============================= CUSTOM DATA FRAME ==============================//
@@ -1991,8 +1820,6 @@ impl CustomDataFrame {
         })
     }
 
-
-    
     /// Unified load function that determines the file type based on extension
     ///
     /// # Arguments
