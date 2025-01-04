@@ -22,6 +22,7 @@ regex = "1.11.1"
 encoding_rs = "0.8.35"
 serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.134"
+deltalake-core = "0.23.0"
 env_logger = "0.11.5"
 log = "0.4.22"
 
@@ -32,3 +33,4 @@ path = "src/elusion.rs"
 # [profile.release]
 # lto = true
 # codegen-units = 1
+
