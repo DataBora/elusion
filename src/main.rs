@@ -23,14 +23,14 @@ async fn main() -> ElusionResult<()> {
     result_df.display().await?;
 
     // Overwrite
-    result_df
-        .write_to_delta_table(
-            "overwrite",
-            "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
-            Some(vec!["order_date".into()]),
-        )
-        .await
-        .expect("Failed to overwrite Delta table");
+    // result_df
+    //     .write_to_delta_table(
+    //         "overwrite",
+    //         "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
+    //         Some(vec!["order_date".into()]),
+    //     )
+    //     .await
+    //     .expect("Failed to overwrite Delta table");
 
     // // Append
     // result_df
