@@ -1,7 +1,7 @@
 // ==================== IMPORTS ==================//
 pub mod prelude;
 // ========== DataFrame
-use datafusion::logical_expr::{Expr, col, SortExpr};
+use datafusion::logical_expr::{col, Expr,SortExpr};
 use regex::Regex;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError;
@@ -36,27 +36,16 @@ use tokio::task;
 // ========= JSON   
 use serde_json::{json, Map, Value};
 use serde::{Deserialize, Serialize};
-// use serde_json::Deserializer;
 use std::collections::{HashMap, HashSet};
 use arrow::error::Result as ArrowResult;    
 
-// delta table writer
-// use deltalake::writer::{RecordBatchWriter, WriteMode};
-// use deltalake::{DeltaTable, DeltaTableError,  DeltaTableBuilder,DeltaTableConfig,
-//     ObjectStore,
-//     Path,
-//     storage::*};
-//     use deltalake::operations::DeltaOps;
-//DELTA WRITER
-// use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
-// use datafusion::common::ScalarValue;
 use datafusion::arrow::datatypes::TimeUnit;
 
 use std::result::Result;
 use std::path::{Path as LocalPath, PathBuf};
 use deltalake::operations::DeltaOps;
 use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
-use deltalake::{Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
+use deltalake::{open_table, DeltaTableBuilder, DeltaTableError, ObjectStore, Path as DeltaPath};
 use deltalake::protocol::SaveMode;
 use deltalake::kernel::{DataType as DeltaType, Metadata, Protocol, StructType};
 use deltalake::kernel::StructField;
@@ -103,146 +92,6 @@ impl From<std::io::Error> for ElusionError {
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
 
-// =================== DATA TYPES CONVERSIONS ==================== //
-
-// #[derive(Debug, Clone)]
-// pub enum SQLDataType {
-//     // Character Types
-//     Char,
-//     Varchar,
-//     Text,
-//     String,
-
-//     // Numeric Types
-//     TinyInt,
-//     SmallInt,
-//     Int,
-//     BigInt,
-//     TinyIntUnsigned,
-//     SmallIntUnsigned,
-//     IntUnsigned,
-//     BigIntUnsigned,
-//     Float,
-//     Real,
-//     Double,
-//     Decimal(u8, u8), // precision, scale
-
-//     // Date/Time Types
-//     Date,
-//     Time,
-//     Timestamp,
-//     Interval,
-
-//     // Boolean Types
-//     Boolean,
-
-//     // Binary Types
-//     ByteA,
-
-//     // Unsupported Types
-//     Unsupported(String),
-// }
-
-// impl From<SQLDataType> for ArrowDataType {
-//     fn from(sql_type: SQLDataType) -> Self {
-//         match sql_type {
-//             // Character Types
-//             SQLDataType::Char | SQLDataType::Varchar | SQLDataType::Text | SQLDataType::String => ArrowDataType::Utf8,
-
-//             // Numeric Types
-//             SQLDataType::TinyInt => ArrowDataType::Int8,
-//             SQLDataType::SmallInt => ArrowDataType::Int16,
-//             SQLDataType::Int => ArrowDataType::Int32,
-//             SQLDataType::BigInt => ArrowDataType::Int64,
-//             SQLDataType::TinyIntUnsigned => ArrowDataType::UInt8,
-//             SQLDataType::SmallIntUnsigned => ArrowDataType::UInt16,
-//             SQLDataType::IntUnsigned => ArrowDataType::UInt32,
-//             SQLDataType::BigIntUnsigned => ArrowDataType::UInt64,
-//             SQLDataType::Float | SQLDataType::Real => ArrowDataType::Float32,
-//             SQLDataType::Double => ArrowDataType::Float64,
-//             SQLDataType::Decimal(precision, scale) => ArrowDataType::Decimal128(precision.into(), scale.try_into().unwrap()),
-
-//             // Date/Time Types
-//             SQLDataType::Date => ArrowDataType::Date32,
-//             SQLDataType::Time => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Nanosecond),
-//             SQLDataType::Timestamp => ArrowDataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Nanosecond, None),
-//             SQLDataType::Interval => ArrowDataType::Interval(datafusion::arrow::datatypes::IntervalUnit::MonthDayNano),
-
-//             // Boolean Types
-//             SQLDataType::Boolean => ArrowDataType::Boolean,
-
-//             // Binary Types
-//             SQLDataType::ByteA => ArrowDataType::Binary,
-
-//             // Unsupported
-//             SQLDataType::Unsupported(msg) => panic!("Unsupported SQL type: {}", msg),
-//         }
-//     }
-// }
-
-// impl SQLDataType {
-//     pub fn from_str(data_type: &str) -> Self {
-//         match data_type.to_uppercase().as_str() {
-//             "CHAR" => SQLDataType::Char,
-//             "VARCHAR" => SQLDataType::Varchar,
-//             "TEXT" | "STRING" | "UTF8" | "UTF8VIEW" | "UTF8LARGE" => SQLDataType::Varchar,
-//             // Signed Integer Types
-//             "TINYINT" | "INT8" => SQLDataType::TinyInt,
-//             "SMALLINT" | "INT16" => SQLDataType::SmallInt,
-//             "INT" | "INTEGER" | "INT32" => SQLDataType::Int,
-//             "BIGINT" | "INT64" => SQLDataType::BigInt,
-//             //integers unsigned
-//             "UINT8" => SQLDataType::TinyIntUnsigned,
-//             "UINT16" => SQLDataType::SmallIntUnsigned,
-//             "UINT32" => SQLDataType::IntUnsigned,
-//             "UINT64" => SQLDataType::BigIntUnsigned,
-//             // decimals/float poiint 
-//             "FLOAT" | "FLOAT32" => SQLDataType::Float,
-//             "DOUBLE" | "FLOAT64" => SQLDataType::Double,
-//             "DECIMAL" => SQLDataType::Decimal(20, 4), 
-//             "NUMERIC" | "NUMBER" => SQLDataType::Decimal(20,4),
-
-//             "DATE" => SQLDataType::Date,
-//             "TIME" => SQLDataType::Time,
-//             "TIMESTAMP" => SQLDataType::Timestamp,
-//             "BOOLEAN" => SQLDataType::Boolean,
-//             "BYTEA" => SQLDataType::ByteA,
-//             _ => SQLDataType::Unsupported(data_type.to_string()),
-//         }
-//     }
-// }
-
-// impl From<ArrowDataType> for SQLDataType {
-//     fn from(arrow_type: ArrowDataType) -> Self {
-//         match arrow_type {
-//             ArrowDataType::Utf8 | ArrowDataType::Utf8View | ArrowDataType::LargeUtf8 => SQLDataType::Varchar,
-//             ArrowDataType::Int8 => SQLDataType::TinyInt,
-//             ArrowDataType::Int16 => SQLDataType::SmallInt,
-//             ArrowDataType::Int32 => SQLDataType::Int,
-//             ArrowDataType::Int64 => SQLDataType::BigInt,
-//             ArrowDataType::UInt8 => SQLDataType::TinyIntUnsigned,
-//             ArrowDataType::UInt16 => SQLDataType::SmallIntUnsigned,
-//             ArrowDataType::UInt32 => SQLDataType::IntUnsigned,
-//             ArrowDataType::UInt64 => SQLDataType::BigIntUnsigned,
-//             ArrowDataType::Float32 => SQLDataType::Float,
-//             ArrowDataType::Float64 => SQLDataType::Double,
-//             ArrowDataType::Date32 => SQLDataType::Date,
-//             ArrowDataType::Time64(_) => SQLDataType::Time,
-//             ArrowDataType::Timestamp(_, _) => SQLDataType::Timestamp,
-//             ArrowDataType::Boolean => SQLDataType::Boolean,
-//             ArrowDataType::Binary => SQLDataType::ByteA,
-//             _ => SQLDataType::Unsupported(format!("{:?}", arrow_type)),
-//         }
-//     }
-// }
-// fn normalize_arrow_data_type(data_type: &ArrowDataType) -> ArrowDataType {
-//     match data_type {
-//         ArrowDataType::Utf8 | ArrowDataType::Utf8View | ArrowDataType::LargeUtf8 => ArrowDataType::Utf8,
-//         _ => data_type.clone(),
-//     }
-// }
-
-
 // =====================  AGGREGATION BUILDER =============== //
 
 pub struct AggregationBuilder {
@@ -260,7 +109,6 @@ impl AggregationBuilder {
             agg_fn: None, 
         }
     }
-
     pub fn build_expr(&self, table_alias: &str) -> Expr {
         // Fully qualify the column name with the table alias
         let qualified_column = if self.column.contains('.') {
@@ -363,7 +211,6 @@ impl AggregationBuilder {
         self
     }
     
-
     pub fn first_value(mut self) -> Self {
         self.agg_fn = Some(Box::new(|expr| first_value(expr, None))); // First value function
         self
@@ -373,7 +220,6 @@ impl AggregationBuilder {
         self.agg_fn = Some(Box::new(move |expr| nth_value(expr, n, vec![]))); 
         self
     }
-    
 
     
 }
@@ -392,7 +238,7 @@ impl From<AggregationBuilder> for Expr {
 }
 
 // =================== CSV DETECT DEFECT ======================= //
-
+/// Fucntion that detects defects in UTF8 for CSV files
 pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -413,7 +259,7 @@ pub fn csv_detect_defect_utf8(file_path: &str) -> Result<(), io::Error> {
     Ok(())
 }
 
-
+/// Function that converts invalid UTF8 for CSV files
 pub fn convert_invalid_utf8(file_path: &str) -> Result<(), io::Error> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
@@ -471,19 +317,7 @@ fn parse_date_with_formats(date_str: &str) -> Option<i32> {
     None
 }
 
-// =============== QUERY LOADER =================== //
-
-
-// ===================== SCHEMA VALIDATION ===================== //
-
-// fn col_with_relation(relation: &str, column: &str) -> Expr {
-//     if column.contains('.') {
-//         col(column) // Already qualified
-//     } else {
-//         col(&format!("{}.{}", relation, column)) // Add table alias
-//     }
-// }
-
+/// Functions for checking quailified columns
 fn col_with_relation(relation: &str, column: &str) -> Expr {
     if column.contains('.') {
         col(column) // Already qualified
@@ -493,48 +327,6 @@ fn col_with_relation(relation: &str, column: &str) -> Expr {
         col(column) // Use column name as is
     }
 }
-
-// fn validate_schema(schema: &Schema, df: &DataFrame) {
-//     let df_schema = df.schema();
-
-//     // Validate column names and data types
-//     for field in schema.fields() {
-//         match df_schema.field_with_name(None, field.name()) {
-//             Ok(df_field) => {
-//                 // Check the actual data type in the DataFrame
-//                 let actual_data_type = df_field.data_type();
-//                 let expected_data_type: ArrowDataType = SQLDataType::from_str(&field.data_type().to_string()).into();
-
-//                 // let expected_type = normalize_arrow_data_type(field.data_type());
-//                 // let actual_type = normalize_arrow_data_type(df_field.data_type());
-
-//                 // Compare the data types without conversion
-//                 if expected_data_type != *actual_data_type {
-//                     panic!(
-//                         "Data type mismatch for column '{}': expected {:?}, found {:?}",
-//                         field.name(),
-//                         expected_data_type,
-//                         actual_data_type
-//                     );
-//                 }
-//             }
-//             Err(_) => panic!("Column '{}' not found in the schema.", field.name()),
-//         }
-//     }
-
-
-//     // Check for extra columns in the DataFrame schema that are not present in the provided schema
-//     for df_field in df_schema.fields() {
-//         if schema.field_with_name(df_field.name()).is_err() {
-//             panic!(
-//                 "Extra column '{}' found in the file that is not present in the provided schema.",
-//                 df_field.name()
-//             );
-//         }
-//     }
-
-    
-// }
 
 /// Normalizes column naame by trimming whitespace,converting it to lowercase and replacing empty spaces with underscore.
 fn normalize_column_name(name: &str) -> String {
@@ -616,7 +408,7 @@ fn flatten_generic_json(data: GenericJson) -> HashMap<String, Value> {
     map
 }
 
-// Function to infer schema from rows
+/// Function to infer schema from rows
 fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
     let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
     let mut keys_set: HashSet<String> = HashSet::new();
@@ -625,7 +417,7 @@ fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
         for (k, v) in row {
             keys_set.insert(k.clone());
             let inferred_type = infer_arrow_type(v);
-            // If the key already exists, ensure the type is compatible (e.g., promote to Utf8 if types vary)
+            // If the key already exists, ensure the type is compatible 
             fields_map
                 .entry(k.clone())
                 .and_modify(|existing_type| {
@@ -670,7 +462,6 @@ fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
         (Int64, Int64) => Int64,
         (UInt64, UInt64) => UInt64,
         (Float64, Float64) => Float64,
-        // Add more type promotions as needed
         _ => Utf8, // Default promotion to Utf8 for incompatible types
     }
 }
@@ -681,7 +472,6 @@ fn build_record_batch(
 ) -> ArrowResult<RecordBatch> {
     let mut builders: Vec<Box<dyn ArrayBuilder>> = Vec::new();
 
-    // Initialize builders based on schema
     for field in schema.fields() {
         let builder: Box<dyn ArrayBuilder> = match field.data_type() {
             ArrowDataType::Utf8 => Box::new(StringBuilder::new()),
@@ -694,13 +484,12 @@ fn build_record_batch(
             ArrowDataType::Float32 => Box::new(Float32Builder::new()),
             ArrowDataType::Float64 => Box::new(Float64Builder::new()),
             ArrowDataType::Date32 => Box::new(Date32Builder::new()),
-            // Add more types as needed
+           
             _ => Box::new(StringBuilder::new()), // Default to Utf8 for unsupported types
         };
         builders.push(builder);
     }
 
-    // Populate builders with row data
     for row in rows {
         for (i, field) in schema.fields().iter().enumerate() {
             let key = field.name();
@@ -850,32 +639,30 @@ fn build_record_batch(
                         .downcast_mut::<Date32Builder>()
                         .expect("Expected Date32Builder for Date32 field");
                     if let Some(Value::String(s)) = value {
-                        // Parse the date string into days since UNIX epoch
+                        //  date string into days since UNIX epoch
                         // Here, we assume the date is in "YYYY-MM-DD" format
                         match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
                             Ok(date) => {
-                                // Define the UNIX epoch
+                                // UNIX epoch
                                 let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
                                     .expect("Failed to create epoch date");
 
-                                // Calculate the number of days since epoch
                                 let days_since_epoch = (date - epoch).num_days() as i32;
-
-                                // Append the value to the builder
+                               
                                 builder.append_value(days_since_epoch);
                             }
                             Err(_) => {
-                                // If parsing fails, append a null
+                             
                                 builder.append_null();
                             }
                         }
                     } else {
-                        // If the value is not a string, append a null
+                      
                         builder.append_null();
                     }
                 },
                 _ => {
-                    // Default to appending as string
+                    
                     let builder = builders[i]
                         .as_any_mut()
                         .downcast_mut::<StringBuilder>()
@@ -883,7 +670,7 @@ fn build_record_batch(
                     if let Some(Value::String(s)) = value {
                         builder.append_value(s);
                     } else if let Some(v) = value {
-                        // Serialize other types to string
+                    
                         builder.append_value(&v.to_string());
                     } else {
                         builder.append_null();
@@ -893,7 +680,6 @@ fn build_record_batch(
         }
     }
 
-    // 9. Create the RecordBatch
     let mut arrays: Vec<ArrayRef> = Vec::new();
     for mut builder in builders {
         arrays.push(builder.finish());
@@ -922,36 +708,28 @@ fn read_file_to_string(file_path: &str) -> Result<String, io::Error> {
 }
 
 async fn create_dataframe_from_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-    // Deserialize JSON into GenericJson struct
+  
     let generic_json: GenericJson = serde_json::from_str(json_str)
     .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;    
 
-    // Flatten the data
     let flattened = flatten_generic_json(generic_json);
 
-    // Collect all rows (for simplicity, assuming single record)
     let rows = vec![flattened];
 
-    // Infer schema
     let schema = infer_schema_from_json(&rows);
 
-    // Build RecordBatch
     let record_batch = build_record_batch(&rows, schema.clone())
     .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
 
-    // Create MemTable
     let partitions = vec![vec![record_batch]];
     let mem_table = MemTable::try_new(schema.clone(), partitions)
     .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
 
-    // Create a new SessionContext
     let ctx = SessionContext::new();
 
-    // Register the table
     ctx.register_table(alias, Arc::new(mem_table))
     .map_err(|e| DataFusionError::Execution(format!("Failed to register Table: {}", e)))?;
 
-    // Retrieve the DataFrame
     let df = ctx.table(alias).await?;
 
     Ok(df)
@@ -959,37 +737,30 @@ async fn create_dataframe_from_json(json_str: &str, alias: &str) -> Result<DataF
 
 /// Creates a DataFusion DataFrame from multiple JSON records.
 async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-    // Deserialize JSON into Vec<GenericJson> struct
+
     let generic_jsons: Vec<GenericJson> = serde_json::from_str(json_str)
         .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;
     
-    // Flatten the data
     let mut rows = Vec::new();
     for generic_json in generic_jsons {
         let flattened = flatten_generic_json(generic_json);
         rows.push(flattened);
     }
     
-    //  Infer schema
     let schema = infer_schema_from_json(&rows);
     
-    // Build RecordBatch
     let record_batch = build_record_batch(&rows, schema.clone())
         .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
     
-    // Create MemTable
     let partitions = vec![vec![record_batch]];
     let mem_table = MemTable::try_new(schema.clone(), partitions)
         .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
     
-    // Create a new SessionContext
     let ctx = SessionContext::new();
     
-    // Register the table
     ctx.register_table(alias, Arc::new(mem_table))
         .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
     
-    // Retrieve the DataFrame
     let df = ctx.table(alias).await
         .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
     
@@ -1182,6 +953,35 @@ impl CsvWriteOptions {
                 _ => DeltaType::STRING, // Default to String for unsupported types
             }
         }
+        // Helper function to transfer Delta Types to Arrow types
+        // fn get_arrow_type_from_delta_schema(metadata: &Metadata, column_name: &str) -> ArrowDataType {
+        //     if let Ok(schema) = metadata.schema() {
+        //         for field in schema.fields() {
+        //             if field.name() == column_name {
+        //                 return match field.data_type() {
+        //                     &DeltaType::BOOLEAN => ArrowDataType::Boolean,
+        //                     &DeltaType::BYTE => ArrowDataType::Int8,
+        //                     &DeltaType::SHORT => ArrowDataType::Int16,
+        //                     &DeltaType::INTEGER => ArrowDataType::Int32,
+        //                     &DeltaType::LONG => ArrowDataType::Int64,
+        //                     &DeltaType::FLOAT => ArrowDataType::Float32,
+        //                     &DeltaType::DOUBLE => ArrowDataType::Float64,
+        //                     &DeltaType::STRING => ArrowDataType::Utf8,
+        //                     &DeltaType::BINARY => ArrowDataType::Binary,
+        //                     &DeltaType::DATE => {
+        //                         ArrowDataType::Date32
+        //                     },
+        //                     &DeltaType::TIMESTAMP => {
+        //                         ArrowDataType::Timestamp(TimeUnit::Microsecond, None)
+        //                     },
+        //                     _ => ArrowDataType::Utf8,
+        //                 };
+        //             }
+        //         }
+        //     }
+        //     // Default to Utf8 if we can't get schema or column not found
+        //     ArrowDataType::Utf8
+        // }
 
     /// Helper struct to manage path conversions between different path types
     #[derive(Clone)]
@@ -1192,7 +992,6 @@ impl CsvWriteOptions {
     impl DeltaPathManager {
         /// Create a new DeltaPathManager from a string path
         pub fn new<P: AsRef<LocalPath>>(path: P) -> Self {
-            // Normalize the path separators to work across platforms
             let normalized = path
                 .as_ref()
                 .to_string_lossy()
@@ -1225,6 +1024,48 @@ impl CsvWriteOptions {
         pub fn table_path(&self) -> String {
             self.base_path_str()
         }
+        /// Get the drive prefix (e.g., "C:/", "D:/") from the base path
+        pub fn drive_prefix(&self) -> String {
+            let base_path = self.base_path_str();
+            if let Some(colon_pos) = base_path.find(':') {
+                base_path[..colon_pos + 2].to_string() // Include drive letter, colon, and slash
+            } else {
+                "/".to_string() // Fallback for non-Windows paths
+            }
+        }
+
+        /// Normalize a file URI with the correct drive letter
+        pub fn normalize_uri(&self, uri: &str) -> String {
+            let drive_prefix = self.drive_prefix();
+            
+            // removing any existing drive letter prefix pattern and leading slashes
+            let path = uri.trim_start_matches(|c| c != '/' && c != '\\')
+                .trim_start_matches(['/', '\\']);
+            
+            // correct drive prefix and normalize separators
+            format!("{}{}", drive_prefix, path).replace('\\', "/")
+        }
+
+        pub fn is_delta_table(&self) -> bool {
+            let delta_log = self.base_path.join("_delta_log");
+            let delta_log_exists = delta_log.is_dir();
+            
+            if delta_log_exists {
+                // Additional check: is .json files in _delta_log
+                if let Ok(entries) = fs::read_dir(&delta_log) {
+                    for entry in entries {
+                        if let Ok(entry) = entry {
+                            if let Some(ext) = entry.path().extension() {
+                                if ext == "json" {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            false
+        }
     }
 
     /// Helper function to append a Protocol action to the Delta log
@@ -1233,21 +1074,18 @@ impl CsvWriteOptions {
         delta_log_path: &DeltaPath,
         protocol_action: Value,
     ) -> Result<(), DeltaTableError> {
-        // Determine the next version number
+    
         let latest_version = get_latest_version(store, delta_log_path).await?;
         let next_version = latest_version + 1;
         let protocol_file = format!("{:020}.json", next_version);
 
         let child_path = delta_log_path.child(&*protocol_file);
         
-        // Use the `child` method to append the protocol file name to the delta_log_path
         let protocol_file_path = DeltaPath::from(child_path);
 
-        // Serialize the Protocol action
         let action_str = serde_json::to_string(&protocol_action)
             .map_err(|e| DeltaTableError::Generic(format!("Failed to serialize Protocol action: {e}")))?;
 
-        // Write the Protocol action to the Delta log
         store
             .put(&protocol_file_path, action_str.into_bytes().into())
             .await
@@ -1500,9 +1338,6 @@ impl CsvWriteOptions {
 
 
 // =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
-// ============================= CUSTOM DATA FRAME ==============================//
-
-// ================ STRUCTS ==================//
 
 #[derive(Clone)]
 pub struct CustomDataFrame {
@@ -1596,9 +1431,6 @@ impl CustomDataFrame {
         // } else {
         //     None
         // };
-
-    
-
         // Load the file into a DataFrame
         let aliased_df = Self::load(file_path, alias ) //sort_cols, partition_cols
             .await
@@ -1708,432 +1540,7 @@ impl CustomDataFrame {
             aggregated_df: Some(df.clone()),
         })
     }
-
-    /// Utility function to create schema from user-defined column info
-    // fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
-    //     let fields = columns
-    //         .into_iter()
-    //         .map(|(name, sql_type_str, nullable)| {
-    //             let sql_type = SQLDataType::from_str(sql_type_str);
-    //             // If the type is DATE, map it to Utf8 initially
-    //             let arrow_type = if matches!(sql_type, SQLDataType::Date) {
-    //                 ArrowDataType::Utf8
-    //             } else {
-    //                 sql_type.into()
-    //             };
-    //             Field::new(&normalize_column_name(name), arrow_type, nullable)
-    //         })
-    //         .collect::<Vec<_>>();
-
-    //     Schema::new(fields)
-    // }
-
-    // fn create_schema_from_str(columns: Vec<(&str, &str, bool)>) -> Schema {
-    //     let fields = columns
-    //         .into_iter()
-    //         .map(|(name, sql_type_str, nullable)| {
-    //             let sql_type = SQLDataType::from_str(sql_type_str);
-                
-    //             // Map SQLDataType to ArrowDataType
-    //             let arrow_type = match sql_type {
-    //                 SQLDataType::Date => ArrowDataType::Utf8, // Initially map DATE to Utf8
-    //                 SQLDataType::Unsupported(_) => {
-    //                     panic!("Unsupported SQL type: {}", sql_type_str);
-    //                 }
-    //                 _ => sql_type.into(),
-    //             };
-                
-    //             Field::new(&normalize_column_name(name), arrow_type, nullable)
-    //         })
-    //         .collect::<Vec<_>>();
     
-    //     Schema::new(fields)
-    // }
-    
-
-    //=================== LOADERS ============================= //
-    /// LOAD function for CSV file type
-    ///  /// # Arguments
-    ///
-    /// * `file_path` - The path to the JSON file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    pub fn load_csv<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ctx = SessionContext::new();
-            let file_extension = file_path
-                .split('.')
-                .last()
-                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
-                .to_lowercase();
-    
-            // Detect and fix invalid UTF-8
-            if let Err(err) = csv_detect_defect_utf8(file_path) {
-                eprintln!(
-                    "Invalid UTF-8 data detected in file '{}': {}. Attempting in-place conversion...",
-                    file_path, err
-                );
-                convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
-            }
-    
-            let df = match file_extension.as_str() {
-                "csv" => {
-                    let result = ctx
-                        .read_csv(
-                            file_path,
-                            CsvReadOptions::new()
-                                .has_header(true) // Detect headers
-                                .schema_infer_max_records(1000), // Optional: how many records to scan for inference
-                        )
-                        .await;
-    
-                    match result {
-                        Ok(df) => df,
-                        Err(err) => {
-                            eprintln!(
-                                "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                                file_path, err
-                            );
-                            return Err(err);
-                        }
-                    }
-                }
-                _ => panic!("Unsupported file type: {}", file_extension),
-            };
-    
-            let batches = df.collect().await?;
-            let mut updated_batches = Vec::new();
-    
-            for batch in batches {
-                let mut columns = Vec::new();
-                let mut updated_fields = Vec::new();
-    
-                for (i, field) in batch.schema().fields().iter().enumerate() {
-                    let column = batch.column(i);
-    
-                    match column.data_type() {
-                        ArrowDataType::Utf8 => {
-                            let string_array = column
-                                .as_any()
-                                .downcast_ref::<StringArray>()
-                                .expect("Column is not a StringArray");
-    
-                            if field.name().to_lowercase().contains("date") {
-                                // Attempt to parse dates
-                                let parsed_date_values = string_array
-                                    .iter()
-                                    .map(|value| value.and_then(|v| parse_date_with_formats(v)))
-                                    .collect::<Vec<_>>();
-    
-                                let date_array: ArrayRef = Arc::new(Date32Array::from(parsed_date_values));
-                                columns.push(date_array);
-                                updated_fields.push(Field::new(
-                                    field.name(),
-                                    ArrowDataType::Date32,
-                                    field.is_nullable(),
-                                ));
-                            } else {
-                                // Keep as Utf8
-                                columns.push(column.clone());
-                                updated_fields.push(field.as_ref().clone());
-                            }
-                        }
-                        ArrowDataType::Int32 => {
-                            columns.push(column.clone());
-                            updated_fields.push(field.as_ref().clone());
-                        }
-                        ArrowDataType::Int64 => {
-                            columns.push(column.clone());
-                            updated_fields.push(field.as_ref().clone());
-                        }
-                        ArrowDataType::Float64 => {
-                            columns.push(column.clone());
-                            updated_fields.push(field.as_ref().clone());
-                        }
-                        ArrowDataType::Boolean => {
-                            columns.push(column.clone());
-                            updated_fields.push(field.as_ref().clone());
-                        }
-                        _ => {
-                            columns.push(column.clone());
-                            updated_fields.push(field.as_ref().clone());
-                        }
-                    }
-                }
-    
-                // Normalize column names after parsing data types
-                let normalized_fields = updated_fields
-                    .iter()
-                    .map(|field| {
-                        let normalized_name = normalize_column_name(field.name());
-                        field.clone().with_name(&normalized_name)
-                    })
-                    .collect::<Vec<_>>();
-                let normalized_schema = Arc::new(Schema::new(normalized_fields));
-                let updated_batch = RecordBatch::try_new(normalized_schema.clone(), columns)?;
-                updated_batches.push(updated_batch);
-            }
-    
-            // Normalize alias
-            let normalized_alias = normalize_alias(alias);
-    
-            // Create a MemTable and register it
-            let mem_table = MemTable::try_new(
-                Arc::new(Schema::new(
-                    updated_batches.first().unwrap().schema().fields().to_vec(),
-                )),
-                vec![updated_batches],
-            )?;
-            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
-    
-            Ok(AliasedDataFrame {
-                dataframe: ctx.table(&normalized_alias).await?,
-                alias: alias.to_string(),
-            })
-        })
-    }
-    
-    /// LOAD function for Parquet file type
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the Parquet file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
-    pub fn load_parquet<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ctx = SessionContext::new();
-            let file_extension = file_path
-                .split('.')
-                .last()
-                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
-                .to_lowercase();
-            // Normalize alias
-            let normalized_alias = normalize_alias(alias);
-    
-            let df = match file_extension.as_str() {
-                "parquet" => {
-                    let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
-                    match result {
-                        Ok(df) => {
-                            println!("Successfully read Parquet file '{}'", file_path);
-                            df
-                        }
-                        Err(err) => {
-                            eprintln!(
-                                "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                                file_path, err
-                            );
-                            return Err(err);
-                        }
-                    }
-                }
-                _ => {
-                    eprintln!(
-                        "File type '{}' is not explicitly supported. Skipping file '{}'.",
-                        file_extension, file_path
-                    );
-                    return Err(DataFusionError::Plan(format!(
-                        "Unsupported file type: {}",
-                        file_extension
-                    )));
-                }
-            };
-    
-            // Collect batches and build a MemTable
-            let batches = df.clone().collect().await?;
-            let schema = df.schema().clone();
-            let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
-    
-            // Register the MemTable with the alias
-            ctx.register_table(normalized_alias, Arc::new(mem_table))?;
-    
-            // Retrieve the registered table as a DataFrame
-            let aliased_df = ctx
-                .table(alias)
-                .await
-                .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
-    
-            Ok(AliasedDataFrame {
-                dataframe: aliased_df,
-                alias: alias.to_string(),
-            })
-        })
-    }
-    
-    /// Loads a JSON file into a DataFusion DataFrame.
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the JSON file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    pub fn load_json<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-           
-            let file_contents = read_file_to_string(file_path)
-                .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
-
-         
-            //println!("Raw JSON Content:\n{}", file_contents);
-
-            let is_array = match serde_json::from_str::<Value>(&file_contents) {
-                Ok(Value::Array(_)) => true,
-                Ok(Value::Object(_)) => false,
-                Ok(_) => false,
-                Err(e) => {
-                    return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
-                }
-            };
-            
-         
-            let df = if is_array {
-         
-                create_dataframe_from_multiple_json(&file_contents, alias).await?
-            } else {
-              
-                create_dataframe_from_json(&file_contents, alias).await?
-            };
-
-            
-            Ok(AliasedDataFrame {
-                dataframe: df,
-                alias: alias.to_string(),
-            })
-        })
-    }
-
-    /// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
-    /// 
-    /// # Usage
-    /// ```no_run
-    /// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
-    /// ```
-    pub fn load_delta<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ctx = SessionContext::new();
-
-            // Optionally, try `deltalake::DeltaTable::open_table(file_path).await` to verify
-            // but for local usage is_dir + `_delta_log` might be enough.
-
-            // Then let DataFusion read the directory of Parquet files
-            let df = ctx.read_parquet(file_path, ParquetReadOptions::default()).await?;
-
-            // Collect to build MemTable
-            let batches = df.clone().collect().await?;
-            let schema = df.schema().clone().into();
-
-            // Build MemTable
-            let mem_table = MemTable::try_new(schema, vec![batches])?;
-            let normalized_alias = normalize_alias(alias);
-            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
-            
-            // Retrieve table
-            let aliased_df = ctx.table(&normalized_alias).await?;
-            Ok(AliasedDataFrame {
-                dataframe: aliased_df,
-                alias: alias.to_string(),
-            })
-        })
-    }
-
-    /// Unified load function that determines the file type based on extension
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the data file (CSV, JSON, Parquet).
-    /// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
-    pub fn load<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ext = file_path
-                .split('.')
-                .last()
-                .unwrap_or_default()
-                .to_lowercase();
-
-            match ext.as_str() {
-                // If recognized extension, call the corresponding loader
-                "csv" => Self::load_csv(file_path, alias).await,
-                "json" => Self::load_json(file_path, alias).await,
-                "parquet" => Self::load_parquet(file_path, alias).await,
-                "" => {
-                    // If there's **no** extension, maybe it's a directory (Delta?).
-                    // Check if `_delta_log` subfolder exists. If yes => load Delta
-                    let p = LocalPath::new(file_path);
-                    let delta_log_path = p.join("_delta_log");
-                    if delta_log_path.is_dir() {
-                        // If there's a `_delta_log` dir => load Delta
-                        Self::load_delta(file_path, alias).await
-                    } else {
-                        Err(DataFusionError::Execution(format!(
-                            "Unsupported file or directory: {file_path}"
-                        )))
-                    }
-                }
-                other => Err(DataFusionError::Execution(format!(
-                    "Unsupported extension: {other}"
-                ))),
-            }
-        })
-    }
-
-    // pub fn load<'a>(
-    //     file_path: &'a str,
-    //     schema: Option<Arc<Schema>>,
-    //     alias: &'a str,
-    // ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-    //     Box::pin(async move {
-    //         let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
-    //         match ext.as_str() {
-    //             "csv" => {
-    //                 // Ensure schema is provided for CSV
-    //                 if let Some(schema) = schema {
-    //                     Self::load_csv(file_path, schema, alias).await
-    //                 } else {
-    //                     Err(DataFusionError::Plan(
-    //                         "Schema must be provided for CSV files.".to_string(),
-    //                     ))
-    //                 }
-    //             }
-    //             "json" => Self::load_json(file_path, alias).await,
-    //             "parquet" => Self::load_parquet(file_path, alias).await,
-    //             other => Err(DataFusionError::Execution(format!(
-    //                 "Unsupported extension: {}",
-    //                 other
-    //             ))),
-    //         }
-    //     })
-    // }
-    
-
-
-
     // ======================= BUILDERS ==============================//
 
      /// CTEs builder
@@ -2338,10 +1745,9 @@ impl CustomDataFrame {
 
     /// WITH CTE claUse
     pub fn with_cte(mut self, name: &str, cte_df: CustomDataFrame) -> Self {
-        // Use the updated `cte_schema` to extract schema with alias
+        // cte_schema to extract schema with alias
         let schema = cte_schema(&cte_df.df, name);
     
-        // Add the CTE to the list of definitions with its schema
         self.ctes.push(CTEDefinition {
             name: name.to_string(),
             cte_df,
@@ -2415,7 +1821,7 @@ impl CustomDataFrame {
                 expr_resolved = true;
             }
 
-            // If not an aggregation alias, check if the column name is fully qualified
+            // If not an aggregation alias, checking if the column name is fully qualified
             if !expr_resolved {
                 let qualified_column = if column_name.contains('.') {
                     column_name.clone()
@@ -2436,7 +1842,7 @@ impl CustomDataFrame {
                 }
             }
 
-            // 3. If still not resolved, check if the column exists without qualification
+            // If still not resolved, checking if the column exists without qualification
             if !expr_resolved {
                 if self.df.schema().fields().iter().any(|f| *f.name() == column_name) {
                     // Column name matches directly
@@ -2452,7 +1858,7 @@ impl CustomDataFrame {
                 }
             }
 
-            // 4. If not resolved yet, check if the column belongs to a CTE via JoinClause
+            // If not resolved yet, checking if the column belongs to a CTE via JoinClause
             if !expr_resolved {
                 for join in &self.joins {
                     if let Some(cte) = self.ctes.iter().find(|cte| cte.name == join.table) {
@@ -3143,7 +2549,6 @@ impl CustomDataFrame {
             Ok(())
         }).await.map_err(|e| ElusionError::Custom(format!("Failed to write to CSV: {}", e)))??;
 
-        // Confirm successful write
         match mode {
             "overwrite" => println!("Data successfully overwritten to '{}'.", path),
             "append" => println!("Data successfully appended to '{}'.", path),
@@ -3221,6 +2626,487 @@ impl CustomDataFrame {
         )
         .await
     }
+
+    //=================== LOADERS ============================= //
+    /// LOAD function for CSV file type
+    ///  /// # Arguments
+    ///
+    /// * `file_path` - The path to the JSON file.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    pub fn load_csv<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+            let file_extension = file_path
+                .split('.')
+                .last()
+                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
+                .to_lowercase();
+    
+            // Detect and fix invalid UTF-8
+            if let Err(err) = csv_detect_defect_utf8(file_path) {
+                eprintln!(
+                    "Invalid UTF-8 data detected in file '{}': {}. Attempting in-place conversion...",
+                    file_path, err
+                );
+                convert_invalid_utf8(file_path).expect("Failed to convert invalid UTF-8 data in-place.");
+            }
+    
+            let df = match file_extension.as_str() {
+                "csv" => {
+                    let result = ctx
+                        .read_csv(
+                            file_path,
+                            CsvReadOptions::new()
+                                .has_header(true) // Detect headers
+                                .schema_infer_max_records(1000), // Optional: how many records to scan for inference
+                        )
+                        .await;
+    
+                    match result {
+                        Ok(df) => df,
+                        Err(err) => {
+                            eprintln!(
+                                "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                                file_path, err
+                            );
+                            return Err(err);
+                        }
+                    }
+                }
+                _ => panic!("Unsupported file type: {}", file_extension),
+            };
+    
+            let batches = df.collect().await?;
+            let mut updated_batches = Vec::new();
+    
+            for batch in batches {
+                let mut columns = Vec::new();
+                let mut updated_fields = Vec::new();
+    
+                for (i, field) in batch.schema().fields().iter().enumerate() {
+                    let column = batch.column(i);
+    
+                    match column.data_type() {
+                        ArrowDataType::Utf8 => {
+                            let string_array = column
+                                .as_any()
+                                .downcast_ref::<StringArray>()
+                                .expect("Column is not a StringArray");
+    
+                            if field.name().to_lowercase().contains("date") {
+                                // Attempt to parse dates
+                                let parsed_date_values = string_array
+                                    .iter()
+                                    .map(|value| value.and_then(|v| parse_date_with_formats(v)))
+                                    .collect::<Vec<_>>();
+    
+                                let date_array: ArrayRef = Arc::new(Date32Array::from(parsed_date_values));
+                                columns.push(date_array);
+                                updated_fields.push(Field::new(
+                                    field.name(),
+                                    ArrowDataType::Date32,
+                                    field.is_nullable(),
+                                ));
+                            } else {
+                                // Keep as Utf8
+                                columns.push(column.clone());
+                                updated_fields.push(field.as_ref().clone());
+                            }
+                        }
+                        ArrowDataType::Int32 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Int64 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Float64 => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        ArrowDataType::Boolean => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                        _ => {
+                            columns.push(column.clone());
+                            updated_fields.push(field.as_ref().clone());
+                        }
+                    }
+                }
+    
+                let normalized_fields = updated_fields
+                    .iter()
+                    .map(|field| {
+                        let normalized_name = normalize_column_name(field.name());
+                        field.clone().with_name(&normalized_name)
+                    })
+                    .collect::<Vec<_>>();
+                let normalized_schema = Arc::new(Schema::new(normalized_fields));
+                let updated_batch = RecordBatch::try_new(normalized_schema.clone(), columns)?;
+                updated_batches.push(updated_batch);
+            }
+    
+            let normalized_alias = normalize_alias(alias);
+    
+            let mem_table = MemTable::try_new(
+                Arc::new(Schema::new(
+                    updated_batches.first().unwrap().schema().fields().to_vec(),
+                )),
+                vec![updated_batches],
+            )?;
+            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
+    
+            Ok(AliasedDataFrame {
+                dataframe: ctx.table(&normalized_alias).await?,
+                alias: alias.to_string(),
+            })
+        })
+    }
+    
+    /// LOAD function for Parquet file type
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the Parquet file.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
+    pub fn load_parquet<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+            let file_extension = file_path
+                .split('.')
+                .last()
+                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
+                .to_lowercase();
+            // Normalize alias
+            let normalized_alias = normalize_alias(alias);
+    
+            let df = match file_extension.as_str() {
+                "parquet" => {
+                    let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
+                    match result {
+                        Ok(df) => {
+                            println!("Successfully read Parquet file '{}'", file_path);
+                            df
+                        }
+                        Err(err) => {
+                            eprintln!(
+                                "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                                file_path, err
+                            );
+                            return Err(err);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!(
+                        "File type '{}' is not explicitly supported. Skipping file '{}'.",
+                        file_extension, file_path
+                    );
+                    return Err(DataFusionError::Plan(format!(
+                        "Unsupported file type: {}",
+                        file_extension
+                    )));
+                }
+            };
+    
+           
+            let batches = df.clone().collect().await?;
+            let schema = df.schema().clone();
+            let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
+    
+            ctx.register_table(normalized_alias, Arc::new(mem_table))?;
+    
+            let aliased_df = ctx
+                .table(alias)
+                .await
+                .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
+    
+            Ok(AliasedDataFrame {
+                dataframe: aliased_df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+    
+    /// Loads a JSON file into a DataFusion DataFrame.
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the JSON file.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    pub fn load_json<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+           
+            let file_contents = read_file_to_string(file_path)
+                .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
+            //println!("Raw JSON Content:\n{}", file_contents);
+            let is_array = match serde_json::from_str::<Value>(&file_contents) {
+                Ok(Value::Array(_)) => true,
+                Ok(Value::Object(_)) => false,
+                Ok(_) => false,
+                Err(e) => {
+                    return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
+                }
+            };
+            
+            let df = if is_array {
+                create_dataframe_from_multiple_json(&file_contents, alias).await?
+            } else {
+              
+                create_dataframe_from_json(&file_contents, alias).await?
+            };
+            
+            Ok(AliasedDataFrame {
+                dataframe: df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
+    /// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
+    /// 
+    /// # Usage
+    /// ```no_run
+    /// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
+    /// ```
+    pub fn load_delta<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+            let ctx = SessionContext::new();
+    
+            // path manager
+            let path_manager = DeltaPathManager::new(file_path);
+    
+            // Open Delta table using path manager
+            let table = open_table(&path_manager.table_path())
+                .await
+                .map_err(|e| DataFusionError::Execution(format!("Failed to open Delta table: {}", e)))?;
+    
+            //  metadata
+            // let metadata = table.metadata()
+            //     .map_err(|e| DataFusionError::Execution(format!("Failed to get metadata: {}", e)))?;
+            
+            // let partition_cols = metadata.partition_columns.clone();
+
+            // let partition_columns: Vec<(String, ArrowDataType)> = partition_cols
+            //     .iter()
+            //     .map(|col| (col.clone(), get_arrow_type_from_delta_schema(metadata, col)))
+            //     .collect();
+            // let partition_columns: Vec<(String, ArrowDataType)> = partition_cols
+            //     .iter()
+            //     .map(|col| (col.clone(), ArrowDataType::Utf8)) // Treat as Utf8 initially
+            //     .collect();
+            // print!("Partition columns {:?}",partition_columns);
+            
+            let file_paths: Vec<String> = {
+                let raw_uris = table.get_file_uris()
+                    .map_err(|e| DataFusionError::Execution(format!("Failed to get table files: {}", e)))?;
+                
+                raw_uris.map(|uri| path_manager.normalize_uri(&uri))
+                    .collect()
+                };
+            
+                
+                // println!("\nProcessed paths:");
+                // for (i, path) in file_paths.iter().take(10).enumerate() {
+                //     println!("  {}: {}", i, path);
+                // }
+    
+            // Debug prints
+            // println!("Base path: {}", path_manager.base_path_str());
+            // println!("Number of files to read: {}", file_paths.len());
+            // println!("Sample file paths:");
+            // for (i, path) in file_paths.iter().take(10).enumerate() {
+            //     println!("  {}: {}", i, path);
+            // }
+
+            // let data_schema = metadata.schema().map_err(|e| {
+            //     DataFusionError::Execution(format!("Failed to get schema from metadata: {}", e))
+            // })?;
+            // // Build Arrow Schema by mapping Delta types to Arrow types
+            // let mut arrow_fields = Vec::new();
+            // for field in data_schema.fields() {
+            //     let arrow_type = get_arrow_type_from_delta_schema(&metadata, &field.name);
+            //     arrow_fields.push(Field::new(&field.name, arrow_type, field.is_nullable()));
+            // }
+    
+            // let combined_schema = Schema::new(arrow_fields);
+            // print!("Combined schema {:?}", combined_schema);
+    
+            // ParquetReadOptions
+            let parquet_options = ParquetReadOptions::new()
+                // .schema(&combined_schema)
+                // .table_partition_cols(partition_columns.clone())
+                .parquet_pruning(false)
+                .skip_metadata(false);
+
+            for path in &file_paths {
+                println!("Attempting to read: {}", path);
+                match std::fs::metadata(path) {
+                    Ok(meta) => println!("  File exists with size: {} bytes", meta.len()),
+                    Err(e) => println!("  File access error: {}", e),
+                }
+            }
+            // Read parquet files
+            let df = ctx.read_parquet(file_paths, parquet_options).await?;
+
+            // for col_name in &partition_cols {
+            //     if df.schema().field_with_name(None, col_name).is_ok() {
+            //         let target_type = get_arrow_type_from_delta_schema(&metadata, col_name);
+            //         match col(col_name).cast_to(&target_type, df.schema()) {
+            //             Ok(cast_expr) => {
+            //                 df = df.with_column(col_name, cast_expr)?;
+            //             },
+            //             Err(e) => {
+            //                 println!("Failed to cast column '{}': {}", col_name, e);
+            //                 // Decide how to handle the error, e.g., skip casting or propagate the error
+            //                 return Err(DataFusionError::Execution(format!(
+            //                     "Failed to cast column '{}': {}",
+            //                     col_name, e
+            //                 )));
+            //             }
+            //         }
+            //     } else {
+            //         println!("Partition column '{}' not found in DataFrame.", col_name);
+            //     }
+            // }
+            
+            
+            // Print schema
+            // println!("Schema after reading:");
+            // for field in df.schema().fields() {
+            //     println!("Field '{}': {:?}", field.name(), field.data_type());
+            // }
+    
+            // Collect data with row count verification
+            // let count_before = df.clone().count().await?;
+            // println!("Row count before collect: {}", count_before);
+    
+            let batches = df.clone().collect().await?;
+            // println!("Number of batches: {}", batches.len());
+            // for (i, batch) in batches.iter().enumerate() {
+            //     println!("Batch {} row count: {}", i, batch.num_rows());
+            // }
+            let schema = df.schema().clone().into();
+            // Build M  emTable
+            let mem_table = MemTable::try_new(schema, vec![batches])?;
+            let normalized_alias = normalize_alias(alias);
+            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
+            
+            // Create final DataFrame
+            let aliased_df = ctx.table(&normalized_alias).await?;
+            
+            // Verify final row count
+            // let final_count = aliased_df.clone().count().await?;
+            // println!("Final row count: {}", final_count);
+    
+            Ok(AliasedDataFrame {
+                dataframe: aliased_df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
+    /// Unified load function that determines the file type based on extension
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - The path to the data file (CSV, JSON, Parquet).
+    /// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
+    /// * `alias` - The alias name for the table within DataFusion.
+    ///
+    /// # Returns
+    ///
+    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
+    pub fn load<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+        Box::pin(async move {
+
+            let path_manager = DeltaPathManager::new(file_path);
+            if path_manager.is_delta_table() {
+                return Self::load_delta(file_path, alias).await;
+            }
+
+            let ext = file_path
+                .split('.')
+                .last()
+                .unwrap_or_default()
+                .to_lowercase();
+
+            match ext.as_str() {
+                // If recognized extension, call the corresponding loader
+                "csv" => Self::load_csv(file_path, alias).await,
+                "json" => Self::load_json(file_path, alias).await,
+                "parquet" => Self::load_parquet(file_path, alias).await,
+                    "" => {
+                        Err(DataFusionError::Execution(format!(
+                            "Directory is not a Delta table and has no recognized extension: {file_path}"
+                        )))
+                    }
+                    other => Err(DataFusionError::Execution(format!(
+                        "Unsupported extension: {other}"
+                    ))),
+                }
+            })
+        }
+
+    
+
+    // pub fn load<'a>(
+    //     file_path: &'a str,
+    //     schema: Option<Arc<Schema>>,
+    //     alias: &'a str,
+    // ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    //     Box::pin(async move {
+    //         let ext = file_path.split('.').last().unwrap_or_default().to_lowercase();
+    //         match ext.as_str() {
+    //             "csv" => {
+    //                 // Ensure schema is provided for CSV
+    //                 if let Some(schema) = schema {
+    //                     Self::load_csv(file_path, schema, alias).await
+    //                 } else {
+    //                     Err(DataFusionError::Plan(
+    //                         "Schema must be provided for CSV files.".to_string(),
+    //                     ))
+    //                 }
+    //             }
+    //             "json" => Self::load_json(file_path, alias).await,
+    //             "parquet" => Self::load_parquet(file_path, alias).await,
+    //             other => Err(DataFusionError::Execution(format!(
+    //                 "Unsupported extension: {}",
+    //                 other
+    //             ))),
+    //         }
+    //     })
+    // }
+    
+
+
+
   
 
 }

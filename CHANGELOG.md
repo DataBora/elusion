@@ -1,3 +1,7 @@
+## [0.3.0] - 2025-01-05
+### Added
+- DELTA table Writer and Reader
+
 ## [0.2.5] - 2025-01-02
 ### Added
 - PARQUET reader
