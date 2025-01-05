@@ -2,9 +2,9 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library, for in-memory data formats (.csv, .json, .parquet). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance DataFrame library, for in-memory data formats (.csv, .json, .parquet, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
-SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json).
+SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json, .parquet, DELTA).
 
 # Motivation
 
@@ -27,7 +27,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 ### 🪟 Window Functions
 - Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
 
-### 🧹 Clean Query Construction
+### 🧹 Clean SQL Query Construction
 - Construct readable and reusable SQL queries.
 - Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `INTERSECT`, `EXCEPT`).
 
@@ -45,7 +45,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.2.5"
+elusion = "0.3.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -85,19 +85,20 @@ async fn main() -> ElusionResult<()> {
 }
 ```
 ### Schema establishing
-#### SCHEMA IS AUTOMATICALLY INFERED from v0.3.0
+#### SCHEMA IS AUTOMATICALLY INFERED from v0.2.5
 
 ### LOADing Files into CustomDAtaFrame
 #### File extensions are automatically recognized 
 #### All you have to do is to provide path to your file
-#### Currently supported data files: CSV, PARQUET, JSON
+### Currently supported data files: CSV, PARQUET, JSON, DELTA
 ```rust
-let sales_data = "C:\\Path\\To\\Your\\sales_data.csv";
+let sales_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
 let parq_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
+let delta_table_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name withiut extension
 ```
 ### Creating CustomDataFrame
-#### 2 arguments needed:  *Path**, **Table Alias**
+#### 2 arguments needed:  **Path**, **Table Alias**
 
 ```rust
 let df_sales = CustomDataFrame::new(sales_data, "sales").await; 
@@ -405,6 +406,31 @@ result_df
     )
     .await
     .expect("Failed to append to CSV file");
+```
+## Writing to DELTA table / lake 
+#### We can write to delta in 2 modes **Overwrite** and **Append**
+#### Partitioning column is optional
+#### DISCLAIMER: if you decide to use column for partitioning, make sure that you don't need that column as you wont be able to read it back to dataframe
+#### DISCLAIMER 2: once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, Append also need to have same column for partitioning
+```rust
+// Overwrite
+result_df
+    .write_to_delta_table(
+        "overwrite",
+        "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
+        Some(vec!["order_date".into()]), // optional partitioning, you can use None
+    )
+    .await
+    .expect("Failed to overwrite Delta table");
+// Append
+result_df
+    .write_to_delta_table(
+        "append",
+        "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
+        Some(vec!["order_date".into()]),// optional partitioning, you can use None
+    )
+    .await
+    .expect("Failed to append to Delta table");
 ```
 
 ---
