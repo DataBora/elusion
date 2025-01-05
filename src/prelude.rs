@@ -53,13 +53,12 @@ pub use crate::{ElusionError, ElusionResult};
 
 //DElta imports
 
-
-pub use std::path::Path as LocalPath;
+pub use std::path::{Path as LocalPath, PathBuf};
 pub use deltalake::{DeltaTable, Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
 pub use deltalake::operations::DeltaOps;
 pub use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
 pub use deltalake::protocol::SaveMode;
-pub use deltalake::kernel::{DataType as DeltaType, Protocol, WriterFeatures};
+pub use deltalake::kernel::{DataType as DeltaType, Protocol, WriterFeatures, Metadata, StructType};
 pub use deltalake::kernel::StructField;
 pub use futures::StreamExt;
 pub use deltalake::storage::object_store::local::LocalFileSystem;
