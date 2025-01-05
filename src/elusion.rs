@@ -1173,7 +1173,11 @@ impl CsvWriteOptions {
                 ArrowDataType::Float64 => DeltaType::DOUBLE,
                 ArrowDataType::Utf8 => DeltaType::STRING,
                 ArrowDataType::Date32 => DeltaType::DATE,
-                ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => DeltaType::TIMESTAMP,
+                ArrowDataType::Date64 => DeltaType::DATE,
+                ArrowDataType::Timestamp(TimeUnit::Second, _) => DeltaType::TIMESTAMP,
+                ArrowDataType::Timestamp(TimeUnit::Millisecond, _) => DeltaType::TIMESTAMP,
+                ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => DeltaType::TIMESTAMP,
+                ArrowDataType::Timestamp(TimeUnit::Nanosecond, _) => DeltaType::TIMESTAMP,
                 ArrowDataType::Binary => DeltaType::BINARY,
                 _ => DeltaType::STRING, // Default to String for unsupported types
             }
@@ -3217,7 +3221,7 @@ impl CustomDataFrame {
         )
         .await
     }
-
+  
 
 }
 
