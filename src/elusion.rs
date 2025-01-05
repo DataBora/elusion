@@ -53,16 +53,17 @@ use arrow::error::Result as ArrowResult;
 use datafusion::arrow::datatypes::TimeUnit;
 
 use std::result::Result;
-use std::path::Path as LocalPath;
+use std::path::{Path as LocalPath, PathBuf};
 use deltalake::operations::DeltaOps;
 use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
-use deltalake::{DeltaTable, Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
+use deltalake::{Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
 use deltalake::protocol::SaveMode;
-use deltalake::kernel::{DataType as DeltaType, Protocol, WriterFeatures};
+use deltalake::kernel::{DataType as DeltaType, Metadata, Protocol, StructType};
 use deltalake::kernel::StructField;
 use futures::StreamExt;
 use deltalake::storage::object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
+
 
 // =========== ERRROR
 
@@ -1178,19 +1179,65 @@ impl CsvWriteOptions {
             }
         }
 
-        /// Helper function to append a Protocol action to the Delta log
+    /// Helper struct to manage path conversions between different path types
+    #[derive(Clone)]
+    pub struct DeltaPathManager {
+        base_path: PathBuf,
+    }
+
+    impl DeltaPathManager {
+        /// Create a new DeltaPathManager from a string path
+        pub fn new<P: AsRef<LocalPath>>(path: P) -> Self {
+            // Normalize the path separators to work across platforms
+            let normalized = path
+                .as_ref()
+                .to_string_lossy()
+                .replace('\\', "/")
+                .trim_end_matches('/')
+                .to_string();
+            
+            Self {
+                base_path: PathBuf::from(normalized),
+            }
+        }
+
+        /// Get the base path as a string with forward slashes
+        pub fn base_path_str(&self) -> String {
+            self.base_path.to_string_lossy().replace('\\', "/")
+        }
+
+        /// Get the delta log path
+        pub fn delta_log_path(&self) -> DeltaPath {
+            let base = self.base_path_str();
+            DeltaPath::from(format!("{base}/_delta_log"))
+        }
+
+        /// Convert to ObjectStorePath
+        pub fn to_object_store_path(&self) -> ObjectStorePath {
+            ObjectStorePath::from(self.base_path_str())
+        }
+
+        /// Get path for table operations
+        pub fn table_path(&self) -> String {
+            self.base_path_str()
+        }
+    }
+
+    /// Helper function to append a Protocol action to the Delta log
     async fn append_protocol_action(
         store: &Arc<dyn ObjectStore>,
         delta_log_path: &DeltaPath,
-        protocol_action: serde_json::Value,
+        protocol_action: Value,
     ) -> Result<(), DeltaTableError> {
         // Determine the next version number
         let latest_version = get_latest_version(store, delta_log_path).await?;
         let next_version = latest_version + 1;
         let protocol_file = format!("{:020}.json", next_version);
+
+        let child_path = delta_log_path.child(&*protocol_file);
         
         // Use the `child` method to append the protocol file name to the delta_log_path
-        let protocol_file_path = DeltaPath::from(delta_log_path.child(&*protocol_file));
+        let protocol_file_path = DeltaPath::from(child_path);
 
         // Serialize the Protocol action
         let action_str = serde_json::to_string(&protocol_action)
@@ -1243,8 +1290,8 @@ impl CsvWriteOptions {
         overwrite: bool,
         write_mode: WriteMode,
     ) -> Result<(), DeltaTableError> {
-
-        let base_path = LocalPath::new(path);
+        let path_manager = DeltaPathManager::new(path);
+    
         // First, get the Arrow schema
         let arrow_schema_ref = glean_arrow_schema(df)
             .await
@@ -1262,9 +1309,14 @@ impl CsvWriteOptions {
             })
             .collect();
     
+        // Create basic configuration
+        let mut config: HashMap<String, Option<String>> = HashMap::new();
+        config.insert("delta.minWriterVersion".to_string(), Some("7".to_string()));
+        config.insert("delta.minReaderVersion".to_string(), Some("3".to_string()));
+    
         if overwrite {
-            // If overwrite is true, try to remove existing directory
-            if let Err(e) = fs::remove_dir_all(base_path) {
+            // Remove the existing directory if it exists
+            if let Err(e) = fs::remove_dir_all(&path_manager.base_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(DeltaTableError::Generic(format!(
                         "Failed to remove existing directory at '{}': {e}",
@@ -1273,102 +1325,162 @@ impl CsvWriteOptions {
                 }
             }
     
-            // Create new table with schema
-            let _table = DeltaOps::try_from_uri(    path)
-                .await
-                .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
-                .create()
-                .with_columns(delta_fields)
-                .with_partition_columns(partition_columns.clone().unwrap_or_default())
-                .with_save_mode(SaveMode::Overwrite)
-                .await?;
+            // Create directory structure
+            fs::create_dir_all(&path_manager.base_path)
+                .map_err(|e| DeltaTableError::Generic(format!("Failed to create directory structure: {e}")))?;
     
-            // After creating the table, set up the protocol
+            // Create metadata with empty HashMap
+            let metadata = Metadata::try_new(
+                StructType::new(delta_fields.clone()),
+                partition_columns.clone().unwrap_or_default(),
+                HashMap::new()
+            )?;
+    
+            // Set the configuration in the metadata action
+            let metadata_action = json!({
+                "metaData": {
+                    "id": metadata.id,
+                    "name": metadata.name,
+                    "description": metadata.description,
+                    "format": {
+                        "provider": "parquet",
+                        "options": {}
+                    },
+                    "schemaString": metadata.schema_string,
+                    "partitionColumns": metadata.partition_columns,
+                    "configuration": {
+                        "delta.minReaderVersion": "3",
+                        "delta.minWriterVersion": "7"
+                    },
+                    "created_time": metadata.created_time
+                }
+            });
+    
+            // Set up store and protocol
             let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
-
-            // let delta_log_path = DeltaPath::from(format!("{}/_delta_log", path));
-            let delta_log_path = base_path.join("_delta_log");
-            let delta_log_str = delta_log_path.to_str().ok_or_else(|| {
-                DeltaTableError::Generic("Failed to convert PathBuf to string".to_string())
-            })?;
-            let object_store_path = ObjectStorePath::from(delta_log_str);
-            let delta_log_path = DeltaPath::from(object_store_path);
-
-            let protocol = Protocol::new(1, 7)
-                .with_writer_features(vec![WriterFeatures::Invariants]);
-
+            let delta_log_path = path_manager.delta_log_path();
+            let protocol = Protocol::new(3, 7);
+    
             let protocol_action = json!({
                 "protocol": {
                     "minReaderVersion": protocol.min_reader_version,
                     "minWriterVersion": protocol.min_writer_version,
                     "readerFeatures": [],
-                    "writerFeatures": ["Invariants"]
+                    "writerFeatures": []
                 }
             });
     
+            // Write protocol action first
             append_protocol_action(&store, &delta_log_path, protocol_action).await?;
+            
+            // Write metadata action
+            append_protocol_action(&store, &delta_log_path, metadata_action).await?;
+    
+            // Initialize table
+            let _ = DeltaOps::try_from_uri(&path_manager.table_path())
+                .await
+                .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps: {e}")))?
+                .create()
+                .with_columns(delta_fields.clone())
+                .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                .with_save_mode(SaveMode::Overwrite)
+                .with_configuration(config.clone())
+                .await?;
         } else {
-            // If not overwriting and table doesn't exist, create it
-            if DeltaTableBuilder::from_uri(path).build().is_err() {
-                let _table = DeltaOps::try_from_uri(path)
-                    .await
-                    .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
-                    .create()
-                    .with_columns(delta_fields)
-                    .with_partition_columns(partition_columns.clone().unwrap_or_default())
-                    .with_save_mode(SaveMode::Append)
-                    .await?;
+            // For append mode, check if table exists
+            if !DeltaTableBuilder::from_uri(&path_manager.table_path()).build().is_ok() {
+                // Create directory structure
+                fs::create_dir_all(&path_manager.base_path)
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to create directory structure: {e}")))?;
     
-                // Set up the protocol for new table
-               // After creating the table, set up the protocol
-            let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
-
-            // let delta_log_path = DeltaPath::from(format!("{}/_delta_log", path));
-            let delta_log_path = base_path.join("_delta_log");
-            let delta_log_str = delta_log_path.to_str().ok_or_else(|| {
-                DeltaTableError::Generic("Failed to convert PathBuf to string".to_string())
-            })?;
-            let object_store_path = ObjectStorePath::from(delta_log_str);
-            let delta_log_path = DeltaPath::from(object_store_path);
+                // Create metadata with empty HashMap
+                let metadata = Metadata::try_new(
+                    StructType::new(delta_fields.clone()),
+                    partition_columns.clone().unwrap_or_default(),
+                    HashMap::new()
+                )?;
     
+                // Set the configuration in the metadata action
+                let metadata_action = json!({
+                    "metaData": {
+                        "id": metadata.id,
+                        "name": metadata.name,
+                        "description": metadata.description,
+                        "format": {
+                            "provider": "parquet",
+                            "options": {}
+                        },
+                        "schemaString": metadata.schema_string,
+                        "partitionColumns": metadata.partition_columns,
+                        "configuration": {
+                            "delta.minReaderVersion": "3",
+                            "delta.minWriterVersion": "7"
+                        },
+                        "created_time": metadata.created_time
+                    }
+                });
     
-                let protocol = Protocol::new(1, 7)
-                    .with_writer_features(vec![WriterFeatures::Invariants]);
-
+                // Set up store and protocol
+                let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
+                let delta_log_path = path_manager.delta_log_path();
+                let protocol = Protocol::new(3, 7);
+    
                 let protocol_action = json!({
                     "protocol": {
                         "minReaderVersion": protocol.min_reader_version,
                         "minWriterVersion": protocol.min_writer_version,
                         "readerFeatures": [],
-                        "writerFeatures": ["Invariants"]
+                        "writerFeatures": []
                     }
                 });
     
+                // Write protocol action first
                 append_protocol_action(&store, &delta_log_path, protocol_action).await?;
+                
+                // Write metadata action
+                append_protocol_action(&store, &delta_log_path, metadata_action).await?;
+    
+                // Initialize table
+                let _ = DeltaOps::try_from_uri(&path_manager.table_path())
+                    .await
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps: {e}")))?
+                    .create()
+                    .with_columns(delta_fields.clone())
+                    .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                    .with_save_mode(SaveMode::Append)
+                    .with_configuration(config.clone())
+                    .await?;
             }
         }
     
-        // First create a table instance
-        let mut table = DeltaTableBuilder::from_uri(path)
+        // Load table after initialization
+        let mut table = DeltaTableBuilder::from_uri(&path_manager.table_path())
             .build()
             .map_err(|e| DeltaTableError::Generic(format!("Failed to build Delta table: {e}")))?;
-        
-        // Then get latest version and load that specific version
-        let latest_version = table.version();
-        table.load_version(latest_version)
-            .await
-            .map_err(|e| DeltaTableError::Generic(format!("Failed to load Delta table version {}: {e}", latest_version)))?;
     
-        // Collect the data
+        // Ensure table is loaded
+        table.load()
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to load table: {e}")))?;
+    
+        // Write data
         let batches = df
             .clone()
             .collect()
             .await
             .map_err(|e| DeltaTableError::Generic(format!("DataFusion collect error: {e}")))?;
     
-        // Write the data
-        let mut writer = RecordBatchWriter::try_new(path, arrow_schema_ref, partition_columns, None)?;
-        
+        let mut writer_config = HashMap::new();
+        writer_config.insert("delta.protocol.minWriterVersion".to_string(), "7".to_string());
+        writer_config.insert("delta.protocol.minReaderVersion".to_string(), "3".to_string());
+    
+        let mut writer = RecordBatchWriter::try_new(
+            &path_manager.table_path(),
+            arrow_schema_ref,
+            partition_columns,
+            Some(writer_config)
+        )?;
+    
         for batch in batches {
             writer.write_with_mode(batch, write_mode).await?;
         }
