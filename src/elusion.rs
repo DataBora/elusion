@@ -34,7 +34,7 @@ use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 use tokio::task;
 
 // ========= JSON   
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use serde::{Deserialize, Serialize};
 // use serde_json::Deserializer;
 use std::collections::{HashMap, HashSet};
@@ -52,18 +52,17 @@ use arrow::error::Result as ArrowResult;
 // use datafusion::common::ScalarValue;
 use datafusion::arrow::datatypes::TimeUnit;
 
-use deltalake_core::writer::{RecordBatchWriter, WriteMode,DeltaWriter};
-use deltalake_core::table::builder::DeltaTableBuilder;
-use deltalake_core::operations::DeltaOps;
-use deltalake_core::errors::DeltaTableError;
-use deltalake_core::kernel::DataType as DeltaType;
-use deltalake_core::kernel::StructField;
-use deltalake_core::protocol::SaveMode;
 use std::result::Result;
-use std::path::Path;
-
-
-
+use std::path::Path as LocalPath;
+use deltalake::operations::DeltaOps;
+use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
+use deltalake::{DeltaTable, Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
+use deltalake::protocol::SaveMode;
+use deltalake::kernel::{DataType as DeltaType, Protocol, WriterFeatures};
+use deltalake::kernel::StructField;
+use futures::StreamExt;
+use deltalake::storage::object_store::local::LocalFileSystem;
+use object_store::path::Path as ObjectStorePath;
 
 // =========== ERRROR
 
@@ -1160,6 +1159,82 @@ impl CsvWriteOptions {
         }
     }
 
+        // Helper function to convert Arrow DataType to Delta DataType
+        fn arrow_to_delta_type(arrow_type: &ArrowDataType) -> DeltaType {
+    
+            match arrow_type {
+                ArrowDataType::Boolean => DeltaType::BOOLEAN,
+                ArrowDataType::Int8 => DeltaType::BYTE,
+                ArrowDataType::Int16 => DeltaType::SHORT,
+                ArrowDataType::Int32 => DeltaType::INTEGER,
+                ArrowDataType::Int64 => DeltaType::LONG,
+                ArrowDataType::Float32 => DeltaType::FLOAT,
+                ArrowDataType::Float64 => DeltaType::DOUBLE,
+                ArrowDataType::Utf8 => DeltaType::STRING,
+                ArrowDataType::Date32 => DeltaType::DATE,
+                ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => DeltaType::TIMESTAMP,
+                ArrowDataType::Binary => DeltaType::BINARY,
+                _ => DeltaType::STRING, // Default to String for unsupported types
+            }
+        }
+
+        /// Helper function to append a Protocol action to the Delta log
+    async fn append_protocol_action(
+        store: &Arc<dyn ObjectStore>,
+        delta_log_path: &DeltaPath,
+        protocol_action: serde_json::Value,
+    ) -> Result<(), DeltaTableError> {
+        // Determine the next version number
+        let latest_version = get_latest_version(store, delta_log_path).await?;
+        let next_version = latest_version + 1;
+        let protocol_file = format!("{:020}.json", next_version);
+        
+        // Use the `child` method to append the protocol file name to the delta_log_path
+        let protocol_file_path = DeltaPath::from(delta_log_path.child(&*protocol_file));
+
+        // Serialize the Protocol action
+        let action_str = serde_json::to_string(&protocol_action)
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to serialize Protocol action: {e}")))?;
+
+        // Write the Protocol action to the Delta log
+        store
+            .put(&protocol_file_path, action_str.into_bytes().into())
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to write Protocol action to Delta log: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Helper function to get the latest version number in the Delta log
+    async fn get_latest_version(
+        store: &Arc<dyn ObjectStore>,
+        delta_log_path: &DeltaPath,
+    ) -> Result<i64, DeltaTableError> {
+        let mut versions = Vec::new();
+    
+        let mut stream = store.list(Some(delta_log_path));
+    
+        while let Some(res) = stream.next().await {
+            let metadata = res.map_err(|e| DeltaTableError::Generic(format!("Failed to list Delta log files: {e}")))?;
+            // Get the location string from ObjectMeta
+            let path_str = metadata.location.as_ref();
+
+            if let Some(file_name) = path_str.split('/').last() {
+                println!("Detected log file: {}", file_name); 
+                if let Some(version_str) = file_name.strip_suffix(".json") {
+                    if let Ok(version) = version_str.parse::<i64>() {
+                        println!("Parsed version: {}", version);
+                        versions.push(version);
+                    }
+                }
+            }
+        }
+    
+        let latest = versions.into_iter().max().unwrap_or(-1);
+        println!("Latest version detected: {}", latest); 
+        Ok(latest)
+    }
+
     /// This is the lower-level writer function that actually does the work
     async fn write_to_delta_impl(
         df: &DataFrame,
@@ -1168,6 +1243,8 @@ impl CsvWriteOptions {
         overwrite: bool,
         write_mode: WriteMode,
     ) -> Result<(), DeltaTableError> {
+
+        let base_path = LocalPath::new(path);
         // First, get the Arrow schema
         let arrow_schema_ref = glean_arrow_schema(df)
             .await
@@ -1185,10 +1262,9 @@ impl CsvWriteOptions {
             })
             .collect();
     
-        // Initialize or get the Delta table
-        let mut table = if overwrite {
+        if overwrite {
             // If overwrite is true, try to remove existing directory
-            if let Err(e) = fs::remove_dir_all(path) {
+            if let Err(e) = fs::remove_dir_all(base_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(DeltaTableError::Generic(format!(
                         "Failed to remove existing directory at '{}': {e}",
@@ -1196,34 +1272,92 @@ impl CsvWriteOptions {
                     )));
                 }
             }
-            
+    
             // Create new table with schema
-            DeltaOps::try_from_uri(path)
+            let _table = DeltaOps::try_from_uri(    path)
                 .await
                 .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
                 .create()
                 .with_columns(delta_fields)
                 .with_partition_columns(partition_columns.clone().unwrap_or_default())
                 .with_save_mode(SaveMode::Overwrite)
-                .await
-        } else {
-            // If not overwriting, try to load existing table or create new one if it doesn't exist
-            match DeltaTableBuilder::from_uri(path).build() {
-                Ok(existing_table) => Ok(existing_table),
-                Err(_) => {
-                    // Table doesn't exist, create new one
-                    DeltaOps::try_from_uri(path)
-                        .await
-                        .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
-                        .create()
-                        .with_columns(delta_fields)
-                        .with_partition_columns(partition_columns.clone().unwrap_or_default())
-                        .with_save_mode(SaveMode::Append)
-                        .await
+                .await?;
+    
+            // After creating the table, set up the protocol
+            let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
+
+            // let delta_log_path = DeltaPath::from(format!("{}/_delta_log", path));
+            let delta_log_path = base_path.join("_delta_log");
+            let delta_log_str = delta_log_path.to_str().ok_or_else(|| {
+                DeltaTableError::Generic("Failed to convert PathBuf to string".to_string())
+            })?;
+            let object_store_path = ObjectStorePath::from(delta_log_str);
+            let delta_log_path = DeltaPath::from(object_store_path);
+
+            let protocol = Protocol::new(1, 7)
+                .with_writer_features(vec![WriterFeatures::Invariants]);
+
+            let protocol_action = json!({
+                "protocol": {
+                    "minReaderVersion": protocol.min_reader_version,
+                    "minWriterVersion": protocol.min_writer_version,
+                    "readerFeatures": [],
+                    "writerFeatures": ["Invariants"]
                 }
+            });
+    
+            append_protocol_action(&store, &delta_log_path, protocol_action).await?;
+        } else {
+            // If not overwriting and table doesn't exist, create it
+            if DeltaTableBuilder::from_uri(path).build().is_err() {
+                let _table = DeltaOps::try_from_uri(path)
+                    .await
+                    .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps on '{path}': {e}")))?
+                    .create()
+                    .with_columns(delta_fields)
+                    .with_partition_columns(partition_columns.clone().unwrap_or_default())
+                    .with_save_mode(SaveMode::Append)
+                    .await?;
+    
+                // Set up the protocol for new table
+               // After creating the table, set up the protocol
+            let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
+
+            // let delta_log_path = DeltaPath::from(format!("{}/_delta_log", path));
+            let delta_log_path = base_path.join("_delta_log");
+            let delta_log_str = delta_log_path.to_str().ok_or_else(|| {
+                DeltaTableError::Generic("Failed to convert PathBuf to string".to_string())
+            })?;
+            let object_store_path = ObjectStorePath::from(delta_log_str);
+            let delta_log_path = DeltaPath::from(object_store_path);
+    
+    
+                let protocol = Protocol::new(1, 7)
+                    .with_writer_features(vec![WriterFeatures::Invariants]);
+
+                let protocol_action = json!({
+                    "protocol": {
+                        "minReaderVersion": protocol.min_reader_version,
+                        "minWriterVersion": protocol.min_writer_version,
+                        "readerFeatures": [],
+                        "writerFeatures": ["Invariants"]
+                    }
+                });
+    
+                append_protocol_action(&store, &delta_log_path, protocol_action).await?;
             }
         }
-        .map_err(|e| DeltaTableError::Generic(format!("Failed to create/load Delta table at '{path}': {e}")))?;
+    
+        // First create a table instance
+        let mut table = DeltaTableBuilder::from_uri(path)
+            .build()
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to build Delta table: {e}")))?;
+        
+        // Then get latest version and load that specific version
+        let latest_version = table.version();
+        table.load_version(latest_version)
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to load Delta table version {}: {e}", latest_version)))?;
     
         // Collect the data
         let batches = df
@@ -1239,30 +1373,15 @@ impl CsvWriteOptions {
             writer.write_with_mode(batch, write_mode).await?;
         }
     
-        let version = writer.flush_and_commit(&mut table).await?;
+        let version = writer
+            .flush_and_commit(&mut table)
+            .await
+            .map_err(|e| DeltaTableError::Generic(format!("Failed to flush and commit: {e}")))?;
     
         println!("Wrote data to Delta table at version: {version}");
         Ok(())
     }
-    
-    // Helper function to convert Arrow DataType to Delta DataType
-    fn arrow_to_delta_type(arrow_type: &ArrowDataType) -> DeltaType {
-    
-        match arrow_type {
-            ArrowDataType::Boolean => DeltaType::BOOLEAN,
-            ArrowDataType::Int8 => DeltaType::BYTE,
-            ArrowDataType::Int16 => DeltaType::SHORT,
-            ArrowDataType::Int32 => DeltaType::INTEGER,
-            ArrowDataType::Int64 => DeltaType::LONG,
-            ArrowDataType::Float32 => DeltaType::FLOAT,
-            ArrowDataType::Float64 => DeltaType::DOUBLE,
-            ArrowDataType::Utf8 => DeltaType::STRING,
-            ArrowDataType::Date32 => DeltaType::DATE,
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, None) => DeltaType::TIMESTAMP,
-            ArrowDataType::Binary => DeltaType::BINARY,
-            _ => DeltaType::STRING, // Default to String for unsupported types
-        }
-    }
+
 
 // =================== CUSTOM DATA FRAME IMPLEMENTATION ================== //
 // ============================= CUSTOM DATA FRAME ==============================//
@@ -1850,7 +1969,7 @@ impl CustomDataFrame {
                 "" => {
                     // If there's **no** extension, maybe it's a directory (Delta?).
                     // Check if `_delta_log` subfolder exists. If yes => load Delta
-                    let p = Path::new(file_path);
+                    let p = LocalPath::new(file_path);
                     let delta_log_path = p.join("_delta_log");
                     if delta_log_path.is_dir() {
                         // If there's a `_delta_log` dir => load Delta

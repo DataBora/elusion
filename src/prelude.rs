@@ -5,9 +5,10 @@ pub use datafusion::error::{DataFusionError, Result as DataFusionResult};
 pub use datafusion::dataframe::{DataFrame, DataFrameWriteOptions};
 pub use datafusion::datasource::MemTable;
 pub use datafusion::prelude::SessionContext;
+pub use datafusion::arrow::datatypes::TimeUnit;
+pub use datafusion::arrow::datatypes::SchemaBuilder;
 
 pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
-pub use datafusion::arrow::datatypes::SchemaBuilder;
 pub use arrow::array::{
     Array, ArrayRef, StringArray,StringBuilder, Date32Array, Decimal128Array,
      ArrayBuilder, BinaryBuilder, BooleanBuilder, Float64Builder, Float32Builder,
@@ -32,7 +33,7 @@ pub use chrono::{NaiveDate, Datelike};
 pub use regex::Regex;
 // JSON and Serialization Imports
 pub use serde::{Deserialize, Serialize};
-pub use serde_json::{Map, Value, Deserializer};
+pub use serde_json::{json, Map, Value, Deserializer};
 
 // Standard Library Imports
 pub use std::collections::{HashMap, HashSet};
@@ -42,6 +43,7 @@ pub use std::error::Error;
 pub use std::path::Path;
 pub use std::fs::{self, File, OpenOptions};
 pub use std::io::{self, BufRead, BufReader, Write, Read, BufWriter};
+pub use std::result::Result;
 
 pub use encoding_rs::WINDOWS_1252;
 
@@ -50,13 +52,14 @@ pub use crate::{AggregationBuilder, CustomDataFrame, AliasedDataFrame, CsvWriteO
 pub use crate::{ElusionError, ElusionResult};
 
 //DElta imports
-// pub use deltalake::writer::{RecordBatchWriter, WriteMode};
-// pub use deltalake::{DeltaTable, DeltaTableError};
-// pub use arrow::array::{Int64Array,BinaryArray,BooleanArray,Date64Array,Float32Array,Float64Array,Int8Array,Int16Array,Int32Array,LargeBinaryArray,LargeStringArray,Time32MillisecondArray,Time32SecondArray,Time64MicrosecondArray,Time64NanosecondArray,TimestampSecondArray,TimestampMillisecondArray,TimestampMicrosecondArray,TimestampNanosecondArray,UInt8Array,UInt16Array,UInt32Array,UInt64Array};
-// pub use datafusion::common::ScalarValue;
-// pub use datafusion::arrow::datatypes::TimeUnit;
-pub use deltalake_core::writer::{RecordBatchWriter, WriteMode,DeltaWriter};
-pub use deltalake_core::DeltaTable;
-pub use deltalake_core::table::builder::DeltaTableBuilder;
-pub use deltalake_core::errors::DeltaTableError;
-pub use std::result::Result;
+
+
+pub use std::path::Path as LocalPath;
+pub use deltalake::{DeltaTable, Path as DeltaPath, DeltaTableBuilder, DeltaTableError, ObjectStore};
+pub use deltalake::operations::DeltaOps;
+pub use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
+pub use deltalake::protocol::SaveMode;
+pub use deltalake::kernel::{DataType as DeltaType, Protocol, WriterFeatures};
+pub use deltalake::kernel::StructField;
+pub use futures::StreamExt;
+pub use deltalake::storage::object_store::local::LocalFileSystem;

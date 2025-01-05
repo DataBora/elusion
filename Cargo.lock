@@ -1178,6 +1178,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "deltalake"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5233b50e04964421cf8b64bf20f5523ba3313e0c39de9324f78e61def943e36c"
+dependencies = [
+ "deltalake-core",
+]
+
+[[package]]
 name = "deltalake-core"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1269,11 +1278,12 @@ dependencies = [
  "arrow",
  "chrono",
  "datafusion",
- "deltalake-core",
+ "deltalake",
  "encoding_rs",
  "env_logger",
  "futures",
  "log",
+ "object_store",
  "regex",
  "serde",
  "serde_json",
