@@ -2,7 +2,7 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library, for in-memory data formats (.csv, .json, .parquet, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance DataFrame library, for in-memory data formats (CSV, JSON, PARQUET, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json, .parquet, DELTA).
 
@@ -18,7 +18,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 
 ### 📊 Aggregations and Analytics
 - Built-in support for functions like `SUM`, `AVG`, `MIN`, `MAX`, `COUNT`, and more.
-- Advanced statistical functions like `CORR`, `STDDEV`, `VAR_POP`, and `PERCENTILE`.
+- Advanced statistical functions like `CORR`, `STDDEV`, `VAR_POP`, `ApproxPercentile` and more.
 
 ### 🔗 Flexible Joins
 - Join tables with various join types (`INNER`, `LEFT`, `RIGHT`, `FULL`, etc.).
@@ -45,7 +45,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.3.0"
+elusion = "0.4.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -72,11 +72,11 @@ use elusion::prelude::*; // Import everything needed
 #[tokio::main]
 async fn main() -> ElusionResult<()> {
 
-    let sales_data = "path\\to\\sales_data.csv";
+    let sales_data = "C:\\Borivoj\\Elusion\\sales_data.csv";
     let df_sales = CustomDataFrame::new(sales_data, "sales").await?;
 
     let result = df_sales
-        .select(vec!["OrderDate", "OrderNumber"])
+        .select(["OrderDate", "OrderNumber"])
         .limit(10);
 
     result.display().await?;
@@ -95,7 +95,7 @@ async fn main() -> ElusionResult<()> {
 let sales_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
 let parq_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
-let delta_table_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name withiut extension
+let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name withiut extension
 ```
 ### Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
@@ -111,20 +111,20 @@ let df_customers = CustomDataFrame::new(customers_data, "customers").await;
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
 let customers_alias = df_customers
-    .select(vec!["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
+    .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
 ```
 ### JOIN
 #### currently implemented join types
 ```rust
-"INNER" => JoinType::Inner,
-"LEFT" => JoinType::Left,
-"RIGHT" => JoinType::Right,
-"FULL" => JoinType::Full,
-"LEFT SEMI" => JoinType::LeftSemi,
-"RIGHT SEMI" => JoinType::RightSemi,
-"LEFT ANTI" => JoinType::LeftAnti,
-"RIGHT ANTI" => JoinType::RightAnti,
-"LEFT MARK" => JoinType::LeftMark,
+"INNER"
+"LEFT" 
+"RIGHT" 
+"FULL" 
+"LEFT SEMI" 
+"RIGHT SEMI" 
+"LEFT ANTI" 
+"RIGHT ANTI" 
+"LEFT MARK" 
 ```
 #### JOIN example with 2 dataframes
 ```rust
@@ -135,7 +135,7 @@ let join_df = df_sales
         "sales.CustomerKey == customers.CustomerKey",
         "INNER",
     )
-    .select(vec![
+    .select([
         "sales.OrderDate",
         "sales.OrderQuantity",
         "customers.FirstName",
@@ -158,28 +158,26 @@ let three_joins = df_sales
         "sales.ProductKey == products.ProductKey",
         "INNER"
     )
-    .aggregation(vec![
+    .aggregation([
         AggregationBuilder::new("OrderQuantity") 
             .sum()
             .alias("total_quantity") 
     ])
-    .group_by(vec![
-        "sales.orderdate",
+    .group_by([
         "customers.customerkey",     
         "customers.firstname",       
         "customers.lastname",       
         "products.productname" 
     ])
     .having("total_quantity > 10")
-    .select(vec![
-        "sales.orderdate",
+    .select([
         "customers.customerkey", 
         "customers.firstname",
         "customers.lastname",
         "products.productname",
         "total_quantity"  
     ])
-    .order_by(vec!["total_quantity"], vec![false])
+    .order_by(["total_quantity"], [false])
     .limit(10);
 
     three_joins.display().await?;
@@ -187,9 +185,9 @@ let three_joins = df_sales
 ### SELECT without Aggregation
 ```rust
 let result_sales = sales_order_data
-    .select(vec!["customer_name", "order_date", "billable_value"])
+    .select(["customer_name", "order_date", "billable_value"])
     .filter("billable_value > 100.0")
-    .order_by(vec!["order_date"], vec![true])
+    .order_by(["order_date"], [true])
     .limit(10);
 
     result_sales.display().await?;
@@ -198,24 +196,24 @@ let result_sales = sales_order_data
 ### SELECT with Mulitiple Aggregations
 ```rust
 let result_df = sales_order_data
-    .aggregation(vec![
+    .aggregation([
         AggregationBuilder::new("billable_value").sum().alias("total_sales"),
         AggregationBuilder::new("billable_value").avg().alias("avg_sales")
     ])
-    .group_by(vec!["customer_name", "order_date"])
+    .group_by(["customer_name", "order_date"])
     .having("total_sales > 1000")
-    .select(vec!["customer_name", "order_date", "total_sales", "avg_sales"]) // SELECT is used with Final columns after aggregation
-    .order_by(vec!["total_sales"], vec![false])
+    .select(["customer_name", "order_date", "total_sales", "avg_sales"]) // SELECT is used with Final columns after aggregation
+    .order_by(["total_sales"], [false])
     .limit(10);
 
     result_df.display().await?;
 ```
 ### FILTER 
 ```rust
- let result_sales = sales_order_data
-    .select(vec!["customer_name", "order_date", "billable_value"])
+let result_sales = sales_order_data
+    .select(["customer_name", "order_date", "billable_value"])
     .filter("billable_value > 100.0")
-    .order_by(vec!["order_date"], vec![true])
+    .order_by(["order_date"], vec![true])
     .limit(10);
 
     result_sales.display().await?;
@@ -243,6 +241,7 @@ let sql_one = "
     ";
 
 let result_one = df_customers.raw_sql(sql_one, "customers_data", &[]).await?;
+
 result_one.display().await?;
 
 // Query on 2 DataFrames
@@ -271,6 +270,7 @@ let sql_two = "
 ";
 
 let result_two = df_sales.raw_sql(sql_two, "top_customers", &[&df_customers]).await?;
+
 result_two.display().await?;
 
 // Query on 3 DataFrames (same approach is used on any number of DataFrames)
@@ -294,6 +294,7 @@ let sql_three = "
     ";
     // we need to provide dataframe names in raw_sql that are included in query, as well as new alias ex:"sales_summary" for further use of dataframe if needed
     let result_three = df_sales.raw_sql(sql_three, "sales_summary", &[&df_customers, &df_products]).await?;
+
     result_three.display().await?;
 
 ```
@@ -341,12 +342,13 @@ let json_df = CustomDataFrame::new(json_path, "test2").await;
 #### Then you can do business as usual, either with DataFrame API or SQL API
 
 ```rust
-    let json_sql = "
-        SELECT * FROM test LIMIT 10
-    ";
-    // "labels" is set as new alias for result_json dataframe
-    let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
-    result_json.display().await?;
+let json_sql = "
+    SELECT * FROM test LIMIT 10
+";
+// "labels" is set as new alias for result_json dataframe
+let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
+
+result_json.display().await?;
 ```
 # WRITERS
 
@@ -432,49 +434,44 @@ result_df
     .await
     .expect("Failed to append to Delta table");
 ```
-
 ---
 ### Current Clause functions (some still under development)
 
 ```rust
-load(...)
-select(...)
-group_by(...)
-order_by(...)
-limit(...)
-filter(...)
-having(...)
-join(...)
-window(...)
-aggregation(...)
-from_subquery(...)
-with_cte(...)
-union(...)
-intersect(...)
-except(...)
-display(...)
-display_query(...)
-display_query_plan(...)
+load()
+select()
+group_by()
+order_by()
+limit()
+filter()
+having()
+join()
+window()
+aggregation()
+from_subquery()
+union()
+intersect()
+except()
+display()
 ```
 ### Current Aggregation functions (soon to be more)
 
 ```rust
-sum(mut self)
-avg(mut self)
-min(mut self)
-max(mut self)
-stddev(mut self)
-count(mut self)
-count_distinct(mut self)
-corr(mut self, other_column: &str)
-grouping(mut self)
-var_pop(mut self)
-stddev_pop(mut self)
-array_agg(mut self)
-approx_percentile(mut self, percentile: f64)
-first_value(mut self) 
-nth_value(mut self, n: i64)
-
+Sum()
+Avg()
+Min()
+Max()
+StdDev()
+Count()
+CountDistinct()
+Corr()
+Grouping()
+VarPop()
+StdDevPop()
+ArrayAgg()
+ApproxPercentile()
+FirstValue()
+NthValue()
 ```
 
 ### License
