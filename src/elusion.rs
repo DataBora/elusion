@@ -27,7 +27,6 @@ use datafusion::functions_aggregate::expr_fn::{
     sum, min, max, avg, stddev, count, count_distinct, corr, first_value, grouping,
     var_pop, stddev_pop, array_agg,approx_percentile_cont, nth_value
 };
-
 //============ WRITERS
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
@@ -94,11 +93,51 @@ pub type ElusionResult<T> = Result<T, ElusionError>;
 
 // =====================  AGGREGATION BUILDER =============== //
 
+#[derive(Clone)]
 pub struct AggregationBuilder {
-    
     column: String,
     pub agg_alias: Option<String>,
-    agg_fn: Option<Box<dyn Fn(Expr) -> Expr>>, 
+    agg_type: AggregationType,
+    other_column: Option<String>,
+    percentile: Option<f64>,
+    nth_value: Option<i64>,
+}
+
+#[derive(Clone)]
+enum AggregationType {
+    Sum,
+    Avg,
+    Min,
+    Max,
+    StdDev,
+    Count,
+    CountDistinct,
+    Corr,
+    Grouping,
+    VarPop,
+    StdDevPop,
+    ArrayAgg,
+    ApproxPercentile,
+    FirstValue,
+    NthValue,
+    //nove funkcije
+    // LastValue,
+    // ApproxDistinct,
+    // ApproxMedian,
+    // BitAnd,
+    // BitOr,
+    // BitXor,
+    // CovarSamp,
+    // VarSample,
+    // RegrSlope,
+    // RegrIntercept,
+    // RegrCount,
+    // RegrR2,
+    // RegrAvgX,
+    // RegrAvgY,
+    // RegrSXX,
+    // RegrSYY,
+
 }
 
 impl AggregationBuilder {
@@ -106,135 +145,248 @@ impl AggregationBuilder {
         Self {
             column: column.to_string(),
             agg_alias: None,
-            agg_fn: None, 
+            agg_type: AggregationType::Sum, // default
+            other_column: None,
+            percentile: None,
+            nth_value: None,
         }
     }
+
     pub fn build_expr(&self, table_alias: &str) -> Expr {
-        // Fully qualify the column name with the table alias
         let qualified_column = if self.column.contains('.') {
             col(&self.column)
         } else {
             col_with_relation(table_alias, &self.column)
         };
 
-        let base_expr = if let Some(ref agg_fn) = self.agg_fn {
-            agg_fn(qualified_column) 
-        } else {
-            qualified_column
+        let base_expr = match &self.agg_type {
+            AggregationType::Sum => sum(qualified_column),
+            AggregationType::Avg => avg(qualified_column),
+            AggregationType::Min => min(qualified_column),
+            AggregationType::Max => max(qualified_column),
+            AggregationType::StdDev => stddev(qualified_column),
+            AggregationType::Count => count(qualified_column),
+            AggregationType::CountDistinct => count_distinct(qualified_column),
+            AggregationType::Corr => {
+                if let Some(ref other_col) = self.other_column {
+                    corr(qualified_column, col(other_col))
+                } else {
+                    qualified_column
+                }
+            },
+            AggregationType::Grouping => grouping(qualified_column),
+            AggregationType::VarPop => var_pop(qualified_column),
+            AggregationType::StdDevPop => stddev_pop(qualified_column),
+            AggregationType::ArrayAgg => array_agg(qualified_column),
+            AggregationType::ApproxPercentile => {
+                if let Some(p) = self.percentile {
+                    approx_percentile_cont(qualified_column, lit(p), None)
+                } else {
+                    qualified_column
+                }
+            },
+            AggregationType::FirstValue => first_value(qualified_column, None),
+            AggregationType::NthValue => {
+                if let Some(n) = self.nth_value {
+                    nth_value(qualified_column, n, vec![])
+                } else {
+                    qualified_column
+                }
+            },
+            // AggregationType::LastValue => last_value(qualified_column),
+            // AggregationType::ApproxDistinct => approx_distinct(qualified_column),
+            // AggregationType::ApproxMedian => approx_median(qualified_column),
+            // AggregationType::BitAnd => bit_and(qualified_column),
+            // AggregationType::BitOr => bit_or(qualified_column),
+            // AggregationType::BitXor => bit_xor(qualified_column),
+            // AggregationType::CovarSamp => covar_samp(qualified_column),
+            // AggregationType::VarSample => var_sample(qualified_column),
+            // AggregationType::RegrSlope => regr_slope(qualified_column),
+            // AggregationType::RegrIntercept => regr_intercept(qualified_column),
+            // AggregationType::RegrCount => regr_count(qualified_column),
+            // AggregationType::RegrR2 => regr_r2(qualified_column),
+            // AggregationType::RegrAvgX => regr_avgx(qualified_column),
+            // AggregationType::RegrAvgY => regr_avgy(qualified_column),
+            // AggregationType::RegrSXX => regr_sxx(qualified_column),
+            // AggregationType::RegrSYY => regr_syy(qualified_column),
+            // AggregationType::RegrSXY => regr_sxy(qualified_column),
         };
 
-        // Apply alias if present
         if let Some(alias) = &self.agg_alias {
             base_expr.alias(alias.clone())
         } else {
             base_expr
         }
     }
-    
 
     pub fn alias(mut self, alias: &str) -> Self {
-        let norm_alias = alias.to_lowercase();
-        self.agg_alias = Some(norm_alias.to_string());
+        self.agg_alias = Some(alias.to_lowercase());
         self
     }
 
-    ////////// =============== FUNKCIJE =================== \\\\\\\\\\
-
     pub fn sum(mut self) -> Self {
-        self.agg_fn = Some(Box::new(sum)); 
+        self.agg_type = AggregationType::Sum;
         self
     }
 
     pub fn avg(mut self) -> Self {
-        self.agg_fn = Some(Box::new(avg)); 
+        self.agg_type = AggregationType::Avg;
         self
     }
 
     pub fn min(mut self) -> Self {
-        self.agg_fn = Some(Box::new(min)); 
+        self.agg_type = AggregationType::Min;
         self
     }
 
     pub fn max(mut self) -> Self {
-        self.agg_fn = Some(Box::new(max)); 
+        self.agg_type = AggregationType::Max;
         self
     }
 
     pub fn stddev(mut self) -> Self {
-        self.agg_fn = Some(Box::new(stddev)); 
+        self.agg_type = AggregationType::StdDev;
         self
     }
 
     pub fn count(mut self) -> Self {
-        self.agg_fn = Some(Box::new(count)); 
+        self.agg_type = AggregationType::Count;
         self
     }
 
     pub fn count_distinct(mut self) -> Self {
-        self.agg_fn = Some(Box::new(count_distinct)); 
+        self.agg_type = AggregationType::CountDistinct;
         self
     }
 
-    pub fn corr(mut self, other_column: &str) -> Self {
-        let other_column = other_column.to_string(); 
-        self.agg_fn = Some(Box::new(move |expr| {
-            corr(expr, col_with_relation("", &other_column))
-        })); 
-        self
-    }
-    
     pub fn grouping(mut self) -> Self {
-        self.agg_fn = Some(Box::new(grouping)); 
+        self.agg_type = AggregationType::Grouping;
         self
     }
 
     pub fn var_pop(mut self) -> Self {
-        self.agg_fn = Some(Box::new(var_pop));
+        self.agg_type = AggregationType::VarPop;
         self
     }
 
     pub fn stddev_pop(mut self) -> Self {
-        self.agg_fn = Some(Box::new(stddev_pop)); 
+        self.agg_type = AggregationType::StdDevPop;
         self
     }
 
     pub fn array_agg(mut self) -> Self {
-        self.agg_fn = Some(Box::new(array_agg)); 
+        self.agg_type = AggregationType::ArrayAgg;
         self
     }
 
-    pub fn approx_percentile(mut self, percentile: f64) -> Self {
-        println!("Building approx_percentile for column: {}, percentile: {}", self.column, percentile); 
-        self.agg_fn = Some(Box::new(move |expr| {
-            approx_percentile_cont(expr, Expr::Literal(percentile.into()), None)
-        }));
+    pub fn first_value(mut self) -> Self {
+        self.agg_type = AggregationType::FirstValue;
         self
     }
     
-    pub fn first_value(mut self) -> Self {
-        self.agg_fn = Some(Box::new(|expr| first_value(expr, None))); // First value function
+    pub fn approx_percentile(mut self, percentile: f64) -> Self {
+        self.agg_type = AggregationType::ApproxPercentile;
+        self.percentile = Some(percentile);
         self
     }
 
     pub fn nth_value(mut self, n: i64) -> Self {
-        self.agg_fn = Some(Box::new(move |expr| nth_value(expr, n, vec![]))); 
+        self.agg_type = AggregationType::NthValue;
+        self.nth_value = Some(n);
         self
     }
 
-    
-}
-
-
-impl From<&str> for AggregationBuilder {
-    fn from(column: &str) -> Self {
-        AggregationBuilder::new(column)
+    pub fn corr(mut self, other_column: &str) -> Self {
+        self.agg_type = AggregationType::Corr;
+        self.other_column = Some(other_column.to_string());
+        self
     }
-}
 
-impl From<AggregationBuilder> for Expr {
-    fn from(builder: AggregationBuilder) -> Self {
-        builder.build_expr("default_alias") 
-    }
+    // pub fn last_value(mut self) -> Self {
+    //     self.agg_type = AggregationType::LastValue;
+    //     self
+    // }
+
+    // pub fn approx_distinct(mut self) -> Self {
+    //     self.agg_type = AggregationType::ApproxDistinct;
+    //     self
+    // }
+
+    // pub fn approx_median(mut self) -> Self {
+    //     self.agg_type = AggregationType::ApproxMedian;
+    //     self
+    // }
+
+    // pub fn bit_and(mut self) -> Self {
+    //     self.agg_type = AggregationType::BitAnd;
+    //     self
+    // }
+
+    // pub fn bit_or(mut self) -> Self {
+    //     self.agg_type = AggregationType::BitOr;
+    //     self
+    // }
+
+    // pub fn bit_xor(mut self) -> Self {
+    //     self.agg_type = AggregationType::BitXor;
+    //     self
+    // }
+
+    // pub fn covar_samp(mut self) -> Self {
+    //     self.agg_type = AggregationType::CovarSamp;
+    //     self
+    // }
+
+    // pub fn var_sample(mut self) -> Self {
+    //     self.agg_type = AggregationType::VarSample;
+    //     self
+    // }
+
+    // // Regression functions
+    // pub fn regr_slope(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrSlope;
+    //     self
+    // }
+
+    // pub fn regr_intercept(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrIntercept;
+    //     self
+    // }
+
+    // pub fn regr_count(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrCount;
+    //     self
+    // }
+
+    // pub fn regr_r2(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrR2;
+    //     self
+    // }
+
+    // pub fn regr_avgx(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrAvgX;
+    //     self
+    // }
+
+    // pub fn regr_avgy(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrAvgY;
+    //     self
+    // }
+
+    // pub fn regr_sxx(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrSXX;
+    //     self
+    // }
+
+    // pub fn regr_syy(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrSYY;
+    //     self
+    // }
+
+    // pub fn regr_sxy(mut self) -> Self {
+    //     self.agg_type = AggregationType::RegrSXY;
+    //     self
+    // }
 }
 
 // =================== CSV DETECT DEFECT ======================= //
@@ -1134,7 +1286,7 @@ impl CsvWriteOptions {
     ) -> Result<(), DeltaTableError> {
         let path_manager = DeltaPathManager::new(path);
     
-        // First, get the Arrow schema
+        // get the Arrow schema
         let arrow_schema_ref = glean_arrow_schema(df)
             .await
             .map_err(|e| DeltaTableError::Generic(format!("Could not glean Arrow schema: {e}")))?;
@@ -1151,13 +1303,13 @@ impl CsvWriteOptions {
             })
             .collect();
     
-        // Create basic configuration
+        //  basic configuration
         let mut config: HashMap<String, Option<String>> = HashMap::new();
         config.insert("delta.minWriterVersion".to_string(), Some("7".to_string()));
         config.insert("delta.minReaderVersion".to_string(), Some("3".to_string()));
     
         if overwrite {
-            // Remove the existing directory if it exists
+            // Removing the existing directory if it exists
             if let Err(e) = fs::remove_dir_all(&path_manager.base_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     return Err(DeltaTableError::Generic(format!(
@@ -1167,18 +1319,18 @@ impl CsvWriteOptions {
                 }
             }
     
-            // Create directory structure
+            //directory structure
             fs::create_dir_all(&path_manager.base_path)
                 .map_err(|e| DeltaTableError::Generic(format!("Failed to create directory structure: {e}")))?;
     
-            // Create metadata with empty HashMap
+            //  metadata with empty HashMap
             let metadata = Metadata::try_new(
                 StructType::new(delta_fields.clone()),
                 partition_columns.clone().unwrap_or_default(),
                 HashMap::new()
             )?;
     
-            // Set the configuration in the metadata action
+            // configuration in the metadata action
             let metadata_action = json!({
                 "metaData": {
                     "id": metadata.id,
@@ -1198,7 +1350,7 @@ impl CsvWriteOptions {
                 }
             });
     
-            // Set up store and protocol
+            // store and protocol
             let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
             let delta_log_path = path_manager.delta_log_path();
             let protocol = Protocol::new(3, 7);
@@ -1211,14 +1363,10 @@ impl CsvWriteOptions {
                     "writerFeatures": []
                 }
             });
-    
-            // Write protocol action first
             append_protocol_action(&store, &delta_log_path, protocol_action).await?;
-            
-            // Write metadata action
             append_protocol_action(&store, &delta_log_path, metadata_action).await?;
     
-            // Initialize table
+            // table initialzzation
             let _ = DeltaOps::try_from_uri(&path_manager.table_path())
                 .await
                 .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps: {e}")))?
@@ -1262,7 +1410,7 @@ impl CsvWriteOptions {
                     }
                 });
     
-                // Set up store and protocol
+                //  store and protocol
                 let store: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new());
                 let delta_log_path = path_manager.delta_log_path();
                 let protocol = Protocol::new(3, 7);
@@ -1276,13 +1424,10 @@ impl CsvWriteOptions {
                     }
                 });
     
-                // Write protocol action first
                 append_protocol_action(&store, &delta_log_path, protocol_action).await?;
-                
-                // Write metadata action
                 append_protocol_action(&store, &delta_log_path, metadata_action).await?;
     
-                // Initialize table
+                //  table initialization
                 let _ = DeltaOps::try_from_uri(&path_manager.table_path())
                     .await
                     .map_err(|e| DeltaTableError::Generic(format!("Failed to init DeltaOps: {e}")))?
@@ -1584,31 +1729,6 @@ impl CustomDataFrame {
         join_str
     }
 
-    /// Window functions builder
-    fn build_window_functions(&self) -> String {
-        if self.window_functions.is_empty() {
-            "".to_string()
-        } else {
-            let funcs: Vec<String> = self.window_functions.iter().map(|w| {
-                let mut w_str = format!("{}({}) OVER (", w.func.to_uppercase(), w.column);
-                if !w.partition_by.is_empty() {
-                    w_str.push_str(&format!("PARTITION BY {}", w.partition_by.join(", ")));
-                }
-                if !w.order_by.is_empty() {
-                    if !w.partition_by.is_empty() {
-                        w_str.push_str(" ");
-                    }
-                    w_str.push_str(&format!("ORDER BY {}", w.order_by.join(", ")));
-                }
-                w_str.push(')');
-                if let Some(a) = &w.alias {
-                    w_str.push_str(&format!(" AS {}", a));
-                }
-                w_str
-            }).collect();
-            funcs.join(", ")
-        }
-    }
 
     /// Set operations builder
     fn build_set_operations(&self) -> String {
@@ -1719,7 +1839,11 @@ impl CustomDataFrame {
     // =============== AGGREGATION HELPER ================ //
 
     /// AGGREAGATION helper
-    pub fn aggregation(mut self, aggregations: Vec<AggregationBuilder>) -> Self {
+    pub fn aggregation<const N: usize>(self, aggregations: [AggregationBuilder; N]) -> Self {
+        self.aggregation_vec(aggregations.to_vec())
+    }
+
+    pub fn aggregation_vec(mut self, aggregations: Vec<AggregationBuilder>) -> Self {
         for builder in aggregations {
             let expr = builder.build_expr(&self.table_alias);
             let alias = builder
@@ -1788,10 +1912,14 @@ impl CustomDataFrame {
     }
 
     /// SELECT clause
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
+    pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
+        self.select_vec(columns.to_vec())
+    }
+    pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
+
+        
         let mut expressions: Vec<Expr> = Vec::new();
         let mut selected_columns: Vec<String> = Vec::new();
-
         // Compiling the regex once outside the loop for efficiency
         let as_keyword = Regex::new(r"(?i)\s+as\s+").unwrap(); // Case-insensitive " AS "
 
@@ -1879,6 +2007,19 @@ impl CustomDataFrame {
                 }
             }
 
+            // Check if column is a window function alias
+            if !expr_resolved && self.window_functions.iter().any(|w| w.alias.as_ref().map_or(false, |a| a == &column_name)) {
+                let expr = col_with_relation(&self.table_alias, &column_name);
+                if let Some(ref new_alias) = alias {
+                    expressions.push(expr.alias(new_alias.clone()));
+                    selected_columns.push(new_alias.clone());
+                } else {
+                    expressions.push(expr);
+                    selected_columns.push(column_name.clone());
+                }
+                expr_resolved = true;
+            }
+
             // Fallback to table alias resolution for normal columns
             if !expr_resolved {
                 let col_name = normalize_column_name(c);
@@ -1899,6 +2040,7 @@ impl CustomDataFrame {
                     column_name
                 );
             }
+    
         }
 
         self.selected_columns = selected_columns.clone();
@@ -1907,21 +2049,38 @@ impl CustomDataFrame {
         // println!("SELECT Schema: {:?}", self.df.schema());
 
         // Update query string
-        self.query = format!(
-            "SELECT {} FROM {}",
-            self.selected_columns
-                .iter()
-                .map(|col| normalize_column_name(col))
-                .collect::<Vec<_>>()
-                .join(", "),
-            self.table_alias
-        );
+        self.query = if !self.window_functions.is_empty() {
+            let window_funcs = self.build_window_functions();
+            format!(
+                "SELECT *, {} FROM {} {}",
+                self.selected_columns
+                    .iter()
+                    .map(|col| normalize_column_name(col))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                window_funcs,
+                self.table_alias
+            )
+        } else {
+            format!(
+                "SELECT {} FROM {}",
+                self.selected_columns
+                    .iter()
+                    .map(|col| normalize_column_name(col))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.table_alias
+            )
+        };
 
         self
     }
     
     /// GROUP BY clause
-    pub fn group_by(mut self, group_columns: Vec<&str>) -> Self {
+    pub fn group_by<const N: usize>(self, group_columns: [&str; N]) -> Self {
+        self.group_by_vec(group_columns.to_vec())
+    }
+    pub fn group_by_vec(mut self, group_columns: Vec<&str>) -> Self {
         let mut resolved_group_columns = Vec::new();
         let schema = self.df.schema();
 
@@ -1985,7 +2144,11 @@ impl CustomDataFrame {
     }
 
     /// ORDER BY clause
-    pub fn order_by(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
+    pub fn order_by<const N: usize>(self, columns: [&str; N], ascending: [bool; N]) -> Self {
+        self.order_by_vec(columns.to_vec(), ascending.to_vec())
+    }
+
+    pub fn order_by_vec(mut self, columns: Vec<&str>, ascending: Vec<bool>) -> Self {
         assert!(
             columns.len() == ascending.len(),
             "The number of columns and sort directions must match"
@@ -2075,13 +2238,8 @@ impl CustomDataFrame {
         // Normalize the condition string to lowercase
         let normalized_condition = normalize_condition(condition);
 
-        // Parse the normalized condition
         let expr = self.parse_condition_for_filter(&normalized_condition);
-
-        // Apply the filter
         self.df = self.df.filter(expr).expect("Can't apply Filter funciton.");
-
-        // Store the normalized condition
         self.where_conditions.push(normalized_condition);
 
         self
@@ -2161,8 +2319,54 @@ impl CustomDataFrame {
         self
     }
 
+    /// Window functions builder
+    fn build_window_functions(&self) -> String {
+        if self.window_functions.is_empty() {
+            "".to_string()
+        } else {
+            let funcs: Vec<String> = self.window_functions.iter().map(|w| {
+                let qualified_col = format!("{}.{}", self.table_alias, w.column);
+                let mut w_str = format!("{}({}) OVER (", w.func.to_uppercase(), qualified_col);
+                
+                if !w.partition_by.is_empty() {
+                    let partition_cols = w.partition_by.iter()
+                        .map(|c| format!("{}.{}", self.table_alias, c))
+                        .collect::<Vec<_>>();
+                    w_str.push_str(&format!("PARTITION BY {}", partition_cols.join(", ")));
+                }
+                
+                if !w.order_by.is_empty() {
+                    if !w.partition_by.is_empty() {
+                        w_str.push_str(" ");
+                    }
+                    let order_cols = w.order_by.iter()
+                        .map(|c| format!("{}.{}", self.table_alias, c))
+                        .collect::<Vec<_>>();
+                    w_str.push_str(&format!("ORDER BY {}", order_cols.join(", ")));
+                }
+                w_str.push(')');
+                if let Some(a) = &w.alias {
+                    w_str.push_str(&format!(" AS {}", a));
+                }
+                w_str
+            }).collect();
+            funcs.join(", ")
+        }
+    }
+
     /// WINDOW CLAUSE
-    pub fn window(
+    pub fn window<const P: usize, const O: usize>(
+        self,
+        func: &str,
+        column: &str,
+        partition_by: [&str; P],
+        order_by: [&str; O],
+        alias: Option<&str>,
+    ) -> Self {
+        self.window_vec(func, column, partition_by.to_vec(), order_by.to_vec(), alias)
+    }
+
+    pub fn window_vec(
         mut self,
         func: &str,
         column: &str,
@@ -2962,13 +3166,13 @@ impl CustomDataFrame {
                 .parquet_pruning(false)
                 .skip_metadata(false);
 
-            for path in &file_paths {
-                println!("Attempting to read: {}", path);
-                match std::fs::metadata(path) {
-                    Ok(meta) => println!("  File exists with size: {} bytes", meta.len()),
-                    Err(e) => println!("  File access error: {}", e),
-                }
-            }
+            // for path in &file_paths {
+                // println!("Attempting to read: {}", path);
+                // match std::fs::metadata(path) {
+            //         Ok(meta) => println!("  File exists with size: {} bytes", meta.len()),
+            //         Err(e) => println!("  File access error: {}", e),
+            //     }
+            // }
             // Read parquet files
             let df = ctx.read_parquet(file_paths, parquet_options).await?;
 

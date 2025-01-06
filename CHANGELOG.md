@@ -1,3 +1,7 @@
+## [0.4.0] - 2025-01-06
+### BRAKING CHANGE
+- No more use of vec![] in DataFrame API Query Functions
+
 ## [0.3.0] - 2025-01-05
 ### Added
 - DELTA table Writer and Reader
