@@ -1383,14 +1383,14 @@ impl CsvWriteOptions {
                 fs::create_dir_all(&path_manager.base_path)
                     .map_err(|e| DeltaTableError::Generic(format!("Failed to create directory structure: {e}")))?;
     
-                // Create metadata with empty HashMap
+                // metadata with empty HashMap
                 let metadata = Metadata::try_new(
                     StructType::new(delta_fields.clone()),
                     partition_columns.clone().unwrap_or_default(),
                     HashMap::new()
                 )?;
     
-                // Set the configuration in the metadata action
+                // configuration in the metadata action
                 let metadata_action = json!({
                     "metaData": {
                         "id": metadata.id,
@@ -1531,7 +1531,6 @@ struct CTEDefinition {
     name: String,
     cte_df: CustomDataFrame,
 }
-
 
 #[derive(Clone)]
 enum SetOperationType {
@@ -3307,11 +3306,5 @@ impl CustomDataFrame {
     //         }
     //     })
     // }
-    
-
-
-
-  
-
 }
 
