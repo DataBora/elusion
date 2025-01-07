@@ -4,11 +4,9 @@
 
 Elusion is a high-performance DataFrame library, for in-memory data formats (CSV, JSON, PARQUET, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
-SQL API is fully supported out of the gate, for writing Raw SQL Queries on in-memory data formats (.csv, .json, .parquet, DELTA).
-
 # Motivation
 
-DataFusion SQL engine has great potential in Data Engineering / Data Analytics world, but I believe that design choices for SQL and DataFrame API do not resemble popular DataFrame solutions out there, and I am here to narrow this gap, by rewriting, from scratch, all functions, readers, writers... and creating easily chainable constructs for anybody to use and understand. 
+DataFusion SQL engine has great potential in Data Engineering / Data Analytics world, but I believe that design choices for SQL and DataFrame API do not resemble popular DataFrame solutions out there, and I am here to narrow this gap, and creating easily chainable constructs for anybody to use and understand. 
 
 ## Key Features
 
@@ -27,7 +25,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 ### 🪟 Window Functions
 - Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
 
-### 🧹 Clean SQL Query Construction
+### 🧹 Clean Query Construction
 - Construct readable and reusable SQL queries.
 - Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `INTERSECT`, `EXCEPT`).
 
@@ -45,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.4.0"
+elusion = "0.5.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -55,16 +53,7 @@ tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ---
 # Usage examples:
 
-### MAIN function
-
-```rust
-#[tokio::main]
-async fn main() -> ElusionResult<()> {
-    Ok(())
-}
-```
-
-### MAIN function with small example
+### MAIN function 
 
 ```rust
 use elusion::prelude::*; // Import everything needed
@@ -72,22 +61,13 @@ use elusion::prelude::*; // Import everything needed
 #[tokio::main]
 async fn main() -> ElusionResult<()> {
 
-    let sales_data = "C:\\Borivoj\\Elusion\\sales_data.csv";
-    let df_sales = CustomDataFrame::new(sales_data, "sales").await?;
-
-    let result = df_sales
-        .select(["OrderDate", "OrderNumber"])
-        .limit(10);
-
-    result.display().await?;
-
     Ok(())
 }
 ```
-### Schema establishing
-#### SCHEMA IS AUTOMATICALLY INFERED from v0.2.5
+## Schema 
+#### SCHEMA IS AUTOMATICALLY INFERED since v0.2.5
 
-### LOADing Files into CustomDAtaFrame
+### LOADING Files into CustomDataFrame
 #### File extensions are automatically recognized 
 #### All you have to do is to provide path to your file
 ### Currently supported data files: CSV, PARQUET, JSON, DELTA
@@ -101,8 +81,8 @@ let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify fol
 #### 2 arguments needed:  **Path**, **Table Alias**
 
 ```rust
-let df_sales = CustomDataFrame::new(sales_data, "sales").await; 
-let df_customers = CustomDataFrame::new(customers_data, "customers").await;
+let df_sales = CustomDataFrame::new(sales_data, "sales").await?; 
+let df_customers = CustomDataFrame::new(customers_data, "customers").await?;
 ```
 ## RULE of thumb: 
 #### ALL Column names and Dataframe alias names, will be LOWERCASE(), TRIM(), REPLACE(" ", "_"), regardles of how you write it, or how they are writen in CSV file.
@@ -116,187 +96,88 @@ let customers_alias = df_customers
 ### JOIN
 #### currently implemented join types
 ```rust
-"INNER"
-"LEFT" 
-"RIGHT" 
-"FULL" 
-"LEFT SEMI" 
-"RIGHT SEMI" 
-"LEFT ANTI" 
-"RIGHT ANTI" 
-"LEFT MARK" 
+"INNER", "LEFT", "RIGHT", "FULL", 
+"LEFT SEMI", "RIGHT SEMI", 
+"LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
 ```
 #### JOIN example with 2 dataframes
 ```rust
 // join with 2 dataframes
-let join_df = df_sales
-    .join(
-        df_customers,
-        "sales.CustomerKey == customers.CustomerKey",
-        "INNER",
-    )
+let single_join = df_sales
+    .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
     .select([
-        "sales.OrderDate",
-        "sales.OrderQuantity",
-        "customers.FirstName",
-        "customers.LastName",
+        "s.OrderDate","c.FirstName", "c.LastName",
     ])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity",
+    ])
+    .group_by([   
+        "s.OrderDate","c.FirstName","c.LastName"
+    ])
+    .having("SUM(s.OrderQuantity) > 10") 
+    .order_by(["total_quantity"], [false]) 
     .limit(10);
-        
-    join_df.display().await?;
+
+    let join_df1 = single_join.elusion("result_query").await?;
+    join_df1.display().await?;
 ```
 ### JOIN with 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
 ```rust
-let three_joins = df_sales
-    .join(
-        df_customers,
-        "sales.CustomerKey == customers.CustomerKey",
-        "INNER"
-    )
-    .join(
-        df_products,
-        "sales.ProductKey == products.ProductKey",
-        "INNER"
-    )
-    .aggregation([
-        AggregationBuilder::new("OrderQuantity") 
-            .sum()
-            .alias("total_quantity") 
-    ])
-    .group_by([
-        "customers.customerkey",     
-        "customers.firstname",       
-        "customers.lastname",       
-        "products.productname" 
-    ])
-    .having("total_quantity > 10")
+let many_joins = df_sales
+    .join_many([
+        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
+        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+    ]) 
     .select([
-        "customers.customerkey", 
-        "customers.firstname",
-        "customers.lastname",
-        "products.productname",
-        "total_quantity"  
+        "c.CustomerKey","c.FirstName","c.LastName","p.ProductName",
+    ]) 
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity",
+    ]) 
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"]) 
+    .having_many([("SUM(s.OrderQuantity) > 10"), ("AVG(s.OrderQuantity) < 100")]) 
+    .order_by_many([
+        ("total_quantity", true), 
+        ("p.ProductName", false) // true is ascending, false is descending
     ])
-    .order_by(["total_quantity"], [false])
-    .limit(10);
+    .limit(10); 
 
-    three_joins.display().await?;
+let join_df3 = many_joins.elusion("df_joins").await?;
+join_df3.display().await?;
 ```
-### SELECT without Aggregation
+### FILTERING
 ```rust
-let result_sales = sales_order_data
+let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
-    .filter("billable_value > 100.0")
+    .filter("order_date > '2021-07-04'") //you can use fileter_many() as well
     .order_by(["order_date"], [true])
     .limit(10);
 
-    result_sales.display().await?;
+let filtered = filter_df.elusion("result_sales").await?;
+filtered.display().await?;
 ```
-
-### SELECT with Mulitiple Aggregations
+### WINDOW function
 ```rust
-let result_df = sales_order_data
-    .aggregation([
-        AggregationBuilder::new("billable_value").sum().alias("total_sales"),
-        AggregationBuilder::new("billable_value").avg().alias("avg_sales")
+let window_query = df_sales
+    .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
+    .select([
+        "s.OrderDate",
+        "c.FirstName",
+        "c.LastName",
+        "s.OrderQuantity",
     ])
-    .group_by(["customer_name", "order_date"])
-    .having("total_sales > 1000")
-    .select(["customer_name", "order_date", "total_sales", "avg_sales"]) // SELECT is used with Final columns after aggregation
-    .order_by(["total_sales"], [false])
-    .limit(10);
-
-    result_df.display().await?;
-```
-### FILTER 
-```rust
-let result_sales = sales_order_data
-    .select(["customer_name", "order_date", "billable_value"])
-    .filter("billable_value > 100.0")
-    .order_by(["order_date"], vec![true])
-    .limit(10);
-
-    result_sales.display().await?;
-```
-
-# Raw SQL Querying
-### FULL SQL SUPPORT is available
-```rust
-
-let sales_data = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
-let customers_data = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
-let products_data = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
-
-let df_sales = CustomDataFrame::new(sales_data, "sales").await; 
-let df_customers = CustomDataFrame::new(customers_data, "customers").await; 
-let df_products = CustomDataFrame::new(products_data, "products").await; 
-
-// Query on 1 DataFrame
-let sql_one = "
-    SELECT
-        CAST(BirthDate AS DATE) as date_of_birth,
-        CONCAT(firstname, ' ',lastname) as full_name
-        FROM CUSTOMERS
-    LIMIT 10;
-    ";
-
-let result_one = df_customers.raw_sql(sql_one, "customers_data", &[]).await?;
-
-result_one.display().await?;
-
-// Query on 2 DataFrames
-let sql_two = "
-    WITH agg_sales AS (
-        SELECT
-            CustomerKey,
-            SUM(OrderQuantity) AS total_order_quantity,
-            COUNT(OrderLineItem) AS total_orders
-        FROM sales
-        GROUP BY CustomerKey
-    ),
-    customer_details AS (
-        SELECT
-            *
-        FROM customers
+    .window(
+        "ROW_NUMBER() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as row_num"
     )
-    SELECT
-        cd.*,
-        asales.total_order_quantity,
-        asales.total_orders
-    FROM agg_sales asales
-    INNER JOIN customer_details cd ON asales.CustomerKey = cd.CustomerKey
-    ORDER BY asales.total_order_quantity DESC
-    LIMIT 100;
-";
+    .window(
+        "SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as running_total"
+    )
+    .limit(10);
 
-let result_two = df_sales.raw_sql(sql_two, "top_customers", &[&df_customers]).await?;
-
-result_two.display().await?;
-
-// Query on 3 DataFrames (same approach is used on any number of DataFrames)
-let sql_three = "
-    SELECT c.CustomerKey, c.FirstName, c.LastName, p.ProductName,
-            SUM(s.OrderQuantity) AS TotalQuantity
-    FROM
-        sales s
-    INNER JOIN
-        customers c
-    ON
-        s.CustomerKey = c.CustomerKey
-    INNER JOIN
-        products p
-    ON
-        s.ProductKey = p.ProductKey
-    GROUP BY c.CustomerKey, c.FirstName, c.LastName, p.ProductName
-    ORDER BY
-        TotalQuantity DESC
-    LIMIT 100;
-    ";
-    // we need to provide dataframe names in raw_sql that are included in query, as well as new alias ex:"sales_summary" for further use of dataframe if needed
-    let result_three = df_sales.raw_sql(sql_three, "sales_summary", &[&df_customers, &df_products]).await?;
-
-    result_three.display().await?;
-
+let window_df = window_query.elusion("result_window").await?;
+window_df.display().await?;
 ```
 # JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
@@ -312,7 +193,7 @@ let sql_three = "
 }
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
-let json_df = CustomDataFrame::new(json_path, "test").await;
+let json_df = CustomDataFrame::new(json_path, "test").await?;
 
 // example json structure
 {
@@ -337,23 +218,14 @@ let json_df = CustomDataFrame::new(json_path, "test").await;
 }
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
-let json_df = CustomDataFrame::new(json_path, "test2").await;
+let json_df = CustomDataFrame::new(json_path, "test2").await?;
 ```
-#### Then you can do business as usual, either with DataFrame API or SQL API
+#### Then you can do business as usual
 
-```rust
-let json_sql = "
-    SELECT * FROM test LIMIT 10
-";
-// "labels" is set as new alias for result_json dataframe
-let result_json = json_df.raw_sql(json_sql, "labels", &[]).await?;
-
-result_json.display().await?;
-```
 # WRITERS
 
 ## Writing to Parquet File
-#### We have 2 writing modes: Overwrite and Append
+#### We have 2 writing modes: **Overwrite** and **Append**
 ```rust
 // overwrite existing file
 result_df
@@ -376,7 +248,8 @@ result_df
     .expect("Failed to append to Parquet");
 ```
 ## Writing to CSV File
-#### CSV Writing options are mandatory
+
+#### CSV Writing options are **mandatory**
 ##### has_headers: TRUE is dynamically set for Overwrite mode, and FALSE for Append mode.
 ```rust
 let custom_csv_options = CsvWriteOptions {
@@ -435,45 +308,6 @@ result_df
     .expect("Failed to append to Delta table");
 ```
 ---
-### Current Clause functions (some still under development)
-
-```rust
-load()
-select()
-group_by()
-order_by()
-limit()
-filter()
-having()
-join()
-window()
-aggregation()
-from_subquery()
-union()
-intersect()
-except()
-display()
-```
-### Current Aggregation functions (soon to be more)
-
-```rust
-Sum()
-Avg()
-Min()
-Max()
-StdDev()
-Count()
-CountDistinct()
-Corr()
-Grouping()
-VarPop()
-StdDevPop()
-ArrayAgg()
-ApproxPercentile()
-FirstValue()
-NthValue()
-```
-
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
 However, since it builds upon [DataFusion](https://datafusion.apache.org/), which is distributed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), some parts of this project are subject to the terms of the Apache License 2.0.
