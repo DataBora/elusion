@@ -72,10 +72,10 @@ async fn main() -> ElusionResult<()> {
 #### All you have to do is to provide path to your file
 ### Currently supported data files: CSV, PARQUET, JSON, DELTA
 ```rust
-let sales_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
-let parq_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
+let csv_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
+let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
-let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name without extension
+let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
 ```
 ### Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
