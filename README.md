@@ -102,7 +102,6 @@ let customers_alias = df_customers
 ```
 #### JOIN example with 2 dataframes
 ```rust
-// join with 2 dataframes
 let single_join = df_sales
     .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
     .select(["s.OrderDate","c.FirstName", "c.LastName"])
@@ -112,7 +111,7 @@ let single_join = df_sales
     ])
     .group_by(["s.OrderDate","c.FirstName","c.LastName"])
     .having("SUM(s.OrderQuantity) > 10") 
-    .order_by(["total_quantity"], [false]) 
+    .order_by(["total_quantity"], [false]) // true is ascending, false is descending
     .limit(10);
 
     let join_df1 = single_join.elusion("result_query").await?;
