@@ -1,5 +1,10 @@
+## [0.5.0] - 2025-01-07
+### BREAKING CHANGE
+- Removed AggegationBuilder now we can use agg() for aggregations
+- Removed SQL Support as DataFrame API considerably developed and there is not much need of raw SQL moving forward. If there is a demmand for Raw SQL i will bring it back in v1.0.0
+
 ## [0.4.0] - 2025-01-06
-### BRAKING CHANGE
+### BREAKING CHANGE
 - No more use of vec![] in DataFrame API Query Functions
 
 ## [0.3.0] - 2025-01-05
