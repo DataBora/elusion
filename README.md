@@ -11,7 +11,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 ## Key Features
 
 ### 🚀 High-Performance DataFrame Operations
-- Load and process data from CSV files with ease.
+- Load and process data from CSV, PARQUET, JSON, DELTA table files with ease.
 - Perform SQL-like transformations such as `SELECT`, `WHERE`, `GROUP BY`, and `JOIN`.
 
 ### 📊 Aggregations and Analytics
@@ -75,7 +75,7 @@ async fn main() -> ElusionResult<()> {
 let sales_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
 let parq_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
-let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name withiut extension
+let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; //you just specify folder name without extension
 ```
 ### Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
@@ -105,16 +105,12 @@ let customers_alias = df_customers
 // join with 2 dataframes
 let single_join = df_sales
     .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
-    .select([
-        "s.OrderDate","c.FirstName", "c.LastName",
-    ])
+    .select(["s.OrderDate","c.FirstName", "c.LastName"])
     .agg([
         "SUM(s.OrderQuantity) AS total_quantity",
         "AVG(s.OrderQuantity) AS avg_quantity",
     ])
-    .group_by([   
-        "s.OrderDate","c.FirstName","c.LastName"
-    ])
+    .group_by(["s.OrderDate","c.FirstName","c.LastName"])
     .having("SUM(s.OrderQuantity) > 10") 
     .order_by(["total_quantity"], [false]) 
     .limit(10);
@@ -137,7 +133,9 @@ let many_joins = df_sales
         "AVG(s.OrderQuantity) AS avg_quantity",
     ]) 
     .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"]) 
-    .having_many([("SUM(s.OrderQuantity) > 10"), ("AVG(s.OrderQuantity) < 100")]) 
+    .having_many([
+        ("SUM(s.OrderQuantity) > 10"), 
+        ("AVG(s.OrderQuantity) < 100")]) 
     .order_by_many([
         ("total_quantity", true), 
         ("p.ProductName", false) // true is ascending, false is descending
@@ -151,7 +149,7 @@ join_df3.display().await?;
 ```rust
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
-    .filter("order_date > '2021-07-04'") //you can use fileter_many() as well
+    .filter("order_date > '2021-07-04'") //you can use filter_many() as well
     .order_by(["order_date"], [true])
     .limit(10);
 
@@ -220,8 +218,6 @@ let json_df = CustomDataFrame::new(json_path, "test").await?;
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
 let json_df = CustomDataFrame::new(json_path, "test2").await?;
 ```
-#### Then you can do business as usual
-
 # WRITERS
 
 ## Writing to Parquet File
@@ -237,7 +233,7 @@ result_df
     .await
     .expect("Failed to write to Parquet");
 
-//append to exisiting file
+// append to exisiting file
 result_df
     .write_to_parquet(
         "append",
@@ -272,7 +268,7 @@ result_df
     .await
     .expect("Failed to overwrite CSV file");
 
-//append to exisiting file
+// append to exisiting file
 result_df
     .write_to_csv(
         "append", 

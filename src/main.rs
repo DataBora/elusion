@@ -7,7 +7,5 @@ use elusion::prelude::*;
 async fn main() -> ElusionResult<()> {
 
     Ok(())
-
-
 }
 

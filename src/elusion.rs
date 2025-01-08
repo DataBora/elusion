@@ -2214,3 +2214,52 @@ impl CustomDataFrame {
 
    
 }
+
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+
+//     #[tokio::test]
+//     async fn test_multiple_joins() -> ElusionResult<()> {
+//         let df_sales = CustomDataFrame::new("sales.csv", "s").await?;
+//         let df_customers = CustomDataFrame::new("customers.csv", "c").await?;
+//         let df_products = CustomDataFrame::new("products.csv", "p").await?;
+
+//         let three_joins = df_sales
+//             .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
+//             .join(df_products.clone(), "s.ProductKey = p.ProductKey", "INNER")
+//             .agg(vec![
+//                 "SUM(s.OrderQuantity) AS total_quantity".to_string(),
+//             ])
+//             .group_by(vec![
+//                 "c.CustomerKey",
+//                 "c.FirstName",
+//                 "c.LastName",
+//                 "p.ProductName",
+//             ])
+//             .having("SUM(s.OrderQuantity) > 10")
+//             .select(vec![
+//                 "c.CustomerKey",
+//                 "c.FirstName",
+//                 "c.LastName",
+//                 "p.ProductName",
+//                 "total_quantity",
+//             ])
+//             .order_by(vec!["total_quantity"], vec![false])
+//             .limit(10);
+
+//         // Execute the query
+//         let executed_three_joins = three_joins.execute("test_result_three_joins").await?;
+
+//         // Verify the schema contains the expected columns
+//         let schema = executed_three_joins.df.schema();
+//         assert!(schema.field_with_name("total_quantity").is_ok());
+//         assert!(schema.field_with_name("CustomerKey").is_ok());
+//         assert!(schema.field_with_name("FirstName").is_ok());
+//         assert!(schema.field_with_name("LastName").is_ok());
+//         assert!(schema.field_with_name("ProductName").is_ok());
+
+//         Ok(())
+//     }
+// }
