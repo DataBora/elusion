@@ -87,9 +87,9 @@ pub type ElusionResult<T> = Result<T, ElusionError>;
 
 #[derive(Clone, Debug)]
 pub struct Join {
-    dataframe: CustomDataFrame, // The DataFrame to join with
-    condition: String,          // The join condition as a string
-    join_type: String,          // The type of join (e.g., INNER, LEFT)
+    dataframe: CustomDataFrame,
+    condition: String,
+    join_type: String,
 }
 // Define the CustomDataFrame struct
 #[derive(Clone, Debug)]
@@ -640,7 +640,6 @@ fn normalize_column_name(name: &str) -> String {
         format!("\"{}\"", name.trim().replace(" ", "_"))
     }
 }
-
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.
 fn normalize_alias(alias: &str) -> String {
     alias.trim().to_lowercase()
@@ -648,7 +647,9 @@ fn normalize_alias(alias: &str) -> String {
 
 /// Normalizes a condition string by properly quoting table aliases and column names.
 fn normalize_condition(condition: &str) -> String {
-    let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+    
     re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string()
 }
 
@@ -656,12 +657,19 @@ fn normalize_condition(condition: &str) -> String {
 /// Example:
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
 fn normalize_expression(expression: &str) -> String {
-    let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
     re.replace_all(expression.trim(), "\"$1\".\"$2\"").to_string()
 }
 
-    /// window functions normalization
-    fn normalize_window_function(expression: &str) -> String {
+/// Helper function to determine if a string is an expression.
+fn is_expression(s: &str) -> bool {
+    // Simple heuristic: if it contains '(', it's likely an expression
+    s.contains('(') && s.contains(')')
+}
+
+/// window functions normalization
+fn normalize_window_function(expression: &str) -> String {
     // Split into parts: function part and OVER part
     let parts: Vec<&str> = expression.split(" OVER ").collect();
     if parts.len() != 2 {
@@ -1167,8 +1175,8 @@ impl CustomDataFrame {
     //     })
     // }
 
-      /// NEW method for loading and schema definition
-      pub async fn new<'a>(
+    /// NEW method for loading and schema definition
+    pub async fn new<'a>(
         file_path: &'a str,
         alias: &'a str,
     ) -> ElusionResult<Self> {
@@ -1263,13 +1271,26 @@ impl CustomDataFrame {
             })
             .collect();
 
+        // self.selected_columns = columns.into_iter()
+        //     .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+        //     .map(|s| normalize_column_name(s))
+        //     .collect();
+
         self.selected_columns = columns.into_iter()
-            .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-            .map(|s| normalize_column_name(s))
-            .collect();
+        .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+        .map(|s| {
+            if is_expression(s) {
+                normalize_expression(s)
+            } else {
+                normalize_column_name(s)
+            }
+        })
+        .collect();
 
         self
     }
+
+    
 
     /// GROUP BY clause using const generics
     pub fn group_by<const N: usize>(self, group_columns: [&str; N]) -> Self {
@@ -1589,8 +1610,8 @@ impl CustomDataFrame {
         })
     }
 
-     /// Display functions that display results to terminal
-     pub async fn display(&self) -> Result<(), DataFusionError> {
+    /// Display functions that display results to terminal
+    pub async fn display(&self) -> Result<(), DataFusionError> {
         self.df.clone().show().await.map_err(|e| {
             DataFusionError::Execution(format!("Failed to display DataFrame: {}", e))
         })
@@ -1613,602 +1634,602 @@ impl CustomDataFrame {
         println!("Generated SQL Query: {}", final_query);
     }
 
-    // ====================== WRITERS ==================== //
-    
-    /// Write the DataFrame to a Parquet file.
-    ///
-    /// This function wraps DataFusion's `write_parquet` method for easier usage.
-    ///
-    /// # Parameters
-    /// - `mode`: Specifies the write mode. Accepted values are:
-    ///   - `"overwrite"`: Deletes existing files at the target path before writing.
-    ///   - `"append"`: Appends to the existing Parquet file if it exists.
-    /// - `path`: The file path where the Parquet file will be saved.
-    /// - `options`: Optional write options for customizing the output.
-    ///
-    /// # Example
-    /// ```rust
-     /// // Write to Parquet in overwrite mode
-    /// custom_df.write_to_parquet("overwrite", "output.parquet", None).await?;
-    ///
-    /// // Write to Parquet in append mode
-    /// custom_df.write_to_parquet("append", "output.parquet", None).await?;
-    /// ```
-    ///
-    /// # Errors
-    /// Returns a `DataFusionError` if the DataFrame execution or writing fails.
-    pub async fn write_to_parquet(
-        &self,
-        mode: &str,
-        path: &str,
-        options: Option<DataFrameWriteOptions>,
-    ) -> ElusionResult<()> {
-        let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
+// ====================== WRITERS ==================== //
 
-        match mode {
-            "overwrite" => {
-                // file or directory removal, if it exists
-                if fs::metadata(path).is_ok() {
-                    fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
-                        DataFusionError::Execution(format!(
-                            "Failed to delete existing file or directory at '{}': {}",
-                            path, e
-                        ))
-                    })?;
-                }
-            }
-            "append" => {
-                // if the file exists
-                if !fs::metadata(path).is_ok() {
-                    return Err(ElusionError::Custom(format!(
-                        "Append mode requires an existing file at '{}'",
-                        path
-                    )));
-                }   
-            }
-            _ => {
-                return Err(ElusionError::Custom(format!(
-                    "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
-                    mode
-                )));
-            }
-        }
+/// Write the DataFrame to a Parquet file.
+///
+/// This function wraps DataFusion's `write_parquet` method for easier usage.
+///
+/// # Parameters
+/// - `mode`: Specifies the write mode. Accepted values are:
+///   - `"overwrite"`: Deletes existing files at the target path before writing.
+///   - `"append"`: Appends to the existing Parquet file if it exists.
+/// - `path`: The file path where the Parquet file will be saved.
+/// - `options`: Optional write options for customizing the output.
+///
+/// # Example
+/// ```rust
+    /// // Write to Parquet in overwrite mode
+/// custom_df.write_to_parquet("overwrite", "output.parquet", None).await?;
+///
+/// // Write to Parquet in append mode
+/// custom_df.write_to_parquet("append", "output.parquet", None).await?;
+/// ```
+///
+/// # Errors
+/// Returns a `DataFusionError` if the DataFrame execution or writing fails.
+pub async fn write_to_parquet(
+    &self,
+    mode: &str,
+    path: &str,
+    options: Option<DataFrameWriteOptions>,
+) -> ElusionResult<()> {
+    let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
 
-        
-        self.df.clone().write_parquet(path, write_options, None).await?;
-
-        match mode {
-            "overwrite" => println!("Data successfully overwritten to '{}'.", path),
-            "append" => println!("Data successfully appended to '{}'.", path),
-            _ => unreachable!(),
-        }
-      
-        Ok(())
-    }
-
-    /// Writes the DataFrame to a CSV file in either "overwrite" or "append" mode.
-    ///
-    /// # Arguments
-    ///
-    /// * `mode` - The write mode, either "overwrite" or "append".
-    /// * `path` - The file path where the CSV will be written.
-    /// * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
-    ///
-    /// # Returns
-    ///
-    /// * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
-    pub async fn write_to_csv(
-        &self,
-        mode: &str,
-        path: &str,
-        csv_options: CsvWriteOptions,
-    ) -> ElusionResult<()> {
-        // let write_options = csv_options.unwrap_or_else(CsvWriteOptions::default);
-        csv_options.validate()?;
-
-        let mut df = self.df.clone();
-    
-        // Get the schema
-        let schema = df.schema();
-
-        let mut cast_expressions = Vec::new();
-        
-        for field in schema.fields() {
-            let cast_expr = match field.data_type() {
-                // For floating point types and decimals, cast to Decimal
-                ArrowDataType::Float32 | ArrowDataType::Float64 | 
-                ArrowDataType::Decimal128(_, _) | ArrowDataType::Decimal256(_, _) => {
-                    Some((
-                        field.name().to_string(),
-                        cast(col(field.name()), ArrowDataType::Decimal128(20, 4))
+    match mode {
+        "overwrite" => {
+            // file or directory removal, if it exists
+            if fs::metadata(path).is_ok() {
+                fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to delete existing file or directory at '{}': {}",
+                        path, e
                     ))
-                },
-                // For integer types, cast to Int64
-                ArrowDataType::Int8 | ArrowDataType::Int16 | ArrowDataType::Int32 | ArrowDataType::Int64 |
-                ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 | ArrowDataType::UInt64 => {
-                    Some((
-                        field.name().to_string(),
-                        cast(col(field.name()), ArrowDataType::Int64)
-                    ))
-                },
-                // Leave other types as they are
-                _ => None,
-            };
-            
-            if let Some(expr) = cast_expr {
-                cast_expressions.push(expr);
-            }
-        }
-        
-        // Apply all transformations at once
-        for (name, cast_expr) in cast_expressions {
-            df = df.with_column(&name, cast_expr)?;
-        }
-    
-        match mode {
-            "overwrite" => {
-                // Remove existing file or directory if it exists
-                if fs::metadata(path).is_ok() {
-                    fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
-                        DataFusionError::Execution(format!(
-                            "Failed to delete existing file or directory at '{}': {}",
-                            path, e
-                        ))
-                    })?;
-                }
-            }
-            "append" => {
-                // Ensure the file exists for append mode
-                if !fs::metadata(path).is_ok() {
-                    return Err(ElusionError::Custom(format!(
-                        "Append mode requires an existing file at '{}'",
-                        path
-                    )));
-                }
-            }
-            _ => {
-                return Err(ElusionError::Custom(format!(
-                    "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
-                    mode
-                )));
-            }
-        }
-
-        // RecordBatches from the DataFrame
-        let batches = self.df.clone().collect().await.map_err(|e| {
-            ElusionError::DataFusion(DataFusionError::Execution(format!(
-                "Failed to collect RecordBatches from DataFrame: {}",
-                e
-            )))
-        })?;
-
-        if batches.is_empty() {
-            return Err(ElusionError::Custom("No data to write.".to_string()));
-        }
-
-        // clone data for the blocking task
-        let batches_clone = batches.clone();
-        let mode_clone = mode.to_string();
-        let path_clone = path.to_string();
-        let write_options_clone = csv_options.clone();
-
-        // Spawn a blocking task to handle synchronous CSV writing
-        task::spawn_blocking(move || -> Result<(), ElusionError> {
-            // Open the file with appropriate options based on the mode
-            let file = match mode_clone.as_str() {
-                "overwrite" => OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(&path_clone)
-                    .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
-                "append" => OpenOptions::new()
-                    .write(true)
-                    .append(true)
-                    .open(&path_clone)
-                    .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
-                _ => unreachable!(), // Mode already validated
-            };
-
-            let writer = BufWriter::new(file);
-
-            let has_headers = match mode_clone.as_str() {
-                "overwrite" => true,
-                "append" => false,
-                _ => true, 
-            };
-            // initialize the CSV writer with the provided options
-            let mut csv_writer = WriterBuilder::new()
-                .with_header(has_headers)
-                .with_delimiter(write_options_clone.delimiter)
-                .with_escape(write_options_clone.escape)
-                .with_quote(write_options_clone.quote)
-                .with_double_quote(write_options_clone.double_quote)
-                .with_null(write_options_clone.null_value)
-                .build(writer);
-                
-
-                // if let Some(date_fmt) = write_options_clone.date_format {
-                //     builder = builder.with_date_format(date_fmt);
-                // }
-                // if let Some(time_fmt) = write_options_clone.time_format {
-                //     builder = builder.with_time_format(time_fmt);
-                // }
-                // if let Some(timestamp_fmt) = write_options_clone.timestamp_format {
-                //     builder = builder.with_timestamp_format(timestamp_fmt);
-                // }
-                // if let Some(timestamp_tz_fmt) = write_options_clone.timestamp_tz_format {
-                //     builder = builder.with_timestamp_tz_format(timestamp_tz_fmt);
-                // }
-
-               
-                // Write each batch 
-                for batch in batches_clone {
-                    csv_writer.write(&batch).map_err(|e| {
-                        ElusionError::Custom(format!("Failed to write RecordBatch to CSV: {}", e))
-                    })?;
-                }
-            
-            
-                csv_writer.into_inner().flush().map_err(|e| {
-                    ElusionError::Custom(format!("Failed to flush buffer: {}", e))
                 })?;
-                
-            Ok(())
-        }).await.map_err(|e| ElusionError::Custom(format!("Failed to write to CSV: {}", e)))??;
-
-        match mode {
-            "overwrite" => println!("Data successfully overwritten to '{}'.", path),
-            "append" => println!("Data successfully appended to '{}'.", path),
-            _ => unreachable!(),
+            }
         }
-
-        Ok(())
+        "append" => {
+            // if the file exists
+            if !fs::metadata(path).is_ok() {
+                return Err(ElusionError::Custom(format!(
+                    "Append mode requires an existing file at '{}'",
+                    path
+                )));
+            }   
+        }
+        _ => {
+            return Err(ElusionError::Custom(format!(
+                "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
+                mode
+            )));
+        }
     }
 
-    // / Writes the DataFrame to a Delta Lake table in either "overwrite" or "append" mode.
-    // /
-    // / # Arguments
-    // /
-    // / * `mode` - The write mode, either "overwrite" or "append".
-    // / * `path` - The directory path where the Delta table resides or will be created.
-    // / * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
-    // /
-    // / # Returns
-    // /
-    // / * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
-    /// Writes a DataFusion `DataFrame` to a Delta table at `path`, using the new `DeltaOps` API.
-    /// 
-    /// # Parameters
-    /// - `df`: The DataFusion DataFrame to write.
-    /// - `path`: URI for the Delta table (e.g., "file:///tmp/mytable" or "s3://bucket/mytable").
-    /// - `partition_cols`: Optional list of columns for partitioning.
-    /// - `mode`: "overwrite" or "append" (extend as needed).
-    ///
-    /// # Returns
-    /// - `Ok(())` on success
-    /// - `Err(DeltaOpsError)` if creation or writing fails.
-    ///
-    /// # Notes
-    /// 1. "overwrite" first re-creates the table (wiping old data, depending on the implementation),
-    ///    then writes the new data.
-    /// 2. "append" attempts to create if the table doesn’t exist, otherwise appends rows to an existing table.
-    pub async fn write_to_delta_table(
-        &self,
-        mode: &str,
-        path: &str,
-        partition_columns: Option<Vec<String>>,
-    ) -> Result<(), DeltaTableError> {
-        // Match on the user-supplied string to set `overwrite` and `write_mode`.
-        let (overwrite, write_mode) = match mode {
-            "overwrite" => {
-                // Overwrite => remove existing data if it exists
-                (true, WriteMode::Default)
+    
+    self.df.clone().write_parquet(path, write_options, None).await?;
+
+    match mode {
+        "overwrite" => println!("Data successfully overwritten to '{}'.", path),
+        "append" => println!("Data successfully appended to '{}'.", path),
+        _ => unreachable!(),
+    }
+    
+    Ok(())
+}
+
+/// Writes the DataFrame to a CSV file in either "overwrite" or "append" mode.
+///
+/// # Arguments
+///
+/// * `mode` - The write mode, either "overwrite" or "append".
+/// * `path` - The file path where the CSV will be written.
+/// * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
+///
+/// # Returns
+///
+/// * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
+pub async fn write_to_csv(
+    &self,
+    mode: &str,
+    path: &str,
+    csv_options: CsvWriteOptions,
+) -> ElusionResult<()> {
+    // let write_options = csv_options.unwrap_or_else(CsvWriteOptions::default);
+    csv_options.validate()?;
+
+    let mut df = self.df.clone();
+
+    // Get the schema
+    let schema = df.schema();
+
+    let mut cast_expressions = Vec::new();
+    
+    for field in schema.fields() {
+        let cast_expr = match field.data_type() {
+            // For floating point types and decimals, cast to Decimal
+            ArrowDataType::Float32 | ArrowDataType::Float64 | 
+            ArrowDataType::Decimal128(_, _) | ArrowDataType::Decimal256(_, _) => {
+                Some((
+                    field.name().to_string(),
+                    cast(col(field.name()), ArrowDataType::Decimal128(20, 4))
+                ))
+            },
+            // For integer types, cast to Int64
+            ArrowDataType::Int8 | ArrowDataType::Int16 | ArrowDataType::Int32 | ArrowDataType::Int64 |
+            ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 | ArrowDataType::UInt64 => {
+                Some((
+                    field.name().to_string(),
+                    cast(col(field.name()), ArrowDataType::Int64)
+                ))
+            },
+            // Leave other types as they are
+            _ => None,
+        };
+        
+        if let Some(expr) = cast_expr {
+            cast_expressions.push(expr);
+        }
+    }
+    
+    // Apply all transformations at once
+    for (name, cast_expr) in cast_expressions {
+        df = df.with_column(&name, cast_expr)?;
+    }
+
+    match mode {
+        "overwrite" => {
+            // Remove existing file or directory if it exists
+            if fs::metadata(path).is_ok() {
+                fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to delete existing file or directory at '{}': {}",
+                        path, e
+                    ))
+                })?;
             }
-            "append" => {
-                // Don’t remove existing data, just keep writing
-                (false, WriteMode::Default)
-            }
-            "merge" => {
-                // Example: you could define "merge" to auto-merge schema
-                (false, WriteMode::MergeSchema)
-            }
-            "default" => {
-                // Another alias for (false, WriteMode::Default)
-                (false, WriteMode::Default)
-            }
-            // If you want to handle more modes or do something special, add more arms here.
-            other => {
-                return Err(DeltaTableError::Generic(format!(
-                    "Unsupported write mode: {other}"
+        }
+        "append" => {
+            // Ensure the file exists for append mode
+            if !fs::metadata(path).is_ok() {
+                return Err(ElusionError::Custom(format!(
+                    "Append mode requires an existing file at '{}'",
+                    path
                 )));
             }
+        }
+        _ => {
+            return Err(ElusionError::Custom(format!(
+                "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
+                mode
+            )));
+        }
+    }
+
+    // RecordBatches from the DataFrame
+    let batches = self.df.clone().collect().await.map_err(|e| {
+        ElusionError::DataFusion(DataFusionError::Execution(format!(
+            "Failed to collect RecordBatches from DataFrame: {}",
+            e
+        )))
+    })?;
+
+    if batches.is_empty() {
+        return Err(ElusionError::Custom("No data to write.".to_string()));
+    }
+
+    // clone data for the blocking task
+    let batches_clone = batches.clone();
+    let mode_clone = mode.to_string();
+    let path_clone = path.to_string();
+    let write_options_clone = csv_options.clone();
+
+    // Spawn a blocking task to handle synchronous CSV writing
+    task::spawn_blocking(move || -> Result<(), ElusionError> {
+        // Open the file with appropriate options based on the mode
+        let file = match mode_clone.as_str() {
+            "overwrite" => OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path_clone)
+                .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+            "append" => OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open(&path_clone)
+                .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+            _ => unreachable!(), // Mode already validated
         };
 
-        write_to_delta_impl(
-            &self.df,   // The underlying DataFusion DataFrame
-            path,
-            partition_columns,
-            overwrite,
-            write_mode,
-        )
-        .await
+        let writer = BufWriter::new(file);
+
+        let has_headers = match mode_clone.as_str() {
+            "overwrite" => true,
+            "append" => false,
+            _ => true, 
+        };
+        // initialize the CSV writer with the provided options
+        let mut csv_writer = WriterBuilder::new()
+            .with_header(has_headers)
+            .with_delimiter(write_options_clone.delimiter)
+            .with_escape(write_options_clone.escape)
+            .with_quote(write_options_clone.quote)
+            .with_double_quote(write_options_clone.double_quote)
+            .with_null(write_options_clone.null_value)
+            .build(writer);
+            
+
+            // if let Some(date_fmt) = write_options_clone.date_format {
+            //     builder = builder.with_date_format(date_fmt);
+            // }
+            // if let Some(time_fmt) = write_options_clone.time_format {
+            //     builder = builder.with_time_format(time_fmt);
+            // }
+            // if let Some(timestamp_fmt) = write_options_clone.timestamp_format {
+            //     builder = builder.with_timestamp_format(timestamp_fmt);
+            // }
+            // if let Some(timestamp_tz_fmt) = write_options_clone.timestamp_tz_format {
+            //     builder = builder.with_timestamp_tz_format(timestamp_tz_fmt);
+            // }
+
+            
+            // Write each batch 
+            for batch in batches_clone {
+                csv_writer.write(&batch).map_err(|e| {
+                    ElusionError::Custom(format!("Failed to write RecordBatch to CSV: {}", e))
+                })?;
+            }
+        
+        
+            csv_writer.into_inner().flush().map_err(|e| {
+                ElusionError::Custom(format!("Failed to flush buffer: {}", e))
+            })?;
+            
+        Ok(())
+    }).await.map_err(|e| ElusionError::Custom(format!("Failed to write to CSV: {}", e)))??;
+
+    match mode {
+        "overwrite" => println!("Data successfully overwritten to '{}'.", path),
+        "append" => println!("Data successfully appended to '{}'.", path),
+        _ => unreachable!(),
     }
 
-    //=================== LOADERS ============================= //
-    /// LOAD function for CSV file type
-    ///  /// # Arguments
-    ///
-    /// * `file_path` - The path to the JSON file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    /// 
-    /// Load a DataFrame from a file and assign an alias
-    pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, DataFusionError> {
+    Ok(())
+}
+
+// / Writes the DataFrame to a Delta Lake table in either "overwrite" or "append" mode.
+// /
+// / # Arguments
+// /
+// / * `mode` - The write mode, either "overwrite" or "append".
+// / * `path` - The directory path where the Delta table resides or will be created.
+// / * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
+// /
+// / # Returns
+// /
+// / * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
+/// Writes a DataFusion `DataFrame` to a Delta table at `path`, using the new `DeltaOps` API.
+/// 
+/// # Parameters
+/// - `df`: The DataFusion DataFrame to write.
+/// - `path`: URI for the Delta table (e.g., "file:///tmp/mytable" or "s3://bucket/mytable").
+/// - `partition_cols`: Optional list of columns for partitioning.
+/// - `mode`: "overwrite" or "append" (extend as needed).
+///
+/// # Returns
+/// - `Ok(())` on success
+/// - `Err(DeltaOpsError)` if creation or writing fails.
+///
+/// # Notes
+/// 1. "overwrite" first re-creates the table (wiping old data, depending on the implementation),
+///    then writes the new data.
+/// 2. "append" attempts to create if the table doesn’t exist, otherwise appends rows to an existing table.
+pub async fn write_to_delta_table(
+    &self,
+    mode: &str,
+    path: &str,
+    partition_columns: Option<Vec<String>>,
+) -> Result<(), DeltaTableError> {
+    // Match on the user-supplied string to set `overwrite` and `write_mode`.
+    let (overwrite, write_mode) = match mode {
+        "overwrite" => {
+            // Overwrite => remove existing data if it exists
+            (true, WriteMode::Default)
+        }
+        "append" => {
+            // Don’t remove existing data, just keep writing
+            (false, WriteMode::Default)
+        }
+        "merge" => {
+            // Example: you could define "merge" to auto-merge schema
+            (false, WriteMode::MergeSchema)
+        }
+        "default" => {
+            // Another alias for (false, WriteMode::Default)
+            (false, WriteMode::Default)
+        }
+        // If you want to handle more modes or do something special, add more arms here.
+        other => {
+            return Err(DeltaTableError::Generic(format!(
+                "Unsupported write mode: {other}"
+            )));
+        }
+    };
+
+    write_to_delta_impl(
+        &self.df,   // The underlying DataFusion DataFrame
+        path,
+        partition_columns,
+        overwrite,
+        write_mode,
+    )
+    .await
+}
+
+//=================== LOADERS ============================= //
+/// LOAD function for CSV file type
+///  /// # Arguments
+///
+/// * `file_path` - The path to the JSON file.
+/// * `alias` - The alias name for the table within DataFusion.
+///
+/// # Returns
+///
+/// 
+/// Load a DataFrame from a file and assign an alias
+pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, DataFusionError> {
+    let ctx = SessionContext::new();
+    let file_extension = file_path
+        .split('.')
+        .last()
+        .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
+        .to_lowercase();
+
+    let df = match file_extension.as_str() {
+        "csv" => {
+            let result = ctx
+                .read_csv(
+                    file_path,
+                    CsvReadOptions::new()
+                        .has_header(true) // Detect headers
+                        .schema_infer_max_records(1000), // Optional: how many records to scan for inference
+                )
+                .await;
+
+            match result {
+                Ok(df) => df,
+                Err(err) => {
+                    eprintln!(
+                        "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                        file_path, err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+        _ => panic!("Unsupported file type: {}", file_extension),
+    };
+
+    Ok(AliasedDataFrame {
+        dataframe: df,
+        alias: alias.to_string(),
+    })
+}
+    // async fn load_csv<'a>(file_path: &'a str, alias: &'a str) -> ElusionResult<AliasedDataFrame> {
+//     let ctx = SessionContext::new();
+//     let df = ctx.read_csv(file_path, CsvReadOptions::new()).await
+//         .map_err(ElusionError::DataFusion)?;
+//     Ok(AliasedDataFrame {
+//         dataframe: df,
+//         alias: alias.to_string(),
+//     })
+// }
+
+/// LOAD function for Parquet file type
+///
+/// # Arguments
+///
+/// * `file_path` - The path to the Parquet file.
+/// * `alias` - The alias name for the table within DataFusion.
+///
+/// # Returns
+///
+/// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
+pub fn load_parquet<'a>(
+    file_path: &'a str,
+    alias: &'a str,
+) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    Box::pin(async move {
         let ctx = SessionContext::new();
         let file_extension = file_path
             .split('.')
             .last()
             .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
             .to_lowercase();
+        // Normalize alias
+        let normalized_alias = normalize_alias_write(alias);
 
         let df = match file_extension.as_str() {
-            "csv" => {
-                let result = ctx
-                    .read_csv(
-                        file_path,
-                        CsvReadOptions::new()
-                            .has_header(true) // Detect headers
-                            .schema_infer_max_records(1000), // Optional: how many records to scan for inference
-                    )
-                    .await;
-
+            "parquet" => {
+                let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
                 match result {
-                    Ok(df) => df,
+                    Ok(df) => {
+                        println!("Successfully read Parquet file '{}'", file_path);
+                        df
+                    }
                     Err(err) => {
                         eprintln!(
-                            "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                            "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
                             file_path, err
                         );
                         return Err(err);
                     }
                 }
             }
-            _ => panic!("Unsupported file type: {}", file_extension),
+            _ => {
+                eprintln!(
+                    "File type '{}' is not explicitly supported. Skipping file '{}'.",
+                    file_extension, file_path
+                );
+                return Err(DataFusionError::Plan(format!(
+                    "Unsupported file type: {}",
+                    file_extension
+                )));
+            }
         };
 
+        
+        let batches = df.clone().collect().await?;
+        let schema = df.schema().clone();
+        let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
+
+        ctx.register_table(normalized_alias, Arc::new(mem_table))?;
+
+        let aliased_df = ctx
+            .table(alias)
+            .await
+            .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
+
+        Ok(AliasedDataFrame {
+            dataframe: aliased_df,
+            alias: alias.to_string(),
+        })
+    })
+}
+
+/// Loads a JSON file into a DataFusion DataFrame.
+/// # Arguments
+///
+/// * `file_path` - The path to the JSON file.
+/// * `alias` - The alias name for the table within DataFusion.
+///
+/// # Returns
+///
+pub fn load_json<'a>(
+    file_path: &'a str,
+    alias: &'a str,
+) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    Box::pin(async move {
+        
+        let file_contents = read_file_to_string(file_path)
+            .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
+        //println!("Raw JSON Content:\n{}", file_contents);
+        let is_array = match serde_json::from_str::<Value>(&file_contents) {
+            Ok(Value::Array(_)) => true,
+            Ok(Value::Object(_)) => false,
+            Ok(_) => false,
+            Err(e) => {
+                return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
+            }
+        };
+        
+        let df = if is_array {
+            create_dataframe_from_multiple_json(&file_contents, alias).await?
+        } else {
+            
+            create_dataframe_from_json(&file_contents, alias).await?
+        };
+        
         Ok(AliasedDataFrame {
             dataframe: df,
             alias: alias.to_string(),
         })
-    }
-      // async fn load_csv<'a>(file_path: &'a str, alias: &'a str) -> ElusionResult<AliasedDataFrame> {
-    //     let ctx = SessionContext::new();
-    //     let df = ctx.read_csv(file_path, CsvReadOptions::new()).await
-    //         .map_err(ElusionError::DataFusion)?;
-    //     Ok(AliasedDataFrame {
-    //         dataframe: df,
-    //         alias: alias.to_string(),
-    //     })
-    // }
-    
-    /// LOAD function for Parquet file type
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the Parquet file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
-    pub fn load_parquet<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ctx = SessionContext::new();
-            let file_extension = file_path
-                .split('.')
-                .last()
-                .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
-                .to_lowercase();
-            // Normalize alias
-            let normalized_alias = normalize_alias_write(alias);
-    
-            let df = match file_extension.as_str() {
-                "parquet" => {
-                    let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
-                    match result {
-                        Ok(df) => {
-                            println!("Successfully read Parquet file '{}'", file_path);
-                            df
-                        }
-                        Err(err) => {
-                            eprintln!(
-                                "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                                file_path, err
-                            );
-                            return Err(err);
-                        }
-                    }
-                }
-                _ => {
-                    eprintln!(
-                        "File type '{}' is not explicitly supported. Skipping file '{}'.",
-                        file_extension, file_path
-                    );
-                    return Err(DataFusionError::Plan(format!(
-                        "Unsupported file type: {}",
-                        file_extension
-                    )));
-                }
-            };
-    
-           
-            let batches = df.clone().collect().await?;
-            let schema = df.schema().clone();
-            let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
-    
-            ctx.register_table(normalized_alias, Arc::new(mem_table))?;
-    
-            let aliased_df = ctx
-                .table(alias)
-                .await
-                .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
-    
-            Ok(AliasedDataFrame {
-                dataframe: aliased_df,
-                alias: alias.to_string(),
-            })
-        })
-    }
-    
-    /// Loads a JSON file into a DataFusion DataFrame.
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the JSON file.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    pub fn load_json<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-           
-            let file_contents = read_file_to_string(file_path)
-                .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
-            //println!("Raw JSON Content:\n{}", file_contents);
-            let is_array = match serde_json::from_str::<Value>(&file_contents) {
-                Ok(Value::Array(_)) => true,
-                Ok(Value::Object(_)) => false,
-                Ok(_) => false,
-                Err(e) => {
-                    return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
-                }
-            };
-            
-            let df = if is_array {
-                create_dataframe_from_multiple_json(&file_contents, alias).await?
-            } else {
-              
-                create_dataframe_from_json(&file_contents, alias).await?
-            };
-            
-            Ok(AliasedDataFrame {
-                dataframe: df,
-                alias: alias.to_string(),
-            })
-        })
-    }
+    })
+}
 
-    /// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
-    /// 
-    /// # Usage
-    /// ```no_run
-    /// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
-    /// ```
-    pub fn load_delta<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
-        Box::pin(async move {
-            let ctx = SessionContext::new();
-    
-            // path manager
-            let path_manager = DeltaPathManager::new(file_path);
-    
-            // Open Delta table using path manager
-            let table = open_table(&path_manager.table_path())
-                .await
-                .map_err(|e| DataFusionError::Execution(format!("Failed to open Delta table: {}", e)))?;
+/// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
+/// 
+/// # Usage
+/// ```no_run
+/// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
+/// ```
+pub fn load_delta<'a>(
+    file_path: &'a str,
+    alias: &'a str,
+) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+    Box::pin(async move {
+        let ctx = SessionContext::new();
 
-            
-            let file_paths: Vec<String> = {
-                let raw_uris = table.get_file_uris()
-                    .map_err(|e| DataFusionError::Execution(format!("Failed to get table files: {}", e)))?;
-                
-                raw_uris.map(|uri| path_manager.normalize_uri(&uri))
-                    .collect()
-                };
-            
-            // ParquetReadOptions
-            let parquet_options = ParquetReadOptions::new()
-                // .schema(&combined_schema)
-                // .table_partition_cols(partition_columns.clone())
-                .parquet_pruning(false)
-                .skip_metadata(false);
-
-            let df = ctx.read_parquet(file_paths, parquet_options).await?;
-
-    
-            let batches = df.clone().collect().await?;
-            // println!("Number of batches: {}", batches.len());
-            // for (i, batch) in batches.iter().enumerate() {
-            //     println!("Batch {} row count: {}", i, batch.num_rows());
-            // }
-            let schema = df.schema().clone().into();
-            // Build M  emTable
-            let mem_table = MemTable::try_new(schema, vec![batches])?;
-            let normalized_alias = normalize_alias_write(alias);
-            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
-            
-            // Create final DataFrame
-            let aliased_df = ctx.table(&normalized_alias).await?;
-            
-            // Verify final row count
-            // let final_count = aliased_df.clone().count().await?;
-            // println!("Final row count: {}", final_count);
-    
-            Ok(AliasedDataFrame {
-                dataframe: aliased_df,
-                alias: alias.to_string(),
-            })
-        })
-    }
-
-    /// Unified load function that determines the file type based on extension
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the data file (CSV, JSON, Parquet).
-    /// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
-    /// * `alias` - The alias name for the table within DataFusion.
-    ///
-    /// # Returns
-    ///
-    /// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
-    pub async fn load(
-        file_path: &str,
-        alias: &str,
-    ) -> Result<AliasedDataFrame, DataFusionError> {
+        // path manager
         let path_manager = DeltaPathManager::new(file_path);
-        if path_manager.is_delta_table() {
-            return Self::load_delta(file_path, alias).await;
-        }
 
-        let ext = file_path
-            .split('.')
-            .last()
-            .unwrap_or_default()
-            .to_lowercase();
+        // Open Delta table using path manager
+        let table = open_table(&path_manager.table_path())
+            .await
+            .map_err(|e| DataFusionError::Execution(format!("Failed to open Delta table: {}", e)))?;
 
-        match ext.as_str() {
-            "csv" => Self::load_csv(file_path, alias).await,
-            "json" => Self::load_json(file_path, alias).await,
-            "parquet" => Self::load_parquet(file_path, alias).await,
-            "" => Err(DataFusionError::Execution(format!(
-                "Directory is not a Delta table and has no recognized extension: {file_path}"
-            ))),
-            other => Err(DataFusionError::Execution(format!(
-                "Unsupported extension: {other}"
-            ))),
-        }
+        
+        let file_paths: Vec<String> = {
+            let raw_uris = table.get_file_uris()
+                .map_err(|e| DataFusionError::Execution(format!("Failed to get table files: {}", e)))?;
+            
+            raw_uris.map(|uri| path_manager.normalize_uri(&uri))
+                .collect()
+            };
+        
+        // ParquetReadOptions
+        let parquet_options = ParquetReadOptions::new()
+            // .schema(&combined_schema)
+            // .table_partition_cols(partition_columns.clone())
+            .parquet_pruning(false)
+            .skip_metadata(false);
+
+        let df = ctx.read_parquet(file_paths, parquet_options).await?;
+
+
+        let batches = df.clone().collect().await?;
+        // println!("Number of batches: {}", batches.len());
+        // for (i, batch) in batches.iter().enumerate() {
+        //     println!("Batch {} row count: {}", i, batch.num_rows());
+        // }
+        let schema = df.schema().clone().into();
+        // Build M  emTable
+        let mem_table = MemTable::try_new(schema, vec![batches])?;
+        let normalized_alias = normalize_alias_write(alias);
+        ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
+        
+        // Create final DataFrame
+        let aliased_df = ctx.table(&normalized_alias).await?;
+        
+        // Verify final row count
+        // let final_count = aliased_df.clone().count().await?;
+        // println!("Final row count: {}", final_count);
+
+        Ok(AliasedDataFrame {
+            dataframe: aliased_df,
+            alias: alias.to_string(),
+        })
+    })
+}
+
+/// Unified load function that determines the file type based on extension
+///
+/// # Arguments
+///
+/// * `file_path` - The path to the data file (CSV, JSON, Parquet).
+/// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
+/// * `alias` - The alias name for the table within DataFusion.
+///
+/// # Returns
+///
+/// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
+pub async fn load(
+    file_path: &str,
+    alias: &str,
+) -> Result<AliasedDataFrame, DataFusionError> {
+    let path_manager = DeltaPathManager::new(file_path);
+    if path_manager.is_delta_table() {
+        return Self::load_delta(file_path, alias).await;
     }
+
+    let ext = file_path
+        .split('.')
+        .last()
+        .unwrap_or_default()
+        .to_lowercase();
+
+    match ext.as_str() {
+        "csv" => Self::load_csv(file_path, alias).await,
+        "json" => Self::load_json(file_path, alias).await,
+        "parquet" => Self::load_parquet(file_path, alias).await,
+        "" => Err(DataFusionError::Execution(format!(
+            "Directory is not a Delta table and has no recognized extension: {file_path}"
+        ))),
+        other => Err(DataFusionError::Execution(format!(
+            "Unsupported extension: {other}"
+        ))),
+    }
+}
   
    
 
