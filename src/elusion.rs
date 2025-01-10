@@ -1509,7 +1509,7 @@ impl CustomDataFrame {
         )
     }
 
-    /// Add aggregations to the SELECT clause using a Vec<String>
+    /// Add aggregations to the SELECT clause using a `Vec<String>`
     /// Ensures that only valid aggregate expressions are included.
     pub fn agg_vec(mut self, aggregations: Vec<String>) -> Self {
         let valid_aggs = aggregations.into_iter()
