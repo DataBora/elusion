@@ -85,8 +85,7 @@ let df_sales = CustomDataFrame::new(sales_data, "sales").await?;
 let df_customers = CustomDataFrame::new(customers_data, "customers").await?;
 ```
 ## RULE of thumb: 
-#### ALL Column names and Dataframe alias names, will be LOWERCASE(), TRIM(), REPLACE(" ", "_"), regardles of how you write it, or how they are writen in CSV file.
-### Aggregation column Aliases will be LOWERCASE() regardles of how you write it.
+#### ALL Column names and Dataframe alias names, will be TRIM(), REPLACE(" ", "_")
 
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
@@ -114,8 +113,7 @@ num_ops_res.display().await?;
 ```rust
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
-    .filter("order_date > '2021-07-04'") 
-    //OR USE  .filter_many([("order_date > '2021-07-04'"), ("billable_value > 100.0")])
+    .filter_many([("order_date > '2021-07-04'"), ("billable_value > 100.0")])
     .order_by(["order_date"], [true])
     .limit(10);
 
@@ -137,7 +135,7 @@ let scalar_df = sales_order_df
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
 ```
-### AGGREGATE functions with nested Scalaar functions and oper
+### AGGREGATE functions with nested Scalar functions 
 ```rust
 let scalar_df = sales_order_df.clone()
     .select([
@@ -159,7 +157,7 @@ let scalar_df = sales_order_df.clone()
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
 ```
-### MIX of NUmerical Operators, Scalar Functions, Aggregated Functions...
+### MIX of Nmmerical Operators, Scalar Functions, Aggregated Functions...
 ```rust
 let mix_query = sales_order_df
     .select([
