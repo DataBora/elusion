@@ -1,3 +1,9 @@
+## [0.5.3] - 2025-01-09
+### Fixed
+- Multiple nested functions in SELECT()
+### Added
+- group_by_all() function that Takes all non-aggregated columns from SELECT
+
 ## [0.5.2] - 2025-01-10
 ### Added
 - `String Functions` that can be applied on string columns
