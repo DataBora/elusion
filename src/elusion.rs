@@ -98,7 +98,7 @@ pub struct CustomDataFrame {
     table_alias: String,
     from_table: String,
     selected_columns: Vec<String>,
-    pub alias_map: Vec<(String, String)>, 
+    pub alias_map: Vec<(String, String)>,
     aggregations: Vec<String>,
     group_by_columns: Vec<String>,
     where_conditions: Vec<String>,
@@ -642,7 +642,8 @@ fn normalize_column_name(name: &str) -> String {
 }
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.
 fn normalize_alias(alias: &str) -> String {
-    alias.trim().to_lowercase()
+    // alias.trim().to_lowercase()
+    format!("\"{}\"", alias.trim().to_lowercase())
 }
 
 /// Normalizes a condition string by properly quoting table aliases and column names.
@@ -657,16 +658,54 @@ fn normalize_condition(condition: &str) -> String {
 /// Example:
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
 fn normalize_expression(expression: &str) -> String {
-    // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
-    let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-    re.replace_all(expression.trim(), "\"$1\".\"$2\"").to_string()
+    // Split the expression on AS to separate the main expression and the alias
+    let parts: Vec<&str> = expression.splitn(2, " AS ").collect();
+    if parts.len() == 2 {
+        let expr_part = parts[0].trim();
+        let alias_part = parts[1].trim();
+
+        // Regex to identify table aliases and column names (e.g., sales.billable_value)
+        let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+
+        // Replace alias.column with "alias"."column"
+        let normalized_expr = re.replace_all(expr_part, "\"$1\".\"$2\"").to_string();
+
+        // Quote the alias
+        let normalized_alias = format!("\"{}\"", alias_part.replace(" ", "_"));
+
+        format!("{} AS {}", normalized_expr, normalized_alias)
+    } else {
+        // No alias present; just normalize the expression
+        let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+        re.replace_all(expression.trim(), "\"$1\".\"$2\"").to_string()
+    }
 }
 
 /// Helper function to determine if a string is an expression.
 fn is_expression(s: &str) -> bool {
-    // Simple heuristic: if it contains '(', it's likely an expression
-    s.contains('(') && s.contains(')')
+    // Check for presence of arithmetic operators or function-like patterns
+    let operators = ['+', '-', '*', '/', '%'];
+    let has_operator = s.chars().any(|c| operators.contains(&c));
+    let has_function = Regex::new(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\(").unwrap().is_match(s);
+    has_operator || has_function
 }
+
+/// Helper function to determine if an expression is an aggregate.
+fn is_aggregate_expression(expr: &str) -> bool {
+    let aggregate_functions = [
+    //agg funcs
+    "SUM", "AVG", "MAX", "MIN", "MEAN", "MEDIAN","COUNT", "LAST_VALUE", "FIRST_VALUE",  
+    "GROUPING", "STRING_AGG", "ARRAY_AGG","VAR", "VAR_POP", "VAR_POPULATION", "VAR_SAMP", "VAR_SAMPLE",  
+    "BIT_AND", "BIT_OR", "BIT_XOR", "BOOL_AND", "BOOL_OR",
+    
+    "ABS", "FLOOR", "CEIL", "SQRT", "ISNAN", "ISZERO",  "PI", "POW", "POWER", "RADIANS", "RANDOM", "ROUND",  
+   "FACTORIAL", "ACOS", "ACOSH", "ASIN", "ASINH",  "COS", "COSH", "COT", "DEGREES", "EXP","SIN", "SINH", "TAN", "TANH", "TRUNC", "CBRT", "ATAN", "ATAN2", "ATANH", "GCD", "LCM", "LN",  "LOG", "LOG10", "LOG2", "NANVL", "SIGNUM"
+   ];
+   //scalar funcs
+   aggregate_functions.iter().any(|&func| expr.to_uppercase().starts_with(func))
+ 
+}
+
 
 /// window functions normalization
 fn normalize_window_function(expression: &str) -> String {
@@ -693,7 +732,8 @@ fn normalize_window_function(expression: &str) -> String {
 
     // Normalize the OVER clause
     let over_part = parts[1].trim();
-    let re_cols = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    // let re_cols = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    let re_cols = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
     let normalized_over = re_cols.replace_all(over_part, "\"$1\".\"$2\"").to_string();
 
     format!("{} OVER {}", normalized_function, normalized_over)
@@ -1243,55 +1283,7 @@ impl CustomDataFrame {
         self
     }
 
-    /// Add aggregations to the SELECT clause using const generics.
-    /// Allows passing arrays like ["SUM(s.OrderQuantity) AS total_quantity", "AVG(s.OrderQuantity) AS avg_quantity"]
-    pub fn agg<const N: usize>(self, aggregations: [&str; N]) -> Self {
-        self.agg_vec(aggregations.iter().map(|s| normalize_expression(s)).collect())
-    }
-
-    /// Add aggregations to the SELECT clause using a Vec<String>
-    pub fn agg_vec(mut self, aggregations: Vec<String>) -> Self {
-        self.aggregations.extend(aggregations);
-        self
-    }
-
-    /// SELECT clause using const generics
-    pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
-        self.select_vec(columns.to_vec())
-    }
-
-    /// Add selected columns to the SELECT clause using a Vec<&str>
-    pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
-        // Extract aggregate aliases to exclude them from selected_columns
-        let aggregate_aliases: Vec<String> = self.aggregations.iter()
-            .filter_map(|agg| {
-                agg.split(" AS ")
-                    .nth(1)
-                    .map(|alias| normalize_alias(alias))
-            })
-            .collect();
-
-        // self.selected_columns = columns.into_iter()
-        //     .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-        //     .map(|s| normalize_column_name(s))
-        //     .collect();
-
-        self.selected_columns = columns.into_iter()
-        .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-        .map(|s| {
-            if is_expression(s) {
-                normalize_expression(s)
-            } else {
-                normalize_column_name(s)
-            }
-        })
-        .collect();
-
-        self
-    }
-
     
-
     /// GROUP BY clause using const generics
     pub fn group_by<const N: usize>(self, group_columns: [&str; N]) -> Self {
         self.group_by_vec(group_columns.to_vec())
@@ -1300,7 +1292,16 @@ impl CustomDataFrame {
     /// Add GROUP BY columns using a Vec<&str>
     pub fn group_by_vec(mut self, columns: Vec<&str>) -> Self {
         self.group_by_columns = columns.into_iter()
-            .map(|s| normalize_column_name(s))
+            .map(|s| {
+                if is_expression(s) {
+                    s.split(" AS ")
+                        .next()
+                        .map(|expr| expr.to_string())
+                        .unwrap_or_else(|| s.to_string())
+                } else {
+                    normalize_column_name(s)
+                }
+            })
             .collect();
         self
     }
@@ -1455,49 +1456,148 @@ impl CustomDataFrame {
         self
     }
 
+    /// Add aggregations to the SELECT clause using const generics.
+    /// Ensures that only valid aggregate expressions are included.
+    pub fn agg<const N: usize>(self, aggregations: [&str; N]) -> Self {
+        self.agg_vec(
+            aggregations.iter()
+                .filter(|&expr| is_aggregate_expression(expr))
+                .map(|s| normalize_expression(s))
+                .collect()
+        )
+    }
+
+    /// Add aggregations to the SELECT clause using a Vec<String>
+    /// Ensures that only valid aggregate expressions are included.
+    pub fn agg_vec(mut self, aggregations: Vec<String>) -> Self {
+        let valid_aggs = aggregations.into_iter()
+            .filter(|expr| is_aggregate_expression(expr))
+            .collect::<Vec<_>>();
+
+        self.aggregations.extend(valid_aggs);
+        self
+    }
+
+    // ///Scalar method for using scalar functions
+    // /// pub fn scalar<const N: usize>(mut self, scalar_functions: [&str; N]) -> Self {
+    // pub fn scalar<const N: usize>(mut self, scalar_functions: [&str; N]) -> Self {
+    //     self.scalar_functions = scalar_functions.iter()
+    //         .map(|s| normalize_expression(s))
+    //         .collect();
+    //     self
+    // }
+
+     /// SELECT clause using const generics
+     pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
+        self.select_vec(columns.to_vec())
+    }
+
+    /// Add selected columns to the SELECT clause using a Vec<&str>
+    pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
+        if !self.group_by_columns.is_empty() {
+            
+            let mut valid_selects = Vec::new();
+
+            for col in columns {
+                if is_expression(col) {
+                    if is_aggregate_expression(col) {
+                        valid_selects.push(normalize_expression(col));
+                    } else {
+                        // Expression is not an aggregate; cannot include without aggregation
+                        eprintln!(
+                            "Warning: Expression '{}' is not an aggregate and will be excluded from SELECT clause when GROUP BY is used.",
+                            col
+                        );
+                        // Optionally, you can choose to panic or return an error here
+                    }
+                } else {
+                    // Simple column
+                    let normalized_col = normalize_column_name(col);
+                    if self.group_by_columns.contains(&normalized_col) {
+                        valid_selects.push(normalized_col);
+                    } else {    
+                        eprintln!(
+                            "Warning: Column '{}' is not in GROUP BY and will be excluded from SELECT clause.",
+                            col
+                        );
+                        // Optionally, you can choose to panic or return an error here
+                    }
+                }
+            }
+            self.selected_columns = valid_selects;
+        } else {
+            // Existing behavior when GROUP BY is not used
+            // Extract aggregate aliases to exclude them from selected_columns
+            let aggregate_aliases: Vec<String> = self.aggregations.iter()
+                .filter_map(|agg| {
+                    agg.split(" AS ")
+                        .nth(1)
+                        .map(|alias| normalize_alias(alias))
+                })
+                .collect();
+    
+            self.selected_columns = columns.into_iter()
+                .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+                .map(|s| {
+                    if is_expression(s) {
+                        normalize_expression(s)
+                    } else {
+                        normalize_column_name(s)
+                    }
+                })
+                .collect();
+        }
+    
+        self
+    }
+
     /// Construct the SQL query based on the current state, including joins
     fn construct_sql(&self) -> String {
         let mut query = String::new();
-
+     
         // WITH clause for CTEs
         if !self.ctes.is_empty() {
             query.push_str("WITH ");
             query.push_str(&self.ctes.join(", "));
             query.push_str(" ");
         }
-
-        // SELECT clause - combine aggregations, window functions, and selected columns
-        if !self.selected_columns.is_empty() || !self.aggregations.is_empty() || !self.window_functions.is_empty() {
-            query.push_str("SELECT ");
-            let mut select_parts = Vec::new();
-    
-            // Add aggregations
-            for agg in &self.aggregations {
-                select_parts.push(agg.clone());
-            }
-    
-            // Add selected columns
+     
+        // SELECT clause
+        query.push_str("SELECT ");
+        let mut select_parts = Vec::new();
+     
+        if !self.group_by_columns.is_empty() {
+            // Add aggregations first
+            select_parts.extend(self.aggregations.clone());
+            
+            // Add GROUP BY columns and selected columns
             for col in &self.selected_columns {
-                select_parts.push(col.clone());
+                if !select_parts.contains(col) {
+                    select_parts.push(col.clone());
+                }
             }
-    
-            // Add window functions directly in the SELECT clause
-            for window_fn in &self.window_functions {
-                select_parts.push(window_fn.clone());
-            }
-    
-            query.push_str(&select_parts.join(", "));
         } else {
-            query.push_str("SELECT *");
+            // No GROUP BY - add all parts
+            select_parts.extend(self.aggregations.clone());
+            select_parts.extend(self.selected_columns.clone());
         }
-    
+     
+        // Add window functions last
+        select_parts.extend(self.window_functions.clone());
+     
+        if select_parts.is_empty() {
+            query.push_str("*");
+        } else {
+            query.push_str(&select_parts.join(", "));
+        }
+     
         // FROM clause
         query.push_str(&format!(
             " FROM \"{}\" AS {}",
             self.from_table.trim(),
             self.table_alias
         ));
-
+     
         // Joins
         for join in &self.joins {
             query.push_str(&format!(
@@ -1508,25 +1608,25 @@ impl CustomDataFrame {
                 join.condition
             ));
         }
-
+     
         // WHERE clause
         if !self.where_conditions.is_empty() {
             query.push_str(" WHERE ");
             query.push_str(&self.where_conditions.join(" AND "));
         }
-
+     
         // GROUP BY clause
         if !self.group_by_columns.is_empty() {
             query.push_str(" GROUP BY ");
             query.push_str(&self.group_by_columns.join(", "));
         }
-
+     
         // HAVING clause
         if !self.having_conditions.is_empty() {
             query.push_str(" HAVING ");
             query.push_str(&self.having_conditions.join(" AND "));
         }
-
+     
         // ORDER BY clause
         if !self.order_by_columns.is_empty() {
             query.push_str(" ORDER BY ");
@@ -1535,15 +1635,14 @@ impl CustomDataFrame {
                 .collect();
             query.push_str(&orderings.join(", "));
         }
-
+     
         // LIMIT clause
         if let Some(limit) = self.limit_count {
             query.push_str(&format!(" LIMIT {}", limit));
         }
-
+     
         query
-    }
-    
+     }
 
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {

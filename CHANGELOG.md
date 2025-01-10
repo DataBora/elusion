@@ -1,3 +1,7 @@
+## [0.5.1] - 2025-01-09
+### Fixed
+- Scalar and Aggregation function parsing, for single and nested functions
+
 ## [0.5.0] - 2025-01-07
 ### BREAKING CHANGE
 - Removed AggegationBuilder now we can use agg() for aggregations
