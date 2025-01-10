@@ -12,11 +12,11 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 
 ### 🚀 High-Performance DataFrame Operations
 - Load and process data from CSV, PARQUET, JSON, DELTA table files with ease.
-- Perform SQL-like transformations such as `SELECT`, `WHERE`, `GROUP BY`, and `JOIN`.
+- Perform SQL-like transformations such as `SELECT`, `AGG`, `JOIN` `FILTER`, `GROUP BY`, and `WINDOW`.
 
 ### 📊 Aggregations and Analytics
-- Built-in support for functions like `SUM`, `AVG`, `MIN`, `MAX`, `COUNT`, and more.
-- Advanced statistical functions like `CORR`, `STDDEV`, `VAR_POP`, `ApproxPercentile` and more.
+- Built-in support for Aggregated functions like `SUM`, `AVG`, `MEAN`, `MEDIAN`, `MIN`, `COUNT`, `MAX` and more.
+- Advanced Scalar Math functions like `ABS`, `FLOOR`, `CEIL`, `SQRT`, `ISNAN`, `ISZERO`, `PI`, `POWER` and more.
 
 ### 🔗 Flexible Joins
 - Join tables with various join types (`INNER`, `LEFT`, `RIGHT`, `FULL`, etc.).
@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.0"
+elusion = "0.5.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -93,13 +93,123 @@ let df_customers = CustomDataFrame::new(customers_data, "customers").await?;
 let customers_alias = df_customers
     .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
 ```
-### JOIN
-#### currently implemented join types
+### Numerical Operators (supported +, -, * , / , %)
 ```rust
-"INNER", "LEFT", "RIGHT", "FULL", 
-"LEFT SEMI", "RIGHT SEMI", 
-"LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
+let num_ops_sales = sales_order_df.clone()
+    .select([
+        "customer_name",
+        "order_date",
+        "billable_value",
+        "billable_value * 2 AS double_billable_value",  // Multiplication
+        "billable_value / 100 AS percentage_billable"  // Division
+    ])
+    .filter("billable_value > 100.0")
+    .order_by(["order_date"], [true])
+    .limit(10);
+
+let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
+num_ops_res.display().await?;
 ```
+### FILTERING
+```rust
+let filter_df = sales_order_df
+    .select(["customer_name", "order_date", "billable_value"])
+    .filter("order_date > '2021-07-04'") 
+    //OR USE  .filter_many([("order_date > '2021-07-04'"), ("billable_value > 100.0")])
+    .order_by(["order_date"], [true])
+    .limit(10);
+
+let filtered = filter_df.elusion("result_sales").await?;
+filtered.display().await?;
+```
+### SCALAR functions
+```rust
+let scalar_df = sales_order_df
+    .select([
+        "customer_name", 
+        "order_date", 
+        "ABS(billable_value) AS abs_billable_value",
+        "SQRT(billable_value) AS SQRT_billable_value"])
+    .filter("billable_value > 100.0")
+    .order_by(["order_date"], [true])
+    .limit(10);
+
+let scalar_res = scalar_df.elusion("scalar_df").await?;
+scalar_res.display().await?;
+```
+### AGGREGATE functions with nested Scalaar functions and oper
+```rust
+let scalar_df = sales_order_df.clone()
+    .select([
+        "customer_name", 
+        "order_date"
+    ])
+    .agg([
+        "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
+        "SUM(billable_value) AS total_billable",
+        "MAX(ABS(billable_value)) AS max_abs_billable",
+        "SUM(billable_value) * 2 AS double_total_billable",      // Operator-based aggregation
+        "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
+    ])
+    .group_by(["customer_name", "order_date"])
+    .filter("billable_value > 100.0")
+    .order_by(["order_date"], [true])
+    .limit(10);
+
+let scalar_res = scalar_df.elusion("scalar_df").await?;
+scalar_res.display().await?;
+```
+### MIX of NUmerical Operators, Scalar Functions, Aggregated Functions...
+```rust
+let mix_query = sales_order_df
+    .select([
+        "customer_name",
+        "order_date",
+        "ABS(billable_value) AS abs_billable_value",
+        "SQRT(billable_value) AS SQRT_billable_value",
+        "billable_value * 2 AS double_billable_value",  // Multiplication
+        "billable_value / 100 AS percentage_billable"  // Division
+    ])
+    .agg([
+        "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
+        "SUM(billable_value) AS total_billable",
+        "MAX(ABS(billable_value)) AS max_abs_billable",
+        "SUM(billable_value) * 2 AS double_total_billable",      // Operator-based aggregation
+        "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
+    ])
+    .filter("billable_value > 50.0")
+    .group_by(["customer_name", "order_date","ABS(billable_value)", "SQRT(billable_value)",
+                "billable_value * 2","billable_value / 100" ])
+    .order_by_many([
+        ("total_billable", false),  // Order by total_billable descending
+        ("max_abs_billable", true), // Then by max_abs_billable ascending
+    ])
+    .limit(5);
+
+let mix_res = mix_query.elusion("scalar_df").await?;
+mix_res.display().await?;
+```
+---
+### Supported Aggregation functions
+```rust
+SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX,  
+LAST_VALUE, FIRST_VALUE,  
+GROUPING, STRING_AGG, ARRAY_AGG, VAR, VAR_POP,  
+VAR_POPULATION, VAR_SAMP, VAR_SAMPLE,  
+BIT_AND, BIT_OR, BIT_XOR, BOOL_AND, BOOL_OR 
+```
+### Supported Scalar Math Functions
+```rust
+ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO,  
+PI, POW, POWER, RADIANS, RANDOM, ROUND,  
+FACTORIAL, ACOS, ACOSH, ASIN, ASINH,  
+COS, COSH, COT, DEGREES, EXP,  
+SIN, SINH, TAN, TANH, TRUNC, CBRT,  
+ATAN, ATAN2, ATANH, GCD, LCM, LN,  
+LOG, LOG10, LOG2, NANVL, SIGNUM
+```
+---
+### JOINs
 #### JOIN example with 2 dataframes
 ```rust
 let single_join = df_sales
@@ -144,16 +254,11 @@ let many_joins = df_sales
 let join_df3 = many_joins.elusion("df_joins").await?;
 join_df3.display().await?;
 ```
-### FILTERING
+#### currently implemented join types
 ```rust
-let filter_df = sales_order_df
-    .select(["customer_name", "order_date", "billable_value"])
-    .filter("order_date > '2021-07-04'") //you can use filter_many() as well
-    .order_by(["order_date"], [true])
-    .limit(10);
-
-let filtered = filter_df.elusion("result_sales").await?;
-filtered.display().await?;
+"INNER", "LEFT", "RIGHT", "FULL", 
+"LEFT SEMI", "RIGHT SEMI", 
+"LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
 ```
 ### WINDOW function
 ```rust

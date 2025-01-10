@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is DataFrame library, built on top of DataFusion SQL engine, for easy usage, with familiar DataFrame syntax like: PySpark, Pandas, Polars. Also RAW SQL usage is FULLY supported!"
