@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.1"
+elusion = "0.5.2"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -208,7 +208,7 @@ LOG, LOG10, LOG2, NANVL, SIGNUM
 ```
 ---
 ### JOINs
-#### JOIN example with 2 dataframes
+#### JOIN example with 2 dataframes, AGGREGATION, GROUP BY
 ```rust
 let single_join = df_sales
     .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
@@ -251,6 +251,51 @@ let many_joins = df_sales
 
 let join_df3 = many_joins.elusion("df_joins").await?;
 join_df3.display().await?;
+```
+### JOIN with 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, SELECT, ORDER BY
+```rust
+let str_func_joins = df_sales
+    .join_many([
+        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
+        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+    ]) 
+    .select([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName",
+    ])
+    .string_functions([
+        "TRIM(c.EmailAddress) AS trimmed_email_address",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+        "LEFT(p.ProductName, 15) AS short_product_name",
+        "RIGHT(p.ProductName, 5) AS end_product_name",
+    ])
+    .agg([
+        "COUNT(p.ProductKey) AS product_count",
+        "SUM(s.OrderQuantity) AS total_order_quantity",
+    ])
+    .group_by([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName",
+        "TRIM(c.EmailAddress)",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName))",
+        "LEFT(p.ProductName, 15)",
+        "RIGHT(p.ProductName, 5)",
+    ])
+    .having_many([("SUM(s.OrderQuantity) > 10"),  ("COUNT(p.ProductKey) >= 1")]) 
+    .order_by_many([
+        ("total_order_quantity", true), 
+        ("p.ProductName", false) 
+    ])
+    .limit(10); 
+
+let join_str_df3 = str_func_joins.elusion("df_joins").await?;
+join_str_df3.display().await?;
 ```
 #### currently implemented join types
 ```rust
