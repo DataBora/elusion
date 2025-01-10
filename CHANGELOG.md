@@ -1,3 +1,7 @@
+## [0.5.2] - 2025-01-10
+### Added
+- `String Functions` that can be applied on string columns
+
 ## [0.5.1] - 2025-01-09
 ### Fixed
 - Scalar and Aggregation function parsing, for single and nested functions
