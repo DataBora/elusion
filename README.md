@@ -297,11 +297,144 @@ let str_func_joins = df_sales
 let join_str_df3 = str_func_joins.elusion("df_joins").await?;
 join_str_df3.display().await?;
 ```
-#### currently implemented join types
+#### Currently implemented join types
 ```rust
 "INNER", "LEFT", "RIGHT", "FULL", 
 "LEFT SEMI", "RIGHT SEMI", 
 "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
+```
+
+### STRING FUNCITONS
+```rust
+let string_functions_df = df_sales
+    .join_many([
+        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
+        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+    ]) 
+    .select([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName"
+    ])
+    .string_functions([
+        // Basic String Functions
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "LTRIM(c.EmailAddress) AS left_trimmed_email",
+        "RTRIM(c.EmailAddress) AS right_trimmed_email",
+        "UPPER(c.FirstName) AS upper_first_name",
+        "LOWER(c.LastName) AS lower_last_name",
+        "LENGTH(c.EmailAddress) AS email_length",
+        "LEFT(p.ProductName, 10) AS product_start",
+        "RIGHT(p.ProductName, 10) AS product_end",
+        "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
+        // Concatenation
+        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
+        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
+        // Position and Search
+        "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
+        "STRPOS(c.EmailAddress, '@') AS email_at_pos",
+        // Replacement and Modification
+        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
+        "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
+        "REPEAT('*', 5) AS stars",
+        "REVERSE(c.FirstName) AS reversed_name",
+        // Padding
+        "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
+        "RPAD(c.FirstName, 20, '.') AS padded_name",
+        // Case Formatting
+        "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
+        // String Extraction
+        "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
+        // Type Conversion
+        "TO_CHAR(s.OrderDate, 'YYYY-MM-DD') AS formatted_date"
+    ])
+    .agg([
+        "COUNT(*) AS total_records",
+        "STRING_AGG(p.ProductName, ', ') AS all_products"
+    ])
+    .filter("c.EmailAddress IS NOT NULL")
+    .group_by([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName",
+        "s.OrderDate",
+        "TRIM(c.EmailAddress)",
+        "LTRIM(c.EmailAddress)",
+        "RTRIM(c.EmailAddress)",
+        "UPPER(c.FirstName)",
+        "LOWER(c.LastName)",
+        "LENGTH(c.EmailAddress)",
+        "LEFT(p.ProductName, 10)",
+        "RIGHT(p.ProductName, 10)",
+        "SUBSTRING(p.ProductName, 1, 5)",
+        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
+        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress)",
+        "POSITION('@' IN c.EmailAddress)",
+        "STRPOS(c.EmailAddress, '@')",
+        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com')",
+        "TRANSLATE(c.FirstName, 'AEIOU', '12345')",
+        "REPEAT('*', 5) AS stars",
+        "REVERSE(c.FirstName)",
+        "LPAD(c.CustomerKey::TEXT, 10, '0')",
+        "RPAD(c.FirstName, 20, '.')",
+        "INITCAP(LOWER(c.FirstName))",
+        "SPLIT_PART(c.EmailAddress, '@', 1)",
+        "TO_CHAR(s.OrderDate, 'YYYY-MM-DD')"
+    ])
+    .having("COUNT(*) > 1")
+    .order_by(["c.CustomerKey"], [true])
+    .limit(10);   
+
+let str_df = string_functions_df.elusion("df_joins").await?;
+str_df.display().await?;    
+```
+#### Currently Available String functions
+```rust
+1.Basic String Functions:
+TRIM() - Remove leading/trailing spaces
+LTRIM() - Remove leading spaces
+RTRIM() - Remove trailing spaces
+UPPER() - Convert to uppercase
+LOWER() - Convert to lowercase
+LENGTH() or LEN() - Get string length
+LEFT() - Extract leftmost characters
+RIGHT() - Extract rightmost characters
+SUBSTRING() - Extract part of string
+2. String concatenation:
+CONCAT() - Concatenate strings
+CONCAT_WS() - Concatenate with separator
+3. String Position and Search:
+POSITION() - Find position of substring
+STRPOS() - Find position of substring
+INSTR() - Find position of substring
+CHARINDEX() - Find position of substring
+LOCATE() - Find position of substring
+4. String Replacement and Modification:
+REPLACE() - Replace all occurrences of substring
+TRANSLATE() - Replace characters
+OVERLAY() - Replace portion of string
+REPEAT() - Repeat string
+REVERSE() - Reverse string characters
+5. String Pattern Matching:
+LIKE() - Pattern matching with wildcards
+REGEXP() or RLIKE() - Pattern matching with regular expressions
+6. String Padding:
+LPAD() - Pad string on left
+RPAD() - Pad string on right
+SPACE() - Generate spaces
+7. String Case Formatting:
+INITCAP() - Capitalize first letter of each word
+8. String Extraction:
+SPLIT_PART() - Split string and get nth part
+SUBSTR() - Get substring
+9. String Type Conversion:
+TO_CHAR() - Convert to string
+CAST() - Type conversion
+CONVERT() - Type conversion
 ```
 ### WINDOW function
 ```rust
