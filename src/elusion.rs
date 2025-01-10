@@ -1193,7 +1193,7 @@ impl CustomDataFrame {
     ///
     /// # Returns
     ///
-    /// * ElusionResult<Self> - A new CustomDataFrame containing the result of the SQL query.
+    /// * `ElusionResult<Self>` - A new CustomDataFrame containing the result of the SQL query.
     // async fn raw_sql(
     //     &self,
     //     sql: &str,
@@ -1305,7 +1305,7 @@ impl CustomDataFrame {
         self.join_many_vec(join_inputs)
     }
 
-    /// Add multiple JOIN clauses using a Vec<Join>
+    /// Add multiple JOIN clauses using a `Vec<Join>`
     pub fn join_many_vec(mut self, joins: Vec<Join>) -> Self {
         self.joins.extend(joins);
         self
