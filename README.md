@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.2"
+elusion = "0.5.3"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -92,6 +92,13 @@ let df_customers = CustomDataFrame::new(customers_data, "customers").await?;
 let customers_alias = df_customers
     .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
 ```
+---
+## Where to use which Functions:
+#### Scalar and Operators -> in SELECT() function
+#### Aggregation Functions -> in AGG() function
+#### String Column Functions -> in STRING_FUNCTIONS() function
+---
+
 ### Numerical Operators (supported +, -, * , / , %)
 ```rust
 let num_ops_sales = sales_order_df.clone()
@@ -127,7 +134,7 @@ let scalar_df = sales_order_df
         "customer_name", 
         "order_date", 
         "ABS(billable_value) AS abs_billable_value",
-        "SQRT(billable_value) AS SQRT_billable_value"])
+        "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value"])
     .filter("billable_value > 100.0")
     .order_by(["order_date"], [true])
     .limit(10);
@@ -157,14 +164,14 @@ let scalar_df = sales_order_df.clone()
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
 ```
-### MIX of Nmmerical Operators, Scalar Functions, Aggregated Functions...
+### Numerical Operators, Scalar Functions, Aggregated Functions...
 ```rust
 let mix_query = sales_order_df
     .select([
         "customer_name",
         "order_date",
         "ABS(billable_value) AS abs_billable_value",
-        "SQRT(billable_value) AS SQRT_billable_value",
+        "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value",
         "billable_value * 2 AS double_billable_value",  // Multiplication
         "billable_value / 100 AS percentage_billable"  // Division
     ])
@@ -176,7 +183,7 @@ let mix_query = sales_order_df
         "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
     ])
     .filter("billable_value > 50.0")
-    .group_by(["customer_name", "order_date","ABS(billable_value)", "SQRT(billable_value)",
+    .group_by(["customer_name", "order_date","ABS(billable_value)", "ROUND(SQRT(billable_value), 2)",
                 "billable_value * 2","billable_value / 100" ])
     .order_by_many([
         ("total_billable", false),  // Order by total_billable descending
@@ -276,17 +283,7 @@ let str_func_joins = df_sales
         "COUNT(p.ProductKey) AS product_count",
         "SUM(s.OrderQuantity) AS total_order_quantity",
     ])
-    .group_by([
-        "c.CustomerKey",
-        "c.FirstName",
-        "c.LastName",
-        "c.EmailAddress",
-        "p.ProductName",
-        "TRIM(c.EmailAddress)",
-        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName))",
-        "LEFT(p.ProductName, 15)",
-        "RIGHT(p.ProductName, 5)",
-    ])
+    .group_by_all()
     .having_many([("SUM(s.OrderQuantity) > 10"),  ("COUNT(p.ProductKey) >= 1")]) 
     .order_by_many([
         ("total_order_quantity", true), 
@@ -355,36 +352,7 @@ let string_functions_df = df_sales
         "STRING_AGG(p.ProductName, ', ') AS all_products"
     ])
     .filter("c.EmailAddress IS NOT NULL")
-    .group_by([
-        "c.CustomerKey",
-        "c.FirstName",
-        "c.LastName",
-        "c.EmailAddress",
-        "p.ProductName",
-        "s.OrderDate",
-        "TRIM(c.EmailAddress)",
-        "LTRIM(c.EmailAddress)",
-        "RTRIM(c.EmailAddress)",
-        "UPPER(c.FirstName)",
-        "LOWER(c.LastName)",
-        "LENGTH(c.EmailAddress)",
-        "LEFT(p.ProductName, 10)",
-        "RIGHT(p.ProductName, 10)",
-        "SUBSTRING(p.ProductName, 1, 5)",
-        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
-        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress)",
-        "POSITION('@' IN c.EmailAddress)",
-        "STRPOS(c.EmailAddress, '@')",
-        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com')",
-        "TRANSLATE(c.FirstName, 'AEIOU', '12345')",
-        "REPEAT('*', 5) AS stars",
-        "REVERSE(c.FirstName)",
-        "LPAD(c.CustomerKey::TEXT, 10, '0')",
-        "RPAD(c.FirstName, 20, '.')",
-        "INITCAP(LOWER(c.FirstName))",
-        "SPLIT_PART(c.EmailAddress, '@', 1)",
-        "TO_CHAR(s.OrderDate, 'YYYY-MM-DD')"
-    ])
+    .group_by_all()
     .having("COUNT(*) > 1")
     .order_by(["c.CustomerKey"], [true])
     .limit(10);   
@@ -411,7 +379,6 @@ CONCAT_WS() - Concatenate with separator
 POSITION() - Find position of substring
 STRPOS() - Find position of substring
 INSTR() - Find position of substring
-CHARINDEX() - Find position of substring
 LOCATE() - Find position of substring
 4. String Replacement and Modification:
 REPLACE() - Replace all occurrences of substring
@@ -457,7 +424,7 @@ let window_query = df_sales
 let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;
 ```
-# JSON files
+## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
 ```rust
