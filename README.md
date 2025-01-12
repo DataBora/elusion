@@ -424,7 +424,7 @@ let window_query = df_sales
 let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;
 ```
-### UNION and UNION ALL
+## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
 #### UNION: ALL Combines rows from both, keeping duplicates
 #### EXCEPT: Difference of two sets (only rows in left minus those in right).
