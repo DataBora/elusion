@@ -1699,6 +1699,158 @@ impl CustomDataFrame {
     }
 
 
+    /// Perform an INTERSECT between two CustomDataFrames.
+    /// This returns rows common to *both* dataframes (removes duplicates).
+    pub fn intersect(mut self, other: CustomDataFrame) -> Self {
+        // Ensure both DataFrames have the same number of columns
+        if self.selected_columns.len() != other.selected_columns.len() {
+            panic!(
+                "Number of columns must match for INTERSECT. \
+                First DataFrame has {} columns, second has {} columns",
+                self.selected_columns.len(),
+                other.selected_columns.len()
+            );
+        }
+
+        // Ensure both DataFrames have the same *column names*
+        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
+            if normalize_column_name(self_col) != normalize_column_name(other_col) {
+                panic!(
+                    "Column names must match for INTERSECT: {} vs {}",
+                    self_col, other_col
+                );
+            }
+        }
+
+        // Merge the joined tables from both DataFrames
+        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
+            .chain(other.joins.iter())
+            .map(|join| (
+                join.dataframe.table_alias.clone(),
+                join.dataframe.df.clone(),
+                join.dataframe.from_table.clone()
+            ))
+            .collect();
+
+        // Construct sub-queries without the final alias
+        let self_query = self.construct_sql()
+            .trim_end_matches(&format!(" AS {}", self.table_alias))
+            .to_string();
+        let other_query = other.construct_sql()
+            .trim_end_matches(&format!(" AS {}", other.table_alias))
+            .to_string();
+
+        // Wrap each SELECT query in parentheses
+        let wrapped_self_query = format!("({})", self_query);
+        let wrapped_other_query = format!("({})", other_query);
+
+        // Use INTERSECT instead of UNION
+        let intersect_query = format!(
+            "{} INTERSECT {}",
+            wrapped_self_query,
+            wrapped_other_query
+        );
+
+        // Wrap the entire INTERSECT statement in parentheses
+        let intersect_subquery = format!("({})", intersect_query);
+
+        // Update self to point to this new sub-query
+        self.from_table = intersect_subquery;
+        self.union_tables = Some(joined_tables);
+
+        // Reset these fields, because they are now part of the sub-query
+        self.selected_columns.clear();
+        self.aggregations.clear();
+        self.group_by_columns.clear();
+        self.where_conditions.clear();
+        self.having_conditions.clear();
+        self.order_by_columns.clear();
+        self.limit_count = None;
+        self.joins.clear();
+        self.window_functions.clear();
+        self.ctes.clear();
+        self.set_operations.clear();
+        self.subquery_source = Some(intersect_query.clone());
+
+        self
+    }
+
+    /// Perform an EXCEPT between two CustomDataFrames.
+    /// This returns rows in the *left* DataFrame that are *not* in the right DataFrame.
+    pub fn except(mut self, other: CustomDataFrame) -> Self {
+        // Ensure both DataFrames have the same number of columns
+        if self.selected_columns.len() != other.selected_columns.len() {
+            panic!(
+                "Number of columns must match for EXCEPT. \
+                First DataFrame has {} columns, second has {} columns",
+                self.selected_columns.len(),
+                other.selected_columns.len()
+            );
+        }
+
+        // Ensure both DataFrames have the same *column names*
+        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
+            if normalize_column_name(self_col) != normalize_column_name(other_col) {
+                panic!(
+                    "Column names must match for EXCEPT: {} vs {}",
+                    self_col, other_col
+                );
+            }
+        }
+
+        // Merge the joined tables from both DataFrames
+        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
+            .chain(other.joins.iter())
+            .map(|join| (
+                join.dataframe.table_alias.clone(),
+                join.dataframe.df.clone(),
+                join.dataframe.from_table.clone()
+            ))
+            .collect();
+
+        // Construct sub-queries without the final alias
+        let self_query = self.construct_sql()
+            .trim_end_matches(&format!(" AS {}", self.table_alias))
+            .to_string();
+        let other_query = other.construct_sql()
+            .trim_end_matches(&format!(" AS {}", other.table_alias))
+            .to_string();
+
+        // Wrap each SELECT query in parentheses
+        let wrapped_self_query = format!("({})", self_query);
+        let wrapped_other_query = format!("({})", other_query);
+
+        // Use EXCEPT
+        let except_query = format!(
+            "{} EXCEPT {}",
+            wrapped_self_query,
+            wrapped_other_query
+        );
+
+        // Wrap the entire EXCEPT statement in parentheses
+        let except_subquery = format!("({})", except_query);
+
+        // Update self to point to this new sub-query
+        self.from_table = except_subquery;
+        self.union_tables = Some(joined_tables);
+
+        // Reset the relevant fields
+        self.selected_columns.clear();
+        self.aggregations.clear();
+        self.group_by_columns.clear();
+        self.where_conditions.clear();
+        self.having_conditions.clear();
+        self.order_by_columns.clear();
+        self.limit_count = None;
+        self.joins.clear();
+        self.window_functions.clear();
+        self.ctes.clear();
+        self.set_operations.clear();
+        self.subquery_source = Some(except_query.clone());
+
+        self
+    }
+
      /// SELECT clause using const generics
      pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
         self.select_vec(columns.to_vec())

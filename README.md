@@ -12,7 +12,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 
 ### 🚀 High-Performance DataFrame Operations
 - Load and process data from CSV, PARQUET, JSON, DELTA table files with ease.
-- Perform SQL-like transformations such as `SELECT`, `AGG`, `JOIN` `FILTER`, `GROUP BY`, and `WINDOW`.
+- Perform SQL-like transformations such as `SELECT`, `AGG`, `STRING FUNCTIONS`, `JOIN` `FILTER`, `GROUP BY`, and `WINDOW`.
 
 ### 📊 Aggregations and Analytics
 - Built-in support for Aggregated functions like `SUM`, `AVG`, `MEAN`, `MEDIAN`, `MIN`, `COUNT`, `MAX` and more.
@@ -27,7 +27,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 
 ### 🧹 Clean Query Construction
 - Construct readable and reusable SQL queries.
-- Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `INTERSECT`, `EXCEPT`).
+- Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `UNION ALL`,`INTERSECT`, `EXCEPT`).
 
 ### 🛠️ Easy-to-Use API
 - Chainable and intuitive API for building queries.
@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.4"
+elusion = "0.5.5"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -425,7 +425,10 @@ let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;
 ```
 ### UNION and UNION ALL
-#### UNION removes duplicates, UNION ALL keeps all the rows
+#### UNION: Combines rows from both, removing duplicates
+#### UNION: ALL Combines rows from both, keeping duplicates
+#### EXCEPT: Difference of two sets (only rows in left minus those in right).
+#### INTERSECT: Intersection of two sets (only rows in both).
 ```rust
 //UNION
 let df1 = df_sales
@@ -456,8 +459,11 @@ let union_df_final = union_df.elusion("union_df").await?;
 union_df_final.display().await?;
 
 //UNION ALL
-//Just replace union() with union_all()
-let un_df = df1.union_all(df2);
+let union_all_df = df1.union_all(df2);
+//EXCEPT
+let except_df = df1.except(df2);
+//INTERSECT
+let intersect_df = df1.intersect(df2);
 ```
 
 ## JSON files

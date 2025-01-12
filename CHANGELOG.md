@@ -1,3 +1,7 @@
+## [0.5.5] - 2025-01-12
+### Added
+- except() and intersect()
+
 ## [0.5.4] - 2025-01-12
 ### Added
 - union() and union_all()
