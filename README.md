@@ -428,9 +428,9 @@ window_df.display().await?;
 #### UNION removes duplicates, UNION ALL keeps all the rows
 ```rust
 //UNION
-let df1 = df_sales.clone()
+let df1 = df_sales
     .join(
-        df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER",
+        df_customers, "s.CustomerKey = c.CustomerKey", "INNER",
     )
     .select(["c.FirstName", "c.LastName"])
     .string_functions([
@@ -439,9 +439,9 @@ let df1 = df_sales.clone()
     ])
     .limit(5);
 
-let df2 = df_sales.clone()
+let df2 = df_sales
     .join(
-        df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER",
+        df_customers, "s.CustomerKey = c.CustomerKey", "INNER",
     )
     .select(["c.FirstName", "c.LastName"])
     .string_functions([
