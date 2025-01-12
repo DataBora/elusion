@@ -740,35 +740,81 @@ fn is_aggregate_expression(expr: &str) -> bool {
 
 /// window functions normalization
 fn normalize_window_function(expression: &str) -> String {
-    // Split into parts: function part and OVER part
-    let parts: Vec<&str> = expression.split(" OVER ").collect();
+    // 1) Split into "<function_part> OVER <over_part>"
+    let parts: Vec<&str> = expression.splitn(2, " OVER ").collect();
     if parts.len() != 2 {
+        // No "OVER"? Just return as-is.
         return expression.to_string();
     }
 
-    // Normalize the function part (before OVER)
     let function_part = parts[0].trim();
-    let normalized_function = if function_part.contains("(") {
-        // If it's an aggregation function, normalize the column reference inside it
-        let re = Regex::new(r"(\w+)\(([\w.]+)\)").unwrap();
-        re.replace(function_part, |caps: &regex::Captures| {
-            let func_name = &caps[1];
-            let column_ref = normalize_column_name(&caps[2]);
-            format!("{}({})", func_name, column_ref)
-        }).to_string()
+    let over_part = parts[1].trim();
+
+    //  regex to capture:
+    //    - The function name (one or more word chars)
+    //    - The entire parenthesized argument list (anything until the final closing parenthesis).
+    //      ^(\w+)\(     : start, capture function name, then an open parenthesis
+    //      (.*)         : capture everything, including commas, until the last close parenthesis
+    //      \)$          : a close parenthesis at the end of string
+    let func_regex = Regex::new(r"^(\w+)\((.*)\)$").unwrap();
+
+    // If there's no parenthesis at all (e.g. "ROW_NUMBER"), we simply skip argument processing
+    let (normalized_function, maybe_args) = if let Some(caps) = func_regex.captures(function_part) {
+        let func_name = &caps[1];
+        let arg_list_str = &caps[2]; // e.g. "s.OrderQuantity, 1, 0"
+
+        // split by commas, trim, and normalize each argument if it's a column reference
+        let raw_args: Vec<&str> = arg_list_str.split(',').map(|s| s.trim()).collect();
+        
+        // We'll transform each argument if it looks like "s.Column"
+        let normalized_args: Vec<String> = raw_args
+            .iter()
+            .map(|arg| normalize_function_arg(arg))
+            .collect();
+
+        (func_name.to_string(), Some(normalized_args))
     } else {
-        // If it's a window function without arguments (like ROW_NUMBER)
-        function_part.to_string()
+        // no parentheses matched → maybe "ROW_NUMBER()" or "ROW_NUMBER" or "DENSE_RANK()"
+        // just return the entire function_part as-is (minus trailing "()" if any).
+        (function_part.to_string(), None)
     };
 
-    // Normalize the OVER clause
-    let over_part = parts[1].trim();
-    // let re_cols = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    // rebuild the function call
+    let rebuilt_function = if let Some(args) = maybe_args {
+        // Join normalized arguments with commas
+        format!("{}({})", normalized_function, args.join(", "))
+    } else {
+        // e.g. "ROW_NUMBER()" or "ROW_NUMBER"
+        normalized_function
+    };
+
+    //normalize the OVER(...) clause - convert s.Column to "s"."Column"
     let re_cols = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
     let normalized_over = re_cols.replace_all(over_part, "\"$1\".\"$2\"").to_string();
 
-    format!("{} OVER {}", normalized_function, normalized_over)
+    format!("{} OVER {}", rebuilt_function, normalized_over)
 }
+
+/// Helper: Normalize one argument if it looks like a table.column reference.
+///
+/// Examples:
+/// - "s.OrderQuantity" -> "\"s\".\"OrderQuantity\""
+/// - "1", "0", "4" remain as is
+/// - "some_alias" remains as is, unless you want to wrap it in quotes
+fn normalize_function_arg(arg: &str) -> String {
+    // regex matches `tableAlias.columnName`
+    let re_table_col = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$").unwrap();
+
+    if let Some(caps) = re_table_col.captures(arg) {
+        let table = &caps[1];
+        let col = &caps[2];
+        format!("\"{}\".\"{}\"", table, col)
+    } else {
+        // if it's just a numeric or some other literal, leave it as is
+        arg.to_string()
+    }
+}
+
 // ================= DELTA
   /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
 /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
