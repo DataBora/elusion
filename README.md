@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.5"
+elusion = "0.5.7"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -56,6 +56,7 @@ tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ### MAIN function 
 
 ```rust
+
 use elusion::prelude::*; // Import everything needed
 
 #[tokio::main]
@@ -63,6 +64,7 @@ async fn main() -> ElusionResult<()> {
 
     Ok(())
 }
+
 ```
 ## Schema 
 #### SCHEMA IS AUTOMATICALLY INFERED since v0.2.5
@@ -81,8 +83,8 @@ let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just 
 #### 2 arguments needed:  **Path**, **Table Alias**
 
 ```rust
-let df_sales = CustomDataFrame::new(sales_data, "sales").await?; 
-let df_customers = CustomDataFrame::new(customers_data, "customers").await?;
+let df_sales = CustomDataFrame::new(csv_data, "sales").await?; 
+let df_customers = CustomDataFrame::new(parquet_path, "customers").await?;
 ```
 ## RULE of thumb: 
 #### ALL Column names and Dataframe alias names, will be TRIM(), REPLACE(" ", "_")
@@ -144,7 +146,7 @@ scalar_res.display().await?;
 ```
 ### AGGREGATE functions with nested Scalar functions 
 ```rust
-let scalar_df = sales_order_df.clone()
+let scalar_df = sales_order_df
     .select([
         "customer_name", 
         "order_date"
@@ -183,13 +185,11 @@ let mix_query = sales_order_df
         "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
     ])
     .filter("billable_value > 50.0")
-    .group_by(["customer_name", "order_date","ABS(billable_value)", "ROUND(SQRT(billable_value), 2)",
-                "billable_value * 2","billable_value / 100" ])
+    .group_by_all()
     .order_by_many([
         ("total_billable", false),  // Order by total_billable descending
         ("max_abs_billable", true), // Then by max_abs_billable ascending
-    ])
-    .limit(5);
+    ]);
 
 let mix_res = mix_query.elusion("scalar_df").await?;
 mix_res.display().await?;
@@ -229,8 +229,8 @@ let single_join = df_sales
     .order_by(["total_quantity"], [false]) // true is ascending, false is descending
     .limit(10);
 
-    let join_df1 = single_join.elusion("result_query").await?;
-    join_df1.display().await?;
+let join_df1 = single_join.elusion("result_query").await?;
+join_df1.display().await?;
 ```
 ### JOIN with 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
 ```rust
@@ -288,8 +288,7 @@ let str_func_joins = df_sales
     .order_by_many([
         ("total_order_quantity", true), 
         ("p.ProductName", false) 
-    ])
-    .limit(10); 
+    ]); 
 
 let join_str_df3 = str_func_joins.elusion("df_joins").await?;
 join_str_df3.display().await?;
@@ -354,8 +353,7 @@ let string_functions_df = df_sales
     .filter("c.EmailAddress IS NOT NULL")
     .group_by_all()
     .having("COUNT(*) > 1")
-    .order_by(["c.CustomerKey"], [true])
-    .limit(10);   
+    .order_by(["c.CustomerKey"], [true]);   
 
 let str_df = string_functions_df.elusion("df_joins").await?;
 str_df.display().await?;    
@@ -403,30 +401,52 @@ TO_CHAR() - Convert to string
 CAST() - Type conversion
 CONVERT() - Type conversion
 ```
-### WINDOW function
+### WINDOW functions
+#### Aggregate, Ranking and Analytical functions
 ```rust
-let window_query = df_sales
-    .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
-    .select([
-        "s.OrderDate",
-        "c.FirstName",
-        "c.LastName",
-        "s.OrderQuantity",
-    ])
-    .window(
-        "ROW_NUMBER() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as row_num"
-    )
-    .window(
-        "SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as running_total"
-    )
-    .limit(10);
+let window_query = df_sales.clone()
+    .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
+    .select(["s.OrderDate","c.FirstName","c.LastName","s.OrderQuantity"])
+    //aggregated window functions
+    .window("SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as running_total")
+    .window("AVG(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_avg")
+    .window("MIN(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_min")
+    .window("MAX(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_max")
+    .window("COUNT(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_count")
+    //ranking window functions
+    .window("ROW_NUMBER() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as row_num")
+    .window("DENSE_RANK() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS dense_rnk")
+    .window("PERCENT_RANK() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS pct_rank")
+    .window("CUME_DIST() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS cume_dist")
+    .window("NTILE(4) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS quartile")
+    // analytical window functions
+    .window("FIRST_VALUE(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS first_qty")
+    .window("LAST_VALUE(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS last_qty")
+    .window("LAG(s.OrderQuantity, 1, 0) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS prev_qty")
+    .window("LEAD(s.OrderQuantity, 1, 0) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS next_qty")
+    .window("NTH_VALUE(s.OrderQuantity, 3) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS third_qty")
 
 let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;
 ```
+#### Rolling Window Functions
+```rust
+let rollin_query = df_sales.clone()
+    .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
+    .select(["s.OrderDate", "c.FirstName", "c.LastName", "s.OrderQuantity"])
+        //aggregated rolling windows
+    .window("SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate
+             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total")
+    .window("AVG(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate
+             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS full_partition_avg")
+    .limit(10);
+
+let rollin_df = rollin_query.elusion("rollin_result").await?;
+rollin_df.display().await?;
+```
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
-#### UNION: ALL Combines rows from both, keeping duplicates
+#### UNION ALL: Combines rows from both, keeping duplicates
 #### EXCEPT: Difference of two sets (only rows in left minus those in right).
 #### INTERSECT: Intersection of two sets (only rows in both).
 ```rust
@@ -464,6 +484,7 @@ let union_all_df = df1.union_all(df2);
 let except_df = df1.except(df2);
 //INTERSECT
 let intersect_df = df1.intersect(df2);
+
 ```
 
 ## JSON files
@@ -472,11 +493,11 @@ let intersect_df = df1.intersect(df2);
 ```rust
 // example json structure
 {
-"name": "Adeel Solangi",
-"language": "Sindhi",
-"id": "V59OF92YF627HFY0",
-"bio": "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum.",
-"version": 6.1
+    "name": "Adeel Solangi",
+    "language": "Sindhi",
+    "id": "V59OF92YF627HFY0",
+    "bio": "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum.",
+    "version": 6.1
 }
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
@@ -578,7 +599,7 @@ result_df
     .write_to_delta_table(
         "overwrite",
         "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
-        Some(vec!["order_date".into()]), // optional partitioning, you can use None
+        Some(vec!["order_date".into()]), 
     )
     .await
     .expect("Failed to overwrite Delta table");
@@ -587,7 +608,7 @@ result_df
     .write_to_delta_table(
         "append",
         "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
-        Some(vec!["order_date".into()]),// optional partitioning, you can use None
+        Some(vec!["order_date".into()]),
     )
     .await
     .expect("Failed to append to Delta table");

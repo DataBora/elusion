@@ -1,3 +1,7 @@
+## [0.5.7] - 2025-01-12
+### Fixed
+- Window function to proprely parse multiple arguments within aggregation, analytics and ranking
+
 ## [0.5.5] - 2025-01-12
 ### Added
 - except() and intersect()
