@@ -1,3 +1,7 @@
+## [0.5.4] - 2025-01-12
+### Added
+- union() and union_all()
+
 ## [0.5.3] - 2025-01-09
 ### Fixed
 - Multiple nested functions in SELECT()

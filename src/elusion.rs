@@ -112,6 +112,7 @@ pub struct CustomDataFrame {
     set_operations: Vec<String>,
     pub query: String,
     pub aggregated_df: Option<DataFrame>,
+    union_tables: Option<Vec<(String, DataFrame, String)>>, 
 }
 
 // =================== JSON heler functions
@@ -1271,6 +1272,7 @@ impl CustomDataFrame {
             set_operations: Vec::new(),
             query: String::new(),
             aggregated_df: None,
+            union_tables: None
         })
     }
    
@@ -1481,7 +1483,7 @@ impl CustomDataFrame {
         self.set_operations.push(set_op.to_string());
         self
     }
-
+   
 /// Apply multiple string functions to create new columns in the SELECT clause.
     ///
     /// # Arguments
@@ -1533,6 +1535,166 @@ impl CustomDataFrame {
             .collect::<Vec<_>>();
 
         self.aggregations.extend(valid_aggs);
+        self
+    }
+
+     
+     /// Perform a UNION with another DataFrame
+     pub fn union(mut self, other: CustomDataFrame) -> Self {
+        // Check if number of columns match
+        if self.selected_columns.len() != other.selected_columns.len() {
+            panic!(
+                "Number of columns must match for UNION. First DataFrame has {} columns, second has {} columns",
+                self.selected_columns.len(),
+                other.selected_columns.len()
+            );
+        }
+
+        // Check if column names match
+        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
+            if normalize_column_name(self_col) != normalize_column_name(other_col) {
+                panic!(
+                    "Column names must match for UNION: {} vs {}",
+                    self_col, other_col
+                );
+            }
+        }
+
+      
+         // Store joined tables and their relationships for registration
+        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
+        .chain(other.joins.iter())
+        .map(|join| (
+            join.dataframe.table_alias.clone(), 
+            join.dataframe.df.clone(),
+            join.dataframe.from_table.clone()
+        ))
+        .collect();
+
+        // Remove existing alias from the constructed SQL
+        let self_query = self.construct_sql()
+            .trim_end_matches(&format!(" AS {}", self.table_alias))
+            .to_string();
+        let other_query = other.construct_sql()
+            .trim_end_matches(&format!(" AS {}", other.table_alias))
+            .to_string();
+
+        // Wrap each SELECT in its own parentheses
+        let wrapped_self_query = format!("({})", self_query);
+        let wrapped_other_query = format!("({})", other_query);
+
+        // Construct the UNION subquery
+        let union_query = format!(
+            "{} UNION {}",
+            wrapped_self_query,
+            wrapped_other_query
+        );
+
+        // Wrap the entire UNION in parentheses
+        let union_subquery = format!("({})", union_query);
+
+        // Update the current DataFrame
+        self.from_table = union_subquery;
+
+        // Store tables and joins state
+        self.union_tables = Some(joined_tables);
+        self.joins = self.joins;  // Keep original joins
+
+                
+        // Reset clauses as they are now part of the subquery
+        self.selected_columns = Vec::new();
+        self.aggregations = Vec::new();
+        self.group_by_columns = Vec::new();
+        self.where_conditions = Vec::new();
+        self.having_conditions = Vec::new();
+        self.order_by_columns = Vec::new();
+        self.limit_count = None;
+        self.joins = Vec::new();
+        self.window_functions = Vec::new();
+        self.ctes = Vec::new();
+        self.set_operations = Vec::new();
+        self.subquery_source = Some(union_query.clone());
+
+        self
+    }
+
+    /// Perform a UNION ALL between two CustomDataFrames.
+    /// Unlike `UNION`, `UNION ALL` does not remove duplicates.
+    pub fn union_all(mut self, other: CustomDataFrame) -> Self {
+        // Ensure both DataFrames have the same number of columns
+        if self.selected_columns.len() != other.selected_columns.len() {
+            panic!(
+                "Number of columns must match for UNION ALL. First DataFrame has {} columns, second has {} columns",
+                self.selected_columns.len(),
+                other.selected_columns.len()
+            );
+        }
+
+        // Ensure both DataFrames have the same *column names*
+        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
+            if normalize_column_name(self_col) != normalize_column_name(other_col) {
+                panic!(
+                    "Column names must match for UNION ALL: {} vs {}",
+                    self_col, other_col
+                );
+            }
+        }
+
+        // Merge the joined tables from both DataFrames.
+        // This is the same logic you have in your existing `union` function.
+        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
+            .chain(other.joins.iter())
+            .map(|join| (
+                join.dataframe.table_alias.clone(), 
+                join.dataframe.df.clone(),
+                join.dataframe.from_table.clone()
+            ))
+            .collect();
+
+        // Construct the sub-queries without the final alias
+        let self_query = self.construct_sql()
+            .trim_end_matches(&format!(" AS {}", self.table_alias))
+            .to_string();
+        let other_query = other.construct_sql()
+            .trim_end_matches(&format!(" AS {}", other.table_alias))
+            .to_string();
+
+        // Wrap each SELECT query in parentheses
+        let wrapped_self_query = format!("({})", self_query);
+        let wrapped_other_query = format!("({})", other_query);
+
+        // Replace `UNION` with `UNION ALL`
+        let union_all_query = format!(
+            "{} UNION ALL {}",
+            wrapped_self_query,
+            wrapped_other_query
+        );
+
+        // Wrap the entire UNION ALL statement in parentheses
+        let union_subquery = format!("({})", union_all_query);
+
+        // Update self to point to this new sub-query
+        self.from_table = union_subquery;
+
+        // Store the merged join state for registration in `elusion()`
+        self.union_tables = Some(joined_tables);
+
+        // Reset these fields, just like in your `union` method.
+        // (They are now "baked" into the sub-query, so you don't want
+        // them included in subsequent SQL generation.)
+        self.selected_columns.clear();
+        self.aggregations.clear();
+        self.group_by_columns.clear();
+        self.where_conditions.clear();
+        self.having_conditions.clear();
+        self.order_by_columns.clear();
+        self.limit_count = None;
+        self.joins.clear();
+        self.window_functions.clear();
+        self.ctes.clear();
+        self.set_operations.clear();
+        self.subquery_source = Some(union_all_query.clone());
+
         self
     }
 
@@ -1601,112 +1763,147 @@ impl CustomDataFrame {
     /// Construct the SQL query based on the current state, including joins
     fn construct_sql(&self) -> String {
         let mut query = String::new();
-     
+
         // WITH clause for CTEs
         if !self.ctes.is_empty() {
             query.push_str("WITH ");
             query.push_str(&self.ctes.join(", "));
             query.push_str(" ");
         }
-     
-        // SELECT clause
-        query.push_str("SELECT ");
-        let mut select_parts = Vec::new();
-     
-        if !self.group_by_columns.is_empty() {
-            // Add aggregations first
-            select_parts.extend(self.aggregations.clone());
-            
-            // Add GROUP BY columns and selected columns
-            for col in &self.selected_columns {
-                if !select_parts.contains(col) {
-                    select_parts.push(col.clone());
+
+        // Determine if it's a subquery with no selected columns
+        let is_subquery = self.from_table.starts_with('(') && self.from_table.ends_with(')');
+        let no_selected_columns = self.selected_columns.is_empty() && self.aggregations.is_empty() && self.window_functions.is_empty();
+
+        if is_subquery && no_selected_columns {
+            // Return only the subquery without wrapping it in SELECT * FROM
+            query.push_str(&format!("{}", self.from_table));
+        } else {
+            // SELECT clause
+            query.push_str("SELECT ");
+            let mut select_parts = Vec::new();
+
+            if !self.group_by_columns.is_empty() {
+                // Add aggregations first
+                select_parts.extend(self.aggregations.clone());
+
+                // Add GROUP BY columns and selected columns
+                for col in &self.selected_columns {
+                    if !select_parts.contains(col) {
+                        select_parts.push(col.clone());
+                    }
                 }
+            } else {
+                // No GROUP BY - add all parts
+                select_parts.extend(self.aggregations.clone());
+                select_parts.extend(self.selected_columns.clone());
             }
-        } else {
-            // No GROUP BY - add all parts
-            select_parts.extend(self.aggregations.clone());
-            select_parts.extend(self.selected_columns.clone());
+
+            // Add window functions last
+            select_parts.extend(self.window_functions.clone());
+
+            if select_parts.is_empty() {
+                query.push_str("*");
+            } else {
+                query.push_str(&select_parts.join(", "));
+            }
+
+            // FROM clause
+            query.push_str(" FROM ");
+            if is_subquery {
+                // It's a subquery; do not assign alias here
+                query.push_str(&format!("{}", self.from_table));
+            } else {
+                // Regular table; quote as usual
+                query.push_str(&format!(
+                    "\"{}\" AS {}",
+                    self.from_table.trim(),
+                    self.table_alias
+                ));
+            }
+
+            // Joins
+            for join in &self.joins {
+                query.push_str(&format!(
+                    " {} JOIN \"{}\" AS {} ON {}",
+                    join.join_type,
+                    join.dataframe.from_table,
+                    join.dataframe.table_alias,
+                    join.condition
+                ));
+            }
+
+            // WHERE clause
+            if !self.where_conditions.is_empty() {
+                query.push_str(" WHERE ");
+                query.push_str(&self.where_conditions.join(" AND "));
+            }
+
+            // GROUP BY clause
+            if !self.group_by_columns.is_empty() {
+                query.push_str(" GROUP BY ");
+                query.push_str(&self.group_by_columns.join(", "));
+            }
+
+            // HAVING clause
+            if !self.having_conditions.is_empty() {
+                query.push_str(" HAVING ");
+                query.push_str(&self.having_conditions.join(" AND "));
+            }
+
+            // ORDER BY clause
+            if !self.order_by_columns.is_empty() {
+                query.push_str(" ORDER BY ");
+                let orderings: Vec<String> = self.order_by_columns.iter()
+                    .map(|(col, asc)| format!("{} {}", col, if *asc { "ASC" } else { "DESC" }))
+                    .collect();
+                query.push_str(&orderings.join(", "));
+            }
+
+            // LIMIT clause
+            if let Some(limit) = self.limit_count {
+                query.push_str(&format!(" LIMIT {}", limit));
+            }
         }
-     
-        // Add window functions last
-        select_parts.extend(self.window_functions.clone());
-     
-        if select_parts.is_empty() {
-            query.push_str("*");
-        } else {
-            query.push_str(&select_parts.join(", "));
-        }
-     
-        // FROM clause
-        query.push_str(&format!(
-            " FROM \"{}\" AS {}",
-            self.from_table.trim(),
-            self.table_alias
-        ));
-     
-        // Joins
-        for join in &self.joins {
-            query.push_str(&format!(
-                " {} JOIN \"{}\" AS {} ON {}",
-                join.join_type,
-                join.dataframe.from_table,
-                join.dataframe.table_alias,
-                join.condition
-            ));
-        }
-     
-        // WHERE clause
-        if !self.where_conditions.is_empty() {
-            query.push_str(" WHERE ");
-            query.push_str(&self.where_conditions.join(" AND "));
-        }
-     
-        // GROUP BY clause
-        if !self.group_by_columns.is_empty() {
-            query.push_str(" GROUP BY ");
-            query.push_str(&self.group_by_columns.join(", "));
-        }
-     
-        // HAVING clause
-        if !self.having_conditions.is_empty() {
-            query.push_str(" HAVING ");
-            query.push_str(&self.having_conditions.join(" AND "));
-        }
-     
-        // ORDER BY clause
-        if !self.order_by_columns.is_empty() {
-            query.push_str(" ORDER BY ");
-            let orderings: Vec<String> = self.order_by_columns.iter()
-                .map(|(col, asc)| format!("{} {}", col, if *asc { "ASC" } else { "DESC" }))
-                .collect();
-            query.push_str(&orderings.join(", "));
-        }
-     
-        // LIMIT clause
-        if let Some(limit) = self.limit_count {
-            query.push_str(&format!(" LIMIT {}", limit));
-        }
-     
+
         query
-     }
+    }
 
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
 
-        // Register the base table
+        // Always register the base table first
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
-        // Register all joined tables
-        for join in &self.joins {
-            Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
+        // For non-UNION queries, also register joined tables
+        if self.union_tables.is_none() {
+            for join in &self.joins {
+                Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
+            }
         }
 
-        // Construct and log the SQL query
-        let sql = self.construct_sql();
-        // println!("Executing SQL: {}", sql); // Log the SQL being executed
+        // For UNION queries with joins
+        if let Some(tables) = &self.union_tables {
+            for (table_alias, df, _) in tables {
+                // 1) If table_alias is already registered, skip
+                if ctx.table(table_alias).await.is_ok() {
+                    // Already registered, so just skip
+                    continue;
+                }
+                // 2) Otherwise, register the table
+                Self::register_df_as_table(&ctx, table_alias, df).await?;
+            }
+        }
 
+        let sql = if self.from_table.starts_with('(') && self.from_table.ends_with(')') {
+            format!("SELECT * FROM {} AS {}", self.from_table, alias)
+        } else {
+            self.construct_sql()
+        };
+
+        // println!("Constructed SQL:\n{}", sql);
+        
         // Execute the SQL query
         let df = ctx.sql(&sql).await.map_err(|e| {
             ElusionError::Custom(format!(
@@ -1753,6 +1950,7 @@ impl CustomDataFrame {
             set_operations: Vec::new(),
             query: sql,
             aggregated_df: Some(df.clone()),
+             union_tables: None
         })
     }
 

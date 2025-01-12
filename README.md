@@ -43,7 +43,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.3"
+elusion = "0.5.4"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -259,7 +259,7 @@ let many_joins = df_sales
 let join_df3 = many_joins.elusion("df_joins").await?;
 join_df3.display().await?;
 ```
-### JOIN with 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, SELECT, ORDER BY
+### JOIN with 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, ORDER BY
 ```rust
 let str_func_joins = df_sales
     .join_many([
@@ -301,7 +301,7 @@ join_str_df3.display().await?;
 "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
 ```
 
-### STRING FUNCITONS
+### STRING FUNCTIONS
 ```rust
 let string_functions_df = df_sales
     .join_many([
@@ -424,6 +424,42 @@ let window_query = df_sales
 let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;
 ```
+### UNION and UNION ALL
+#### UNION removes duplicates, UNION ALL keeps all the rows
+```rust
+//UNION
+let df1 = df_sales.clone()
+    .join(
+        df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER",
+    )
+    .select(["c.FirstName", "c.LastName"])
+    .string_functions([
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+    ])
+    .limit(5);
+
+let df2 = df_sales.clone()
+    .join(
+        df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER",
+    )
+    .select(["c.FirstName", "c.LastName"])
+    .string_functions([
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+    ])
+    .limit(5);
+
+let union_df = df1.union(df2);
+
+let union_df_final = union_df.elusion("union_df").await?;
+union_df_final.display().await?;
+
+//UNION ALL
+//Just replace union() with union_all()
+let un_df = df1.union_all(df2);
+```
+
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
