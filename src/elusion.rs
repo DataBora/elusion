@@ -51,7 +51,25 @@ use deltalake::storage::object_store::local::LocalFileSystem;
 use std::fmt::{self, Debug};
 use std::error::Error;
 
-// Define your custom error type
+// ============= DATABASE
+// use futures::Future;
+// use datafusion::sql::TableReference;
+// use datafusion_table_providers::postgres::PostgresTableFactory;
+// use datafusion_table_providers::sql::db_connection_pool::postgrespool::PostgresConnectionPool;
+// use datafusion_table_providers::mysql::MySQLTableFactory;
+// use datafusion_table_providers::sql::db_connection_pool::mysqlpool::MySQLConnectionPool;
+// use datafusion_table_providers::odbc::ODBCTableFactory;
+// use datafusion_table_providers::sql::db_connection_pool::odbcpool::ODBCPool;
+// use datafusion_table_providers::util::secrets::to_secret_map;
+// use datafusion_federation;
+// use mongodb::{Client, options::ClientOptions, bson::Document};
+// use futures::stream::TryStreamExt;
+
+// PIVOT
+use arrow::compute;
+use arrow::array::StringArray;
+
+// custom error type
 #[derive(Debug)]
 pub enum ElusionError {
     DataFusion(DataFusionError),
@@ -85,13 +103,264 @@ impl From<std::io::Error> for ElusionError {
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
 
+// Database connectors
+/// A trait for data sources that can register a table in a SessionContext
+// pub trait DataSource {
+//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send;
+// }
+
+// pub struct MongoDbSource {
+//     connection_string: String,
+//     database: String,
+//     collection: String,
+// }
+// impl MongoDbSource {
+//     async fn fetch_documents(&self) -> Result<Vec<Document>, ElusionError> {
+//         let client_options = ClientOptions::parse(&self.connection_string)
+//             .await
+//             .map_err(|e| ElusionError::Custom(format!("MongoDB connection error: {}", e)))?;
+
+//         let client = Client::with_options(client_options)
+//             .map_err(|e| ElusionError::Custom(format!("MongoDB client error: {}", e)))?;
+
+//         let collection = client
+//             .database(&self.database)
+//             .collection::<Document>(&self.collection);
+
+//             let filter = Document::new();
+//             let cursor = collection.find(filter)
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(format!("MongoDB find error: {}", e)))?;
+
+//         cursor.try_collect().await.map_err(|e| ElusionError::Custom(format!("MongoDB cursor error: {}", e)))
+//     }
+// }
+
+
+// impl DataSource for MongoDbSource {
+//     async fn register(&self, _ctx: &SessionContext, alias: &str) -> Result<(), ElusionError> {
+//         println!("Connecting to MongoDB...");
+
+//         // Fetch documents from MongoDB
+//         let documents = self.fetch_documents().await?;
+
+//         println!("Fetched {} documents from MongoDB.", documents.len());
+
+//         // Convert documents to JSON string
+//         let json_string = serde_json::to_string(&documents)
+//             .map_err(|e| ElusionError::Custom(format!("JSON serialization error: {}", e)))?;
+
+//         // Create DataFrame based on the number of documents
+//         if documents.len() > 1 {
+//             println!("Creating DataFrame from multiple documents...");
+//             create_dataframe_from_multiple_json(&json_string, alias).await
+//                 .map_err(|e| ElusionError::Custom(format!("DataFrame creation error: {}", e)))?;
+//         } else {
+//             println!("Creating DataFrame from single document...");
+//             create_dataframe_from_json(&json_string, alias).await
+//                 .map_err(|e| ElusionError::Custom(format!("DataFrame creation error: {}", e)))?;
+//         };
+
+//         println!("Table '{}' registered successfully.", alias);
+//         Ok(())
+//     }
+// }
+
+// /// A struct capturing connection info + table name for Postgres
+// pub struct PostgresSource {
+//     host: String,
+//     user: String,
+//     password: String,
+//     database: String,
+//     port: String,
+//     table_name: String,
+// }
+
+// impl PostgresSource {
+//     pub fn new(
+//         host: &str,
+//         user: &str,
+//         password: &str,
+//         database: &str,
+//         port: &str,
+//         table_name: &str,
+//     ) -> Self {
+//         Self {
+//             host: host.to_owned(),
+//             user: user.to_owned(),
+//             password: password.to_owned(),
+//             database: database.to_owned(),
+//             port: port.to_owned(),
+//             table_name: table_name.to_owned(),
+//         }
+//     }
+// }
+
+// impl DataSource for PostgresSource {
+//     async fn register(&self, ctx: &SessionContext, alias: &str) -> ElusionResult<()> {
+      
+//         let params = to_secret_map(HashMap::from([
+//             ("host".to_owned(), self.host.clone()),
+//             ("user".to_owned(), self.user.clone()),
+//             ("pass".to_owned(), self.password.clone()),
+//             ("db".to_owned(), self.database.clone()),
+//             ("port".to_owned(), self.port.clone()),
+//             ("sslmode".to_owned(), "disable".to_owned()), // or "enable" if needed
+//         ]));
+
+//         let pool = Arc::new(
+//             PostgresConnectionPool::new(params)
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(e.to_string()))?
+//         );
+
+//         let factory = PostgresTableFactory::new(pool);
+
+//         let table_provider = factory
+//             .table_provider(TableReference::partial("public", &*self.table_name))
+//             .await
+//             .map_err(|e| ElusionError::Custom(e.to_string()))?;
+
+//         ctx.register_table(alias, table_provider)
+//             .map_err(ElusionError::DataFusion)?;
+
+//         Ok(())
+//     }
+// }
+
+// /// MySQL Source
+// pub struct MySqlSource {
+//     connection_string: String,
+//     table_name: String,
+//     ssl_mode: String,
+// }
+
+// impl MySqlSource {
+//     pub fn new(connection_string: &str, table_name: &str, ssl_mode: &str) -> Self {
+//         Self {
+//             connection_string: connection_string.to_owned(),
+//             table_name: table_name.to_owned(),
+//             ssl_mode: ssl_mode.to_owned(),
+//         }
+//     }
+
+// }
+
+// impl DataSource for MySqlSource {
+//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send {
+//         async move {
+//             println!("Starting MySQL connection process...");
+            
+//             let params = to_secret_map(HashMap::from([
+//                 ("connection_string".to_owned(), self.connection_string.clone()),
+//                 ("sslmode".to_owned(), self.ssl_mode.clone()),
+//                 // performance parameters
+//                 ("pool_min_idle".to_owned(), "5".to_owned()),  
+//                 ("pool_max_size".to_owned(), "20".to_owned()), 
+//                 ("statement_cache_capacity".to_owned(), "100".to_owned()),
+//                 ("prefer_socket".to_owned(), "true".to_owned()),
+//             ]));
+
+//             println!("Creating MySQL connection pool...");
+//             let pool = match tokio::time::timeout(
+//                 std::time::Duration::from_secs(10), 
+//                 MySQLConnectionPool::new(params)
+//             ).await {
+//                 Ok(pool_result) => {
+//                     match pool_result {
+//                         Ok(pool) => {
+//                             println!("MySQL pool created successfully");
+//                             pool
+//                         },
+//                         Err(e) => {
+//                             println!("Failed to create MySQL pool: {}", e);
+//                             return Err(ElusionError::Custom(format!("MySQL pool creation error: {}", e)));
+//                         }
+//                     }
+//                 },
+//                 Err(_) => {
+//                     println!("MySQL pool creation timed out");
+//                     return Err(ElusionError::Custom("MySQL connection pool creation timed out".to_string()));
+//                 }
+//             };
+
+//             println!("Creating MySQL table factory...");
+//             let pool = Arc::new(pool);
+//             let factory = MySQLTableFactory::new(pool);
+
+//             println!("Creating table provider for table: {}", self.table_name);
+//             let table_provider = factory
+//                 .table_provider(TableReference::bare(&*self.table_name))
+//                 .await
+//                 .map_err(|e| {
+//                     println!("Failed to create table provider: {}", e);
+//                     ElusionError::Custom(format!("Failed to create table provider: {}", e))
+//                 })?;
+
+//             println!("Registering table with alias: {}", alias);
+//             ctx.register_table(alias, table_provider)
+//                 .map_err(|e| {
+//                     println!("Failed to register table: {}", e);
+//                     ElusionError::DataFusion(e)
+//                 })?;
+
+//             println!("MySQL table registration completed successfully");
+//             Ok(())
+//         }
+//     }
+// }
+
+// /// ODBC Source
+// pub struct ODBCSource {
+//     connection_string: String,
+//     table_name: String,
+// }
+
+// impl ODBCSource {
+//     pub fn new(connection_string: &str, table_name: &str) -> Self {
+//         Self {
+//             connection_string: connection_string.to_owned(),
+//             table_name: table_name.to_owned(),
+//         }
+//     }
+// }
+
+// impl DataSource for ODBCSource {
+//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send {
+//         async move {
+//             let params = to_secret_map(HashMap::from([(
+//                 "connection_string".to_owned(),
+//                 self.connection_string.clone(),
+//             )]));
+
+//             let pool = Arc::new(
+//                 ODBCPool::new(params)
+//                     .map_err(|e| ElusionError::Custom(e.to_string()))?
+//             );
+
+//             let factory = ODBCTableFactory::new(pool);
+
+//             let table_provider = factory
+//                 .table_provider(TableReference::bare(&*self.table_name), None)
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(e.to_string()))?;
+
+//             ctx.register_table(alias, table_provider)
+//                 .map_err(ElusionError::DataFusion)?;
+
+//             Ok(())
+//         }
+//     }
+// }
+
+// CustomDataFRame struct
 #[derive(Clone, Debug)]
 pub struct Join {
     dataframe: CustomDataFrame,
     condition: String,
     join_type: String,
 }
-// Define the CustomDataFrame struct
+// CustomDataFrame struct
 #[derive(Clone, Debug)]
 pub struct CustomDataFrame {
     df: DataFrame,
@@ -113,6 +382,7 @@ pub struct CustomDataFrame {
     pub query: String,
     pub aggregated_df: Option<DataFrame>,
     union_tables: Option<Vec<(String, DataFrame, String)>>, 
+    original_expressions: Vec<String>,
 }
 
 // =================== JSON heler functions
@@ -438,7 +708,10 @@ fn read_file_to_string(file_path: &str) -> Result<String, io::Error> {
     Ok(contents)
 }
 /// Creates a DataFusion DataFrame from JSON records.
-async fn create_dataframe_from_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
+async fn create_dataframe_from_json(
+    json_str: &str, 
+    alias: &str
+) -> Result<DataFrame, DataFusionError> {
   
     let generic_json: GenericJson = serde_json::from_str(json_str)
     .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;    
@@ -1211,6 +1484,86 @@ pub struct AliasedDataFrame {
 }
 
 impl CustomDataFrame {
+    
+    // pub async fn from_source<T: DataSource>(source: T, alias: &str) -> ElusionResult<Self> {
+    //     println!("Creating session from state...");
+    //     let ctx = SessionContext::new();
+        
+    //     println!("Registering table source...");
+    //     // Register the table in the context
+    //     source.register(&ctx, alias).await?;
+
+    //     println!("Getting table from context...");
+    //     // Get the registered table as a DataFrame
+    //     let df = ctx.table(alias)
+    //         .await
+    //         .map_err(|e| ElusionError::Custom(e.to_string()))?;
+
+    //         println!("Table successfully registered and retrieved");
+    //     Ok(CustomDataFrame {
+    //         df,
+    //         table_alias: alias.to_string(),
+    //         from_table: alias.to_string(),
+    //         selected_columns: Vec::new(),
+    //         alias_map: Vec::new(),
+    //         aggregations: Vec::new(),
+    //         group_by_columns: Vec::new(),
+    //         where_conditions: Vec::new(),
+    //         having_conditions: Vec::new(),
+    //         order_by_columns: Vec::new(),
+    //         limit_count: None,
+    //         joins: Vec::new(),
+    //         window_functions: Vec::new(),
+    //         ctes: Vec::new(),
+    //         subquery_source: None,
+    //         set_operations: Vec::new(),
+    //         query: String::new(),
+    //         aggregated_df: None,
+    //         union_tables: None
+    //     })
+    // }
+
+    // pub async fn from_source_with_federation<T: DataSource>(source: T, alias: &str) -> ElusionResult<Self> {
+    //     println!("Creating session with federation state...");
+    //     // Create a session with federation optimizer enabled
+    //     let state = datafusion_federation::default_session_state();
+    //     let ctx = SessionContext::new_with_state(state);
+
+    //     println!("Registering table source...");
+    //     // Register the table in the context
+    //     source.register(&ctx, alias).await?;
+        
+    //     println!("Getting table from context...");
+    //     // Get the registered table as a DataFrame
+    //     let df = ctx.table(alias)
+    //         .await
+    //         .map_err(|e| ElusionError::Custom(e.to_string()))?;
+
+    //     println!("Table successfully registered and retrieved");
+    //     Ok(CustomDataFrame {
+    //         df,
+    //         table_alias: alias.to_string(),
+    //         from_table: alias.to_string(),
+    //         selected_columns: Vec::new(),
+    //         alias_map: Vec::new(),
+    //         aggregations: Vec::new(),
+    //         group_by_columns: Vec::new(),
+    //         where_conditions: Vec::new(),
+    //         having_conditions: Vec::new(),
+    //         order_by_columns: Vec::new(),
+    //         limit_count: None,
+    //         joins: Vec::new(),
+    //         window_functions: Vec::new(),
+    //         ctes: Vec::new(),
+    //         subquery_source: None,
+    //         set_operations: Vec::new(),
+    //         query: String::new(),
+    //         aggregated_df: None,
+    //         union_tables: None
+    //     })
+    // }
+
+   
 
      /// Helper function to register a DataFrame as a table provider in the given SessionContext
      async fn register_df_as_table(
@@ -1318,7 +1671,8 @@ impl CustomDataFrame {
             set_operations: Vec::new(),
             query: String::new(),
             aggregated_df: None,
-            union_tables: None
+            union_tables: None,
+            original_expressions: Vec::new(),
         })
     }
    
@@ -1897,6 +2251,307 @@ impl CustomDataFrame {
         self
     }
 
+    /// Pivot the DataFrame
+    /// 
+    /// # Arguments
+    /// * `row_keys` - Columns to use as row identifiers
+    /// * `pivot_column` - Column whose values will become new columns
+    /// * `value_column` - Column whose values will be aggregated
+    /// * `aggregate_func` - Aggregation function to use (e.g., "MAX", "MIN", "SUM", "AVG")
+    pub async fn pivot<const N: usize>(
+        mut self,
+        row_keys: [&str; N],
+        pivot_column: &str,
+        value_column: &str,
+        aggregate_func: &str,
+    ) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // current DataFrame
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        let schema = self.df.schema();
+        // println!("Current DataFrame schema fields: {:?}", 
+        //     schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
+
+        // Find columns in current schema
+        let exact_pivot_column = schema.fields().iter()
+            .find(|f| f.name().to_uppercase() == pivot_column.to_uppercase())
+            .ok_or_else(|| {
+                let available = schema.fields().iter()
+                    .map(|f| f.name())
+                    .collect::<Vec<_>>();
+                ElusionError::Custom(format!(
+                    "Column {} not found in current data. Available columns: {:?}", 
+                    pivot_column, available
+                ))
+            })?
+            .name();
+            
+        let exact_value_column = schema.fields().iter()
+            .find(|f| f.name().to_uppercase() == value_column.to_uppercase())
+            .ok_or_else(|| {
+                let available = schema.fields().iter()
+                    .map(|f| f.name())
+                    .collect::<Vec<_>>();
+                ElusionError::Custom(format!(
+                    "Column {} not found in current data. Available columns: {:?}", 
+                    value_column, available
+                ))
+            })?
+            .name();
+
+        // First, execute query to get distinct values from pivot column
+        // let distinct_query = format!(
+        //     "SELECT DISTINCT \"{}\" \
+        //      FROM \"{}\" AS {} \
+        //      WHERE \"{}\" IS NOT NULL \
+        //      AND \"{}\" IS NOT NULL \
+        //      GROUP BY \"{}\" \
+        //      HAVING {}(\"{}\") > 0", 
+        //     exact_pivot_column,
+        //     self.from_table,
+        //     self.table_alias,
+        //     exact_pivot_column,
+        //     exact_value_column,
+        //     exact_pivot_column,
+        //     aggregate_func,
+        //     exact_value_column
+        // );
+        let distinct_query = format!(
+            "SELECT DISTINCT \"{}\" \
+             FROM \"{}\" AS {} \
+             WHERE \"{}\" IS NOT NULL \
+             AND \"{}\" IS NOT NULL \
+             ORDER BY \"{}\"",
+            exact_pivot_column,
+            self.from_table,
+            self.table_alias,
+            exact_pivot_column,
+            exact_value_column,
+            exact_pivot_column
+        );
+
+        let distinct_df = ctx.sql(&distinct_query).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to execute distinct query: {}", e)))?;
+        
+        let distinct_batches = distinct_df.collect().await
+            .map_err(|e| ElusionError::Custom(format!("Failed to collect distinct values: {}", e)))?;
+
+        // Extract distinct values into a Vec<String>
+        let distinct_values: Vec<String> = distinct_batches
+            .iter()
+            .flat_map(|batch| {
+                let array = batch.column(0);
+                match array.data_type() {
+                    ArrowDataType::Utf8 => {
+                        let string_array = array.as_any().downcast_ref::<StringArray>().unwrap();
+                        (0..batch.num_rows())
+                            .map(|i| string_array.value(i).to_string())
+                            .collect::<Vec<_>>()
+                    },
+                    _ => {
+                        // For non-string types, convert to string representation
+                        let string_array = compute::cast(array, &ArrowDataType::Utf8)
+                            .unwrap();
+                        let string_array = string_array.as_any().downcast_ref::<StringArray>().unwrap();
+                        (0..batch.num_rows())
+                            .map(|i| string_array.value(i).to_string())
+                            .collect::<Vec<_>>()
+                    }
+                }
+            })
+            .collect();
+
+        // Create pivot columns for each distinct value
+        let pivot_cols: Vec<String> = distinct_values
+            .iter()
+            .map(|val| {
+                // Generate pivoted column expression
+                let value_expr = if schema.field_with_name(None, &exact_pivot_column)
+                    .map(|f| matches!(f.data_type(), ArrowDataType::Int32 | ArrowDataType::Int64 | ArrowDataType::Float32 | ArrowDataType::Float64))
+                    .unwrap_or(false) {
+                    // Numeric comparison without quotes
+                    format!(
+                        "COALESCE({}(CASE WHEN \"{}\" = '{}' THEN \"{}\" END), 0)",
+                        aggregate_func,
+                        exact_pivot_column,
+                        val,
+                        exact_value_column
+                    )
+                } else {
+                    // String comparison with quotes
+                    format!(
+                        "COALESCE({}(CASE WHEN \"{}\" = '{}' THEN \"{}\" END), 0)",
+                        aggregate_func,
+                        exact_pivot_column,
+                        val.replace("'", "''"),  // Escape single quotes
+                        exact_value_column
+                    )
+                };
+
+                // Format the full column expression with alias
+                format!(
+                    "{} AS \"{}_{}\"",
+                    value_expr,
+                    exact_pivot_column,
+                    val.replace("\"", "\"\"")  // Escape double quotes in alias
+                )
+            })
+            .collect();
+
+            let row_keys_str = row_keys.iter()
+            .map(|&key| {
+                let exact_key = schema.fields().iter()
+                    .find(|f| f.name().to_uppercase() == key.to_uppercase())
+                    .map_or(key.to_string(), |f| f.name().to_string());
+                format!("\"{}\"", exact_key)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        // Create the final pivot query
+        let pivot_subquery = format!(
+            "(SELECT {}, {} FROM \"{}\" AS {} GROUP BY {})",
+            row_keys_str,
+            pivot_cols.join(", "),
+            self.from_table,
+            self.table_alias,
+            row_keys_str
+        );
+
+        // Update the DataFrame state
+        self.from_table = pivot_subquery;
+        self.selected_columns.clear();
+        self.group_by_columns.clear();
+        
+        // Add row keys to selected columns
+        self.selected_columns.extend(row_keys.iter().map(|&s| s.to_string()));
+        
+        // Add pivot columns to selected columns
+        for val in distinct_values {
+            self.selected_columns.push(
+                format!("{}_{}",
+                    normalize_column_name(pivot_column),
+                    normalize_column_name(&val)
+                )
+            );
+        }
+
+        
+
+        Ok(self)
+    }
+
+    /// Unpivot the DataFrame (melt operation)
+    /// 
+    /// # Arguments
+    /// * `id_columns` - Columns to keep as identifiers
+    /// * `value_columns` - Columns to unpivot into rows
+    /// * `name_column` - Name for the new column that will contain the original column names
+    /// * `value_column` - Name for the new column that will contain the values
+    pub async fn unpivot<const N: usize, const M: usize>(
+        mut self,
+        id_columns: [&str; N],
+        value_columns: [&str; M],
+        name_column: &str,
+        value_column: &str,
+    ) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register the current DataFrame
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+    
+        let schema = self.df.schema();
+        println!("Current DataFrame schema fields: {:?}", 
+            schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
+    
+        // Find exact id columns from schema
+        let exact_id_columns: Vec<String> = id_columns.iter()
+            .map(|&id| {
+                schema.fields().iter()
+                    .find(|f| f.name().to_uppercase() == id.to_uppercase())
+                    .map(|f| f.name().to_string())
+                    .ok_or_else(|| {
+                        let available = schema.fields().iter()
+                            .map(|f| f.name())
+                            .collect::<Vec<_>>();
+                        ElusionError::Custom(format!(
+                            "ID column '{}' not found in current data. Available columns: {:?}",
+                            id, available
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    
+        // Find exact value columns from schema
+        let exact_value_columns: Vec<String> = value_columns.iter()
+            .map(|&val| {
+                schema.fields().iter()
+                    .find(|f| f.name().to_uppercase() == val.to_uppercase())
+                    .map(|f| f.name().to_string())
+                    .ok_or_else(|| {
+                        let available = schema.fields().iter()
+                            .map(|f| f.name())
+                            .collect::<Vec<_>>();
+                        ElusionError::Custom(format!(
+                            "Value column '{}' not found in current data. Available columns: {:?}",
+                            val, available
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    
+        // Create individual SELECT statements for each value column
+        let selects: Vec<String> = exact_value_columns.iter().map(|val_col| {
+            let id_cols_str = exact_id_columns.iter()
+                .map(|id| format!("\"{}\"", id))
+                .collect::<Vec<_>>()
+                .join(", ");
+    
+            // // Use the final part of the value column for the label
+            // let label = if let Some(pos) = val_col.rfind('_') {
+            //     &val_col[pos + 1..]
+            // } else {
+            //     val_col
+            // };
+            
+            format!(
+                "SELECT {}, '{}' AS \"{}\", \"{}\" AS \"{}\" FROM \"{}\" AS {}",
+                id_cols_str,
+                val_col,
+                // label,
+                name_column,
+                val_col,
+                value_column,
+                self.from_table,
+                self.table_alias
+            )
+        }).collect();
+    
+        // Combine all SELECT statements with UNION ALL
+        let unpivot_subquery = format!(
+            "({})",
+            selects.join(" UNION ALL ")
+        );
+    
+        // Update the DataFrame state
+        self.from_table = unpivot_subquery;
+        self.selected_columns.clear();
+        
+        // Add identifier columns with proper quoting
+        self.selected_columns.extend(
+            exact_id_columns.iter()
+                .map(|id| format!("\"{}\"", id))
+        );
+        self.selected_columns.push(format!("\"{}\"", name_column));
+        self.selected_columns.push(format!("\"{}\"", value_column));
+    
+        Ok(self)
+    }
+    
+
+
      /// SELECT clause using const generics
      pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
         self.select_vec(columns.to_vec())
@@ -1904,6 +2559,14 @@ impl CustomDataFrame {
 
     /// Add selected columns to the SELECT clause using a Vec<&str>
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
+
+         // Store original expressions with AS clauses
+        self.original_expressions = columns
+        .iter()
+        .filter(|&col| col.contains(" AS "))
+        .map(|&s| s.to_string())
+        .collect();
+
         if !self.group_by_columns.is_empty() {
             let mut valid_selects = Vec::new();
 
@@ -2148,7 +2811,8 @@ impl CustomDataFrame {
             set_operations: Vec::new(),
             query: sql,
             aggregated_df: Some(df.clone()),
-             union_tables: None
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(), 
         })
     }
 

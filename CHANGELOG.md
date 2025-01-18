@@ -1,3 +1,9 @@
+## [0.5.8] - 2025-01-18
+### Added
+- PIVOT and UNPIVOT functions
+### Updated
+- Dependencies: `datafusion` to `44.0.0`
+
 ## [0.5.7] - 2025-01-12
 ### Fixed
 - Window function to proprely parse multiple arguments within aggregation, analytics and ranking

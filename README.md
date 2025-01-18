@@ -2,11 +2,8 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library, for in-memory data formats (CSV, JSON, PARQUET, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
-
-# Motivation
-
-DataFusion SQL engine has great potential in Data Engineering / Data Analytics world, but I believe that design choices for SQL and DataFrame API do not resemble popular DataFrame solutions out there, and I am here to narrow this gap, and creating easily chainable constructs for anybody to use and understand. 
+Elusion is a high-performance DataFrame library, for in-memory data formats (CSV, JSON, PARQUET, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. 
+Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
 
 ## Key Features
 
@@ -24,6 +21,8 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 
 ### 🪟 Window Functions
 - Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
+
+### 🪟 PIVOT and UNPIVOT Functions
 
 ### 🧹 Clean Query Construction
 - Construct readable and reusable SQL queries.
@@ -43,7 +42,7 @@ DataFusion SQL engine has great potential in Data Engineering / Data Analytics w
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.7"
+elusion = "0.5.8"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -315,36 +314,36 @@ let string_functions_df = df_sales
         "p.ProductName"
     ])
     .string_functions([
-        // Basic String Functions
-        "TRIM(c.EmailAddress) AS trimmed_email",
-        "LTRIM(c.EmailAddress) AS left_trimmed_email",
-        "RTRIM(c.EmailAddress) AS right_trimmed_email",
-        "UPPER(c.FirstName) AS upper_first_name",
-        "LOWER(c.LastName) AS lower_last_name",
-        "LENGTH(c.EmailAddress) AS email_length",
-        "LEFT(p.ProductName, 10) AS product_start",
-        "RIGHT(p.ProductName, 10) AS product_end",
-        "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
-        // Concatenation
-        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
-        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
-        // Position and Search
-        "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
-        "STRPOS(c.EmailAddress, '@') AS email_at_pos",
-        // Replacement and Modification
-        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
-        "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
-        "REPEAT('*', 5) AS stars",
-        "REVERSE(c.FirstName) AS reversed_name",
-        // Padding
-        "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
-        "RPAD(c.FirstName, 20, '.') AS padded_name",
-        // Case Formatting
-        "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
-        // String Extraction
-        "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
-        // Type Conversion
-        "TO_CHAR(s.OrderDate, 'YYYY-MM-DD') AS formatted_date"
+    // Basic String Functions
+    "TRIM(c.EmailAddress) AS trimmed_email",
+    "LTRIM(c.EmailAddress) AS left_trimmed_email",
+    "RTRIM(c.EmailAddress) AS right_trimmed_email",
+    "UPPER(c.FirstName) AS upper_first_name",
+    "LOWER(c.LastName) AS lower_last_name",
+    "LENGTH(c.EmailAddress) AS email_length",
+    "LEFT(p.ProductName, 10) AS product_start",
+    "RIGHT(p.ProductName, 10) AS product_end",
+    "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
+    // Concatenation
+    "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
+    "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
+    // Position and Search
+    "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
+    "STRPOS(c.EmailAddress, '@') AS email_at_pos",
+    // Replacement and Modification
+    "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
+    "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
+    "REPEAT('*', 5) AS stars",
+    "REVERSE(c.FirstName) AS reversed_name",
+    // Padding
+    "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
+    "RPAD(c.FirstName, 20, '.') AS padded_name",
+    // Case Formatting
+    "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
+    // String Extraction
+    "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
+    // Type Conversion
+    "TO_CHAR(s.OrderDate, 'YYYY-MM-DD') AS formatted_date"
     ])
     .agg([
         "COUNT(*) AS total_records",
@@ -431,6 +430,7 @@ window_df.display().await?;
 ```
 #### Rolling Window Functions
 ```rust
+
 let rollin_query = df_sales.clone()
     .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
     .select(["s.OrderDate", "c.FirstName", "c.LastName", "s.OrderQuantity"])
@@ -438,11 +438,11 @@ let rollin_query = df_sales.clone()
     .window("SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate
              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total")
     .window("AVG(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate
-             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS full_partition_avg")
-    .limit(10);
+             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS full_partition_avg");
 
 let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
+
 ```
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
@@ -459,8 +459,7 @@ let df1 = df_sales
     .string_functions([
         "TRIM(c.EmailAddress) AS trimmed_email",
         "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-    ])
-    .limit(5);
+    ]);
 
 let df2 = df_sales
     .join(
@@ -470,8 +469,7 @@ let df2 = df_sales
     .string_functions([
         "TRIM(c.EmailAddress) AS trimmed_email",
         "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-    ])
-    .limit(5);
+    ]);
 
 let union_df = df1.union(df2);
 
@@ -484,9 +482,79 @@ let union_all_df = df1.union_all(df2);
 let except_df = df1.except(df2);
 //INTERSECT
 let intersect_df = df1.intersect(df2);
-
 ```
+## PIVOT and UNPIVOT
+#### Pivot and Unpivot functions are ASYNC function
+#### They should be used separatelly from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
+#### Future needs to be in final state so .await? must be used
+```rust
+// PIVOT
+// directly on initial CustomDataFrame
+let sales_p = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let df_sales = CustomDataFrame::new(sales_p, "s").await?;
 
+let pivoted = df_sales
+    .pivot(
+        ["StockDate"],     // Row identifiers
+        "TerritoryKey",    // Column to pivot
+        "OrderQuantity",   // Value to aggregate
+        "SUM"              // Aggregation function
+    ).await?;
+
+let result_pivot = pivoted.elusion("pivoted_df").await?;
+result_pivot.display().await?;
+
+// after .elusion() evaluation
+let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
+
+let scalar_df = sales_order_df
+    .select([
+        "customer_name", 
+        "order_date", 
+        "ABS(billable_value) AS abs_billable_value",
+        "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value"])
+    .filter("billable_value > 100.0")
+    .order_by(["order_date"], [true])
+    .limit(10);
+
+let scalar_res = scalar_df.elusion("scalar_df").await?;
+scalar_res.display().await?;
+
+let pivoted_scalar = scalar_res
+    .pivot(
+        ["customer_name"],          // Row identifiers
+        "order_date",               // Column to pivot
+        "abs_billable_value",       // Value to aggregate
+        "SUM"                         // Aggregation function
+    ).await?;
+
+let pitvoted_scalar = pivoted_scalar.elusion("pivoted_df").await?;
+pitvoted_scalar.display().await?;
+
+// UNPIVOT
+let unpivoted = result_pivot
+    .unpivot(
+        ["StockDate"],                         // ID columns
+        ["TerritoryKey_1", "TerritoryKey_2"],  // Value columns to unpivot
+        "Territory",                           // New name column
+        "Quantity"                             // New value column
+    ).await?;
+
+let result_unpivot = unpivoted.elusion("unpivoted_df").await?;
+result_unpivot.display().await?;
+// example 2
+let unpivot_scalar = scalar_res
+    .unpivot(
+        ["customer_name", "order_date"],      // Keep these as identifiers
+        ["abs_billable_value", "sqrt_billable_value"], // Columns to unpivot
+        "measure_name",                       // Name for the measure column
+        "measure_value"                       // Name for the value column
+    ).await?;
+
+let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
+result_unpivot_scalar.display().await?;
+```
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
