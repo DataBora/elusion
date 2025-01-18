@@ -1,6 +1,7 @@
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
+// pub use crate::{PostgresSource, MySqlSource, ODBCSource};
 
 pub use datafusion::logical_expr::col;
 pub use regex::Regex;
@@ -52,3 +53,18 @@ pub use deltalake::storage::object_store::local::LocalFileSystem;
 
 pub use std::fmt::{self, Debug};
 pub use std::error::Error;
+
+// ================ DATABASE
+// pub use futures::Future;
+// pub use datafusion::sql::TableReference;
+// pub use datafusion_table_providers::postgres::PostgresTableFactory;
+// pub use datafusion_table_providers::sql::db_connection_pool::postgrespool::PostgresConnectionPool;
+// pub use datafusion_table_providers::mysql::MySQLTableFactory;
+// pub use datafusion_table_providers::sql::db_connection_pool::mysqlpool::MySQLConnectionPool;
+// pub use datafusion_table_providers::odbc::ODBCTableFactory;
+// pub use datafusion_table_providers::sql::db_connection_pool::odbcpool::ODBCPool;
+// pub use datafusion_table_providers::util::secrets::to_secret_map;
+
+// PIVOT
+pub use arrow::compute;
+pub use arrow::array::StringArray;
