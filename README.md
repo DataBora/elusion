@@ -6,7 +6,7 @@ Elusion is a high-performance DataFrame library designed for in-memory data form
 
 Tailored for developers seeking a powerful abstraction over data transformations, Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable API.
 
-Core Philosophy
+## Core Philosophy
 Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in any sequence that best fits your logic, writing functions in a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
 
 ## Platform Compatibility
