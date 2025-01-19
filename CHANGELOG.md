@@ -1,3 +1,7 @@
+## [1.0.1] - 2025-01-20
+### Updated
+- Platform Compatibility (MacOS, Linux, Microsoft) and Code/Dependencies Audit
+
 ## [1.0.0] - 2025-01-19
 ### BREAKING CHANGE
 - JOIN and JOIN_MANY functions now can receive multiple arguments
