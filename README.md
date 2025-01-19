@@ -2,38 +2,42 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library, for in-memory data formats (CSV, JSON, PARQUET, DELTA). Built on top of DataFusion SQL query engine, for managing and querying data using a DataFrame-like interface. 
-Designed for developers who need a powerful abstraction over data transformations, Elusion simplifies complex operations such as filtering, joining, aggregating, and more with an intuitive, chainable API.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, and DELTA. Built atop the DataFusion SQL query engine, Elusion provides a robust DataFrame-like interface for managing and querying data efficiently.
+
+Tailored for developers seeking a powerful abstraction over data transformations, Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable API.
+
+Core Philosophy
+Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in any sequence that best fits your logic, writing functions in a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
 
 ## Key Features
 
 ### 🚀 High-Performance DataFrame Operations
-- Load and process data from CSV, PARQUET, JSON, DELTA table files with ease.
-- Perform SQL-like transformations such as `SELECT`, `AGG`, `STRING FUNCTIONS`, `JOIN` `FILTER`, `GROUP BY`, and `WINDOW`.
+Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
+SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, GROUP BY, and WINDOW with ease.
 
 ### 📊 Aggregations and Analytics
-- Built-in support for Aggregated functions like `SUM`, `AVG`, `MEAN`, `MEDIAN`, `MIN`, `COUNT`, `MAX` and more.
-- Advanced Scalar Math functions like `ABS`, `FLOOR`, `CEIL`, `SQRT`, `ISNAN`, `ISZERO`, `PI`, `POWER` and more.
+Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
+Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
 
 ### 🔗 Flexible Joins
-- Join tables with various join types (`INNER`, `LEFT`, `RIGHT`, `FULL`, etc.).
-- Intuitive syntax for specifying join conditions and aliases.
+Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
+Intuitive Syntax: Easily specify join conditions and aliases for clarity and simplicity.
 
 ### 🪟 Window Functions
-- Add analytical window functions like `RANK`, `DENSE_RANK`, `ROW_NUMBER`, and custom partition-based calculations.
+Analytical Capabilities: Implement window functions like RANK, DENSE_RANK, ROW_NUMBER, and custom partition-based calculations to perform advanced analytics.
 
-### 🪟 PIVOT and UNPIVOT Functions
+### 🔄 Pivot and Unpivot Functions
+Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions to suit your analytical needs.
 
 ### 🧹 Clean Query Construction
-- Construct readable and reusable SQL queries.
-- Support for Common Table Expressions (CTEs), subqueries, and set operations (`UNION`, `UNION ALL`,`INTERSECT`, `EXCEPT`).
+Readable Queries: Construct SQL queries that are both readable and reusable.
+Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as UNION, UNION ALL, INTERSECT, and EXCEPT.
 
 ### 🛠️ Easy-to-Use API
-- Chainable and intuitive API for building queries.
-- Readable debug output of generated SQL for verification.
-
-- **Data Preview**: Preview your data easily by displaying a subset of rows in the terminal.
-- **Composable Queries**: Chain transformations seamlessly to build reusable and testable workflows.
+Chainable Interface: Build queries using a chainable and intuitive API for streamlined development.
+Debugging Support: Access readable debug outputs of the generated SQL for easy verification and troubleshooting.
+**Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
+**Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
 
 ---
 
@@ -42,7 +46,7 @@ Designed for developers who need a powerful abstraction over data transformation
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "0.5.8"
+elusion = "1.0.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -66,7 +70,7 @@ async fn main() -> ElusionResult<()> {
 
 ```
 ## Schema 
-#### SCHEMA IS AUTOMATICALLY INFERED since v0.2.5
+#### SCHEMA IS DYNAMICALLY INFERED since v0.2.5
 
 ### LOADING Files into CustomDataFrame
 #### File extensions are automatically recognized 
@@ -213,30 +217,30 @@ ATAN, ATAN2, ATANH, GCD, LCM, LN,
 LOG, LOG10, LOG2, NANVL, SIGNUM
 ```
 ---
-### JOINs
-#### JOIN example with 2 dataframes, AGGREGATION, GROUP BY
+## JOIN
+#### JOIN examples with single condition and 2 dataframes, AGGREGATION, GROUP BY
 ```rust
 let single_join = df_sales
-    .join(df_customers, "s.CustomerKey = c.CustomerKey", "INNER")
+    .join(df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER")
     .select(["s.OrderDate","c.FirstName", "c.LastName"])
     .agg([
         "SUM(s.OrderQuantity) AS total_quantity",
         "AVG(s.OrderQuantity) AS avg_quantity",
     ])
     .group_by(["s.OrderDate","c.FirstName","c.LastName"])
-    .having("SUM(s.OrderQuantity) > 10") 
+    .having("total_quantity > 10") 
     .order_by(["total_quantity"], [false]) // true is ascending, false is descending
     .limit(10);
 
 let join_df1 = single_join.elusion("result_query").await?;
 join_df1.display().await?;
 ```
-### JOIN with 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
+### JOIN with single conditions and 3 dataframes, AGGREGATION, GROUP BY, HAVING, SELECT, ORDER BY
 ```rust
 let many_joins = df_sales
     .join_many([
-        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
-        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+        (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
     ]) 
     .select([
         "c.CustomerKey","c.FirstName","c.LastName","p.ProductName",
@@ -246,24 +250,134 @@ let many_joins = df_sales
         "AVG(s.OrderQuantity) AS avg_quantity",
     ]) 
     .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"]) 
-    .having_many([
-        ("SUM(s.OrderQuantity) > 10"), 
-        ("AVG(s.OrderQuantity) < 100")]) 
+    .having_many([("total_quantity > 10"), ("avg_quantity < 100")]) 
     .order_by_many([
-        ("total_quantity", true), 
-        ("p.ProductName", false) // true is ascending, false is descending
+        ("total_quantity", true), // true is ascending 
+        ("p.ProductName", false)  // false is descending
     ])
     .limit(10); 
 
 let join_df3 = many_joins.elusion("df_joins").await?;
 join_df3.display().await?;
 ```
-### JOIN with 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, ORDER BY
+### JOIN with multiple conditions and 2 data frames
+```rust
+let result_join = orders_df
+    .join(
+        customers_df,
+        [
+            "o.CustomerID = c.CustomerID",
+            "o.RegionID = c.RegionID"
+        ],
+        "INNER"
+    )
+    .select([
+        "o.OrderID",
+        "c.Name",
+        "o.OrderDate"
+    ])
+    .string_functions([
+        "CONCAT(TRIM(c.Name), ' (', c.Email, ')') AS customer_info",
+        "UPPER(c.Status) AS customer_status",
+        "LEFT(c.Email, POSITION('@' IN c.Email) - 1) AS username"
+    ])
+    .agg([
+        "SUM(o.Amount) AS total_amount",
+        "AVG(o.Quantity) AS avg_quantity",
+        "COUNT(DISTINCT o.OrderID) AS order_count",
+        "MAX(o.Amount) AS max_amount",
+        "MIN(o.Amount) AS min_amount"
+    ])
+    .group_by([
+        "o.OrderID",
+        "c.Name",
+        "o.OrderDate",
+        "c.Email",   
+        "c.Status"
+    ]);
+
+let res_joins = result_join.elusion("one_join").await?;
+res_joins.display().await?;
+```
+### JOIN_MANY with multiple conditions and 3 data frames
+```rust
+let result_join_many = order_join_df
+    .join_many([
+        (
+            customer_join_df,
+            [
+                "o.CustomerID = c.CustomerID",
+                "o.RegionID = c.RegionID"
+            ],
+            "INNER"
+        ),
+        (
+            regions_join_df,
+            [
+                "c.RegionID = r.RegionID",
+                "r.IsActive = true"
+            ],
+            "INNER"
+        )
+    ])
+    .select([
+        "o.OrderID",
+        "c.Name",
+        "r.RegionName",
+        "r.CountryID"
+    ])
+    .string_functions([
+    "CONCAT(r.RegionName, ' (', r.CountryID, ')') AS region_info",
+    // Simple conditions
+    "CASE c.CreditLimit 
+        WHEN 1000 THEN 'Basic'
+        WHEN 2000 THEN 'Premium'
+        ELSE 'Standard'
+    END AS credit_tier",
+    // Complex conditions
+    "CASE 
+        WHEN c.CreditLimit > 2000 THEN 'High'
+        WHEN c.CreditLimit > 1000 THEN 'Medium'
+        ELSE 'Low'
+    END AS credit_status",
+    // Multiple conditions
+    "CASE
+        WHEN o.Amount > 1000 AND c.Status = 'active' THEN 'Priority'
+        WHEN o.Amount > 500 THEN 'Regular'
+        ELSE 'Standard'
+    END AS order_priority",
+    // String comparisons
+    "CASE r.RegionName
+        WHEN 'East Coast' THEN 'Eastern'
+        WHEN 'West Coast' THEN 'Western'
+        ELSE 'Other'
+    END AS region_category"
+        // Date/time conditions
+    "CASE
+        WHEN EXTRACT(DOW FROM o.OrderDate) IN (0, 6) THEN 'Weekend'
+        ELSE 'Weekday'
+    END AS order_day_type"
+    ])
+    .agg([
+        "SUM(o.Amount) AS total_amount",                                  
+        "COUNT(*) AS row_count",                                       
+        "SUM(o.Amount * (1 - o.Discount/100)) AS net_amount",          
+        "ROUND(SUM(o.Amount) / COUNT(*), 2) AS avg_order_value",       
+        "SUM(o.Amount * r.TaxRate) AS total_tax"                      
+    ])
+    .group_by_all()
+    .having("total_amount > 200")
+    .order_by(["total_amount"], [false]); 
+
+let res_joins_many = result_join_many.elusion("many_join").await?;
+res_joins_many.display().await?;
+```
+### JOIN_MANY with single condition and 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, ORDER BY
 ```rust
 let str_func_joins = df_sales
     .join_many([
-        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
-        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+        (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
     ]) 
     .select([
         "c.CustomerKey",
@@ -283,7 +397,7 @@ let str_func_joins = df_sales
         "SUM(s.OrderQuantity) AS total_order_quantity",
     ])
     .group_by_all()
-    .having_many([("SUM(s.OrderQuantity) > 10"),  ("COUNT(p.ProductKey) >= 1")]) 
+    .having_many([("total_order_quantity > 10"),  ("product_count >= 1")])  
     .order_by_many([
         ("total_order_quantity", true), 
         ("p.ProductName", false) 
@@ -303,8 +417,8 @@ join_str_df3.display().await?;
 ```rust
 let string_functions_df = df_sales
     .join_many([
-        (df_customers, "s.CustomerKey = c.CustomerKey", "INNER"),
-        (df_products, "s.ProductKey = p.ProductKey", "INNER"),
+        (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
     ]) 
     .select([
         "c.CustomerKey",
@@ -399,12 +513,14 @@ SUBSTR() - Get substring
 TO_CHAR() - Convert to string
 CAST() - Type conversion
 CONVERT() - Type conversion
+10. Control Flow:
+CASE()
 ```
 ### WINDOW functions
 #### Aggregate, Ranking and Analytical functions
 ```rust
-let window_query = df_sales.clone()
-    .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
+let window_query = df_sales
+    .join(df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER")
     .select(["s.OrderDate","c.FirstName","c.LastName","s.OrderQuantity"])
     //aggregated window functions
     .window("SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as running_total")
@@ -431,8 +547,8 @@ window_df.display().await?;
 #### Rolling Window Functions
 ```rust
 
-let rollin_query = df_sales.clone()
-    .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
+let rollin_query = df_sales
+    .join(df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER")
     .select(["s.OrderDate", "c.FirstName", "c.LastName", "s.OrderQuantity"])
         //aggregated rolling windows
     .window("SUM(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate
@@ -453,7 +569,7 @@ rollin_df.display().await?;
 //UNION
 let df1 = df_sales
     .join(
-        df_customers, "s.CustomerKey = c.CustomerKey", "INNER",
+        df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER",
     )
     .select(["c.FirstName", "c.LastName"])
     .string_functions([
@@ -463,7 +579,7 @@ let df1 = df_sales
 
 let df2 = df_sales
     .join(
-        df_customers, "s.CustomerKey = c.CustomerKey", "INNER",
+        df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER",
     )
     .select(["c.FirstName", "c.LastName"])
     .string_functions([
@@ -690,18 +806,6 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
 , Arrow for efficient query processing. Special thanks to the open-source community for making this project possible.
-
-
-## 🚧 Disclaimer: Under Development 🚧
-
-This crate is currently **under active development and testing**. It is not considered stable or ready for production use.
-
-We are actively working to improve the features, performance, and reliability of this library. Breaking changes might occur between versions as we continue to refine the API and functionality.
-
-If you want to contribute or experiment with the crate, feel free to do so, but please be aware of the current limitations and evolving nature of the project.
-
-Thank you for your understanding and support!
-
 
 ## Where you can find me:
 
