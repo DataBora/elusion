@@ -3278,12 +3278,7 @@ pub fn load_json<'a>(
     })
 }
 
-/// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`.
-/// 
-/// # Usage
-/// ```no_run
-/// let df = load_delta("C:\\MyDeltaTable", "my_delta").await?;
-/// ```
+/// Load a Delta table at `file_path` into a DataFusion DataFrame and wrap it in `AliasedDataFrame`
 pub fn load_delta<'a>(
     file_path: &'a str,
     alias: &'a str,
