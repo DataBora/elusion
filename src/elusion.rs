@@ -888,7 +888,6 @@ impl CsvWriteOptions {
 }
 // ================== NORMALIZERS
 //===WRITERS
-/// Normalizes column naame by trimming whitespace,converting it to lowercase and replacing empty spaces with underscore.
 // fn normalize_column_name_write(name: &str) -> String {
 //     name.trim().to_lowercase().replace(" ", "_")
 // }
@@ -1077,11 +1076,6 @@ fn normalize_window_function(expression: &str) -> String {
 }
 
 /// Helper: Normalize one argument if it looks like a table.column reference.
-///
-/// Examples:
-/// - "s.OrderQuantity" -> "\"s\".\"OrderQuantity\""
-/// - "1", "0", "4" remain as is
-/// - "some_alias" remains as is, unless you want to wrap it in quotes
 fn normalize_function_arg(arg: &str) -> String {
     // regex matches `tableAlias.columnName`
     let re_table_col = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$").unwrap();
@@ -1646,14 +1640,6 @@ impl CustomDataFrame {
 
     /// Add multiple JOIN clauses using const generics.
     /// Accepts Array of (DataFrame, conditions, join_type)
-    ///
-    /// # Arguments
-    ///
-    /// * `joins` - An array of tuples containing (CustomDataFrame, condition, join_type)
-    ///
-    /// # Returns
-    ///
-    /// * `Self` - Returns the modified CustomDataFrame for method chaining
     pub fn join_many<const N: usize, const M: usize>(
         self,
         joins: [(CustomDataFrame, [&str; M], &str); N] 
@@ -1852,20 +1838,6 @@ impl CustomDataFrame {
     }
    
 /// Apply multiple string functions to create new columns in the SELECT clause.
-    ///
-    /// # Arguments
-    ///
-    /// * `expressions` - A fixed-size array of string expressions.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// .apply_functions([
-    ///     "LEFT(p.ProductName, 10) AS short_product_name",
-    ///     "RIGHT(p.ProductName, 5) AS end_product_name",
-    ///     "CONCAT(TRIM(s.first_name), ' ', TRIM(s.last_name)) AS full_name"
-    /// ])
-    /// ```
     pub fn string_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
         for expr in expressions.iter() {
             // Add to SELECT clause
@@ -2215,12 +2187,6 @@ impl CustomDataFrame {
     }
 
     /// Pivot the DataFrame
-    /// 
-    /// # Arguments
-    /// * `row_keys` - Columns to use as row identifiers
-    /// * `pivot_column` - Column whose values will become new columns
-    /// * `value_column` - Column whose values will be aggregated
-    /// * `aggregate_func` - Aggregation function to use (e.g., "MAX", "MIN", "SUM", "AVG")
     pub async fn pivot<const N: usize>(
         mut self,
         row_keys: [&str; N],
@@ -2406,12 +2372,6 @@ impl CustomDataFrame {
     }
 
     /// Unpivot the DataFrame (melt operation)
-    /// 
-    /// # Arguments
-    /// * `id_columns` - Columns to keep as identifiers
-    /// * `value_columns` - Columns to unpivot into rows
-    /// * `name_column` - Name for the new column that will contain the original column names
-    /// * `value_column` - Name for the new column that will contain the values
     pub async fn unpivot<const N: usize, const M: usize>(
         mut self,
         id_columns: [&str; N],
@@ -2804,28 +2764,7 @@ impl CustomDataFrame {
 
 // ====================== WRITERS ==================== //
 
-/// Write the DataFrame to a Parquet file.
-///
-/// This function wraps DataFusion's `write_parquet` method for easier usage.
-///
-/// # Parameters
-/// - `mode`: Specifies the write mode. Accepted values are:
-///   - `"overwrite"`: Deletes existing files at the target path before writing.
-///   - `"append"`: Appends to the existing Parquet file if it exists.
-/// - `path`: The file path where the Parquet file will be saved.
-/// - `options`: Optional write options for customizing the output.
-///
-/// # Example
-/// ```rust
-///  Write to Parquet in overwrite mode
-/// custom_df.write_to_parquet("overwrite", "output.parquet", None).await?;
-///
-/// Write to Parquet in append mode
-/// custom_df.write_to_parquet("append", "output.parquet", None).await?;
-/// ```
-///
-/// # Errors
-/// Returns a `DataFusionError` if the DataFrame execution or writing fails.
+/// Write the DataFrame to a Parquet file
 pub async fn write_to_parquet(
     &self,
     mode: &str,
@@ -2876,16 +2815,6 @@ pub async fn write_to_parquet(
 }
 
 /// Writes the DataFrame to a CSV file in either "overwrite" or "append" mode.
-///
-/// # Arguments
-///
-/// * `mode` - The write mode, either "overwrite" or "append".
-/// * `path` - The file path where the CSV will be written.
-/// * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
-///
-/// # Returns
-///
-/// * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
 pub async fn write_to_csv(
     &self,
     mode: &str,
@@ -3056,16 +2985,6 @@ pub async fn write_to_csv(
 }
 
 /// Writes a DataFusion `DataFrame` to a Delta table at `path`
-/// 
-/// # Parameters
-/// - `df`: The DataFusion DataFrame to write.
-/// - `path`: URI for the Delta table - currently only local folder path soon  "file:///tmp/mytable" or "s3://bucket/mytable".
-/// - `partition_cols`: Optional list of columns for partitioning.
-/// - `mode`: "overwrite" or "append" 
-/// # Notes
-/// 1. "overwrite" first re-creates the table (wiping old data, depending on the implementation),
-///    then writes the new data.
-/// 2. "append" attempts to create if the table doesn’t exist, otherwise appends rows to an existing table.
 pub async fn write_to_delta_table(
     &self,
     mode: &str,
@@ -3109,15 +3028,6 @@ pub async fn write_to_delta_table(
 
 //=================== LOADERS ============================= //
 /// LOAD function for CSV file type
-///  /// # Arguments
-///
-/// * `file_path` - The path to the JSON file.
-/// * `alias` - The alias name for the table within DataFusion.
-///
-/// # Returns
-///
-/// 
-/// Load a DataFrame from a file and assign an alias
 pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, DataFusionError> {
     let ctx = SessionContext::new();
     let file_extension = file_path
@@ -3167,15 +3077,6 @@ pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, 
 // }
 
 /// LOAD function for Parquet file type
-///
-/// # Arguments
-///
-/// * `file_path` - The path to the Parquet file.
-/// * `alias` - The alias name for the table within DataFusion.
-///
-/// # Returns
-///
-/// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
 pub fn load_parquet<'a>(
     file_path: &'a str,
     alias: &'a str,
@@ -3238,14 +3139,7 @@ pub fn load_parquet<'a>(
     })
 }
 
-/// Loads a JSON file into a DataFusion DataFrame.
-/// # Arguments
-///
-/// * `file_path` - The path to the JSON file.
-/// * `alias` - The alias name for the table within DataFusion.
-///
-/// # Returns
-///
+/// Loads a JSON file into a DataFusion DataFrame
 pub fn load_json<'a>(
     file_path: &'a str,
     alias: &'a str,
@@ -3339,16 +3233,6 @@ pub fn load_delta<'a>(
 }
 
 /// Unified load function that determines the file type based on extension
-///
-/// # Arguments
-///
-/// * `file_path` - The path to the data file (CSV, JSON, Parquet).
-/// * `schema` - The Arrow schema defining the DataFrame columns. Can be `None` to infer.
-/// * `alias` - The alias name for the table within DataFusion.
-///
-/// # Returns
-///
-/// * `AliasedDataFrame` containing the DataFusion DataFrame and its alias.
 pub async fn load(
     file_path: &str,
     alias: &str,
