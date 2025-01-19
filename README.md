@@ -9,6 +9,9 @@ Tailored for developers seeking a powerful abstraction over data transformations
 Core Philosophy
 Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in any sequence that best fits your logic, writing functions in a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
 
+## Platform Compatibility
+Tested for MacOS, Linux and Windows
+
 ## Key Features
 
 ### 🚀 High-Performance DataFrame Operations
