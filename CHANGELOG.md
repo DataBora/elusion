@@ -1,3 +1,11 @@
+## [1.0.0] - 2025-01-19
+### BREAKING CHANGE
+- JOIN and JOIN_MANY functions now can receive multiple arguments
+### Updated
+- Handling conditions within String Functions and Aggregate functions
+### MAJOR RELEASE
+- Library fully tested and ready for production
+
 ## [0.5.8] - 2025-01-18
 ### Added
 - PIVOT and UNPIVOT functions

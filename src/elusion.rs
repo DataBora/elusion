@@ -353,7 +353,7 @@ pub type ElusionResult<T> = Result<T, ElusionError>;
 //     }
 // }
 
-// CustomDataFRame struct
+// JOin struct
 #[derive(Clone, Debug)]
 pub struct Join {
     dataframe: CustomDataFrame,
@@ -903,7 +903,7 @@ fn normalize_alias_write(alias: &str) -> String {
 //     condition.trim().to_lowercase()
 // }
 
-//==== DATAFRAME NORAMLIZERS
+//==== DATAFRAME NORMALIZERS
 /// Normalizes column name by trimming whitespace and properly quoting table aliases and column names.
 fn normalize_column_name(name: &str) -> String {
     if let Some(pos) = name.find('.') {
@@ -933,50 +933,58 @@ fn normalize_condition(condition: &str) -> String {
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
 /// Normalizes an expression by properly quoting table aliases and column names.
 fn normalize_expression(expression: &str) -> String {
-    // Split the expression on AS to separate the main expression and the alias
     let parts: Vec<&str> = expression.splitn(2, " AS ").collect();
+    
     if parts.len() == 2 {
         let expr_part = parts[0].trim();
         let alias_part = parts[1].trim();
-
-        // First check if it's an aggregation function
-        if is_aggregate_expression(expr_part) {
-            // Handle aggregation function
-            let normalized_inner = normalize_expression(expr_part);
-            return format!("{} AS \"{}\"", normalized_inner, alias_part.replace(" ", "_").to_lowercase());
-        }
-
-        // Handle scalar functions with possible nesting and parameters
-        let re = Regex::new(r"(?P<func>[A-Za-z_][A-Za-z0-9_]*)\s*\((?P<args>[^)]+)\)(?:\s*,\s*(?P<param>[0-9]+)\s*)?").unwrap();
         
-        let normalized_expr = re.replace_all(expr_part, |caps: &regex::Captures| {
-            let func = &caps["func"];
-            let args = &caps["args"];
-            
-            // Normalize inner arguments recursively
-            let normalized_args = normalize_expression(args);
-            
-            if let Some(param) = caps.name("param") {
-                format!("{}({}, {})", func, normalized_args, param.as_str())
-            } else {
-                format!("{}({})", func, normalized_args)
-            }
-        }).to_string();
-
-        // Quote the alias
-        let normalized_alias = format!("\"{}\"", alias_part.replace(" ", "_").to_lowercase());
-
-        format!("{} AS {}", normalized_expr, normalized_alias)
-    } else {
-        // Handle column references
-        let col_re = Regex::new(r"(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)").unwrap();
-        if col_re.is_match(expression) {
-            col_re.replace_all(expression.trim(), "\"${alias}\".\"${column}\"").to_string()
+        // Normalize the expression part
+        let normalized_expr = if is_aggregate_expression(expr_part) {
+            normalize_aggregate_expression(expr_part)
         } else {
-            // If it's not a column reference, return as is
-            expression.to_string()
+            normalize_simple_expression(expr_part)
+        };
+
+        format!("{} AS \"{}\"", 
+            normalized_expr,
+            alias_part.replace(" ", "_").to_lowercase()
+        )
+    } else {
+        // No alias part
+        if is_aggregate_expression(expression) {
+            normalize_aggregate_expression(expression)
+        } else {
+            normalize_simple_expression(expression)
         }
     }
+}
+
+fn normalize_aggregate_expression(expr: &str) -> String {
+    // Handle nested expressions in aggregate functions
+    let re = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)$").unwrap();
+    if let Some(caps) = re.captures(expr.trim()) {
+        let func_name = &caps[1];
+        let args = &caps[2];
+        
+        // Normalize arguments recursively
+        let normalized_args = normalize_simple_expression(args);
+        format!("{}({})", func_name, normalized_args)
+    } else {
+        expr.to_string()
+    }
+}
+
+fn normalize_simple_expression(expr: &str) -> String {
+    // Handle column references and operators
+    let col_re = Regex::new(r"(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)").unwrap();
+    
+    let mut normalized = expr.to_string();
+    // Normalize column references
+    normalized = col_re.replace_all(&normalized, "\"$1\".\"$2\"").to_string();
+    
+    // Handle arithmetic expressions - keep operators and parentheses as is
+    normalized
 }
 
 /// Helper function to determine if a string is an expression.
@@ -1001,11 +1009,11 @@ fn is_aggregate_expression(expr: &str) -> bool {
     "SUM", "AVG", "MAX", "MIN", "MEAN", "MEDIAN","COUNT", "LAST_VALUE", "FIRST_VALUE",  
     "GROUPING", "STRING_AGG", "ARRAY_AGG","VAR", "VAR_POP", "VAR_POPULATION", "VAR_SAMP", "VAR_SAMPLE",  
     "BIT_AND", "BIT_OR", "BIT_XOR", "BOOL_AND", "BOOL_OR",
-    
+    //scalar funcs unnecessary here but willl use it else where
     "ABS", "FLOOR", "CEIL", "SQRT", "ISNAN", "ISZERO",  "PI", "POW", "POWER", "RADIANS", "RANDOM", "ROUND",  
    "FACTORIAL", "ACOS", "ACOSH", "ASIN", "ASINH",  "COS", "COSH", "COT", "DEGREES", "EXP","SIN", "SINH", "TAN", "TANH", "TRUNC", "CBRT", "ATAN", "ATAN2", "ATANH", "GCD", "LCM", "LN",  "LOG", "LOG10", "LOG2", "NANVL", "SIGNUM"
    ];
-   //scalar funcs
+   
    aggregate_functions.iter().any(|&func| expr.to_uppercase().starts_with(func))
  
 }
@@ -1031,15 +1039,15 @@ fn normalize_window_function(expression: &str) -> String {
     //      \)$          : a close parenthesis at the end of string
     let func_regex = Regex::new(r"^(\w+)\((.*)\)$").unwrap();
 
-    // If there's no parenthesis at all (e.g. "ROW_NUMBER"), we simply skip argument processing
+    // If there's no parenthesis at all skip argument processing
     let (normalized_function, maybe_args) = if let Some(caps) = func_regex.captures(function_part) {
         let func_name = &caps[1];
-        let arg_list_str = &caps[2]; // e.g. "s.OrderQuantity, 1, 0"
+        let arg_list_str = &caps[2]; //  "s.OrderQuantity, 1, 0"
 
         // split by commas, trim, and normalize each argument if it's a column reference
         let raw_args: Vec<&str> = arg_list_str.split(',').map(|s| s.trim()).collect();
         
-        // We'll transform each argument if it looks like "s.Column"
+        //  transform each argument if it looks like "s.Column"
         let normalized_args: Vec<String> = raw_args
             .iter()
             .map(|arg| normalize_function_arg(arg))
@@ -1057,7 +1065,7 @@ fn normalize_window_function(expression: &str) -> String {
         // Join normalized arguments with commas
         format!("{}({})", normalized_function, args.join(", "))
     } else {
-        // e.g. "ROW_NUMBER()" or "ROW_NUMBER"
+        // "ROW_NUMBER()" or "ROW_NUMBER"
         normalized_function
     };
 
@@ -1583,68 +1591,6 @@ impl CustomDataFrame {
         Ok(())
     }
 
-    /// Execute a raw SQL query involving multiple CustomDataFrame instances and return a new CustomDataFrame with the results.
-    ///
-    /// # Arguments
-    ///
-    /// * sql - The raw SQL query string to execute.
-    /// * alias - The alias name for the resulting DataFrame.
-    /// * additional_dfs - A slice of references to other CustomDataFrame instances to be registered in the context.
-    ///
-    /// # Returns
-    ///
-    /// * `ElusionResult<Self>` - A new CustomDataFrame containing the result of the SQL query.
-    // async fn raw_sql(
-    //     &self,
-    //     sql: &str,
-    //     alias: &str,
-    //     dfs: &[&CustomDataFrame],
-    // ) -> ElusionResult<Self> {
-    //     let ctx = Arc::new(SessionContext::new());
-
-    //     Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-
-    //     for df in dfs {
-    //         Self::register_df_as_table(&ctx, &df.table_alias, &df.df).await?;
-    //     }
-
-    //     let df = ctx.sql(sql).await.map_err(ElusionError::DataFusion)?;
-    //     let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
-    //     let result_mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
-    //         .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
-
-    //     ctx.register_table(alias, Arc::new(result_mem_table))
-    //         .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
-
-    //     let result_df = ctx.table(alias).await.map_err(|e| {
-    //         ElusionError::Custom(format!(
-    //             "Failed to retrieve table '{}': {}",
-    //             alias, e
-    //         ))
-    //     })?;
-
-    //     Ok(CustomDataFrame {
-    //         df: result_df,
-    //         table_alias: alias.to_string(),
-    //         from_table: alias.to_string(),
-    //         selected_columns: Vec::new(),
-    //         alias_map: Vec::new(),
-    //         aggregations: Vec::new(),
-    //         group_by_columns: Vec::new(),
-    //         where_conditions: Vec::new(),
-    //         having_conditions: Vec::new(),
-    //         order_by_columns: Vec::new(),
-    //         limit_count: None,
-    //         joins: Vec::new(),
-    //         window_functions: Vec::new(),
-    //         ctes: Vec::new(),
-    //         subquery_source: None,
-    //         set_operations: Vec::new(),
-    //         query: sql.to_string(),
-    //         aggregated_df: Some(df.clone()),
-    //     })
-    // }
-
     /// NEW method for loading and schema definition
     pub async fn new<'a>(
         file_path: &'a str,
@@ -1678,18 +1624,28 @@ impl CustomDataFrame {
    
     // ==================== API Methods ====================
 
-      /// Add JOIN clauses 
-      pub fn join(mut self, other: CustomDataFrame, condition: &str, join_type: &str) -> Self {
+    /// Add JOIN clauses 
+    pub fn join<const N: usize>(
+        mut self,
+        other: CustomDataFrame,
+        conditions: [&str; N],  // Keeping single array of conditions with "="
+        join_type: &str
+    ) -> Self {
+        let condition = conditions.iter()
+            .map(|&cond| normalize_condition(cond))  // Keeping the "=" in condition
+            .collect::<Vec<_>>()
+            .join(" AND ");
+    
         self.joins.push(Join {
             dataframe: other,
-            condition: normalize_condition(condition),
+            condition,
             join_type: join_type.to_string(),
         });
         self
     }
 
     /// Add multiple JOIN clauses using const generics.
-    /// Accepts an array of tuples: [ (CustomDataFrame, &str, &str); N ]
+    /// Accepts Array of (DataFrame, conditions, join_type)
     ///
     /// # Arguments
     ///
@@ -1698,16 +1654,27 @@ impl CustomDataFrame {
     /// # Returns
     ///
     /// * `Self` - Returns the modified CustomDataFrame for method chaining
-    pub fn join_many<const N: usize>(self, joins: [(CustomDataFrame, &str, &str); N]) -> Self {
-        let join_inputs = joins.into_iter().map(|(df, cond, jt)| Join {
-            dataframe: df,
-            condition: normalize_condition(cond),
-            join_type: jt.to_string(),
-        }).collect::<Vec<_>>();
+    pub fn join_many<const N: usize, const M: usize>(
+        self,
+        joins: [(CustomDataFrame, [&str; M], &str); N] 
+    ) -> Self {
+        let join_inputs = joins.into_iter()
+            .map(|(df, conds, jt)| {
+                let condition = conds.iter()
+                    .map(|&cond| normalize_condition(cond))
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
+    
+                Join {
+                    dataframe: df,
+                    condition,
+                    join_type: jt.to_string(),
+                }
+            })
+            .collect::<Vec<_>>();
         self.join_many_vec(join_inputs)
     }
-
-    /// Add multiple JOIN clauses using a `Vec<Join>`
+    
     pub fn join_many_vec(mut self, joins: Vec<Join>) -> Self {
         self.joins.extend(joins);
         self
@@ -1916,7 +1883,7 @@ impl CustomDataFrame {
         self
     }
 
-    /// Add aggregations to the SELECT clause using const generics.
+    /// Adding aggregations to the SELECT clause using const generics.
     /// Ensures that only valid aggregate expressions are included.
     pub fn agg<const N: usize>(self, aggregations: [&str; N]) -> Self {
         self.agg_vec(
@@ -1960,8 +1927,7 @@ impl CustomDataFrame {
             }
         }
 
-      
-         // Store joined tables and their relationships for registration
+         // Storing joined tables and their relationships for registration
         let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
         .chain(other.joins.iter())
         .map(|join| (
@@ -1971,7 +1937,7 @@ impl CustomDataFrame {
         ))
         .collect();
 
-        // Remove existing alias from the constructed SQL
+        // Removing existing alias from the constructed SQL
         let self_query = self.construct_sql()
             .trim_end_matches(&format!(" AS {}", self.table_alias))
             .to_string();
@@ -1979,7 +1945,7 @@ impl CustomDataFrame {
             .trim_end_matches(&format!(" AS {}", other.table_alias))
             .to_string();
 
-        // Wrap each SELECT in its own parentheses
+        // Wraping each SELECT in its own parentheses
         let wrapped_self_query = format!("({})", self_query);
         let wrapped_other_query = format!("({})", other_query);
 
@@ -1990,18 +1956,18 @@ impl CustomDataFrame {
             wrapped_other_query
         );
 
-        // Wrap the entire UNION in parentheses
+        // Wraping the entire UNION in parentheses
         let union_subquery = format!("({})", union_query);
 
-        // Update the current DataFrame
+        // Updating the current DataFrame
         self.from_table = union_subquery;
 
-        // Store tables and joins state
+        // Storing tables and joins state
         self.union_tables = Some(joined_tables);
-        self.joins = self.joins;  // Keep original joins
+        self.joins = self.joins;  // Keeping original joins
 
                 
-        // Reset clauses as they are now part of the subquery
+        // reset clauses
         self.selected_columns = Vec::new();
         self.aggregations = Vec::new();
         self.group_by_columns = Vec::new();
@@ -2021,7 +1987,7 @@ impl CustomDataFrame {
     /// Perform a UNION ALL between two CustomDataFrames.
     /// Unlike `UNION`, `UNION ALL` does not remove duplicates.
     pub fn union_all(mut self, other: CustomDataFrame) -> Self {
-        // Ensure both DataFrames have the same number of columns
+        // Ensuring both DataFrames have the same number of columns
         if self.selected_columns.len() != other.selected_columns.len() {
             panic!(
                 "Number of columns must match for UNION ALL. First DataFrame has {} columns, second has {} columns",
@@ -2030,7 +1996,7 @@ impl CustomDataFrame {
             );
         }
 
-        // Ensure both DataFrames have the same *column names*
+        // Ensuring both DataFrames have the same *column names*
         for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
             if normalize_column_name(self_col) != normalize_column_name(other_col) {
                 panic!(
@@ -2040,8 +2006,7 @@ impl CustomDataFrame {
             }
         }
 
-        // Merge the joined tables from both DataFrames.
-        // This is the same logic you have in your existing `union` function.
+        // Merging the joined tables from both DataFrames
         let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
             .chain(other.joins.iter())
             .map(|join| (
@@ -2079,9 +2044,7 @@ impl CustomDataFrame {
         // Store the merged join state for registration in `elusion()`
         self.union_tables = Some(joined_tables);
 
-        // Reset these fields, just like in your `union` method.
-        // (They are now "baked" into the sub-query, so you don't want
-        // them included in subsequent SQL generation.)
+        // field reset
         self.selected_columns.clear();
         self.aggregations.clear();
         self.group_by_columns.clear();
@@ -2158,7 +2121,7 @@ impl CustomDataFrame {
         self.from_table = intersect_subquery;
         self.union_tables = Some(joined_tables);
 
-        // Reset these fields, because they are now part of the sub-query
+        // field reset, because they are now part of the sub-query
         self.selected_columns.clear();
         self.aggregations.clear();
         self.group_by_columns.clear();
@@ -2234,7 +2197,7 @@ impl CustomDataFrame {
         self.from_table = except_subquery;
         self.union_tables = Some(joined_tables);
 
-        // Reset the relevant fields
+        // field reset
         self.selected_columns.clear();
         self.aggregations.clear();
         self.group_by_columns.clear();
@@ -2301,7 +2264,6 @@ impl CustomDataFrame {
             })?
             .name();
 
-        // First, execute query to get distinct values from pivot column
         // let distinct_query = format!(
         //     "SELECT DISTINCT \"{}\" \
         //      FROM \"{}\" AS {} \
@@ -2463,8 +2425,8 @@ impl CustomDataFrame {
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
     
         let schema = self.df.schema();
-        println!("Current DataFrame schema fields: {:?}", 
-            schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
+        // println!("Current DataFrame schema fields: {:?}", 
+        //     schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
     
         // Find exact id columns from schema
         let exact_id_columns: Vec<String> = id_columns.iter()
@@ -2823,22 +2785,22 @@ impl CustomDataFrame {
         })
     }
     /// DISPLAY Query Plan
-    pub fn display_query_plan(&self) {
-        println!("Generated Logical Plan:");
-        println!("{:?}", self.df.logical_plan());
-    }
+    // pub fn display_query_plan(&self) {
+    //     println!("Generated Logical Plan:");
+    //     println!("{:?}", self.df.logical_plan());
+    // }
     
     /// Displays the current schema for debugging purposes.
-    pub fn display_schema(&self) {
-        println!("Current Schema for '{}': {:?}", self.table_alias, self.df.schema());
-    }
+    // pub fn display_schema(&self) {
+    //     println!("Current Schema for '{}': {:?}", self.table_alias, self.df.schema());
+    // }
 
     /// Dipslaying query genereated from chained functions
     /// Displays the SQL query generated from the chained functions
-    pub fn display_query(&self) {
-        let final_query = self.construct_sql();
-        println!("Generated SQL Query: {}", final_query);
-    }
+    // pub fn display_query(&self) {
+    //     let final_query = self.construct_sql();
+    //     println!("Generated SQL Query: {}", final_query);
+    // }
 
 // ====================== WRITERS ==================== //
 
@@ -2855,10 +2817,10 @@ impl CustomDataFrame {
 ///
 /// # Example
 /// ```rust
-    /// // Write to Parquet in overwrite mode
+///  Write to Parquet in overwrite mode
 /// custom_df.write_to_parquet("overwrite", "output.parquet", None).await?;
 ///
-/// // Write to Parquet in append mode
+/// Write to Parquet in append mode
 /// custom_df.write_to_parquet("append", "output.parquet", None).await?;
 /// ```
 ///
@@ -3093,29 +3055,13 @@ pub async fn write_to_csv(
     Ok(())
 }
 
-// / Writes the DataFrame to a Delta Lake table in either "overwrite" or "append" mode.
-// /
-// / # Arguments
-// /
-// / * `mode` - The write mode, either "overwrite" or "append".
-// / * `path` - The directory path where the Delta table resides or will be created.
-// / * `options` - Optional `DataFrameWriteOptions` for customizing the write behavior.
-// /
-// / # Returns
-// /
-// / * `ElusionResult<()>` - Ok(()) on success, or an `ElusionError` on failure.
-/// Writes a DataFusion `DataFrame` to a Delta table at `path`, using the new `DeltaOps` API.
+/// Writes a DataFusion `DataFrame` to a Delta table at `path`
 /// 
 /// # Parameters
 /// - `df`: The DataFusion DataFrame to write.
-/// - `path`: URI for the Delta table (e.g., "file:///tmp/mytable" or "s3://bucket/mytable").
+/// - `path`: URI for the Delta table - currently only local folder path soon  "file:///tmp/mytable" or "s3://bucket/mytable".
 /// - `partition_cols`: Optional list of columns for partitioning.
-/// - `mode`: "overwrite" or "append" (extend as needed).
-///
-/// # Returns
-/// - `Ok(())` on success
-/// - `Err(DeltaOpsError)` if creation or writing fails.
-///
+/// - `mode`: "overwrite" or "append" 
 /// # Notes
 /// 1. "overwrite" first re-creates the table (wiping old data, depending on the implementation),
 ///    then writes the new data.
@@ -3137,14 +3083,13 @@ pub async fn write_to_delta_table(
             (false, WriteMode::Default)
         }
         "merge" => {
-            // Example: you could define "merge" to auto-merge schema
+            //  "merge" to auto-merge schema
             (false, WriteMode::MergeSchema)
         }
         "default" => {
             // Another alias for (false, WriteMode::Default)
             (false, WriteMode::Default)
         }
-        // If you want to handle more modes or do something special, add more arms here.
         other => {
             return Err(DeltaTableError::Generic(format!(
                 "Unsupported write mode: {other}"
@@ -3438,55 +3383,4 @@ pub async fn load(
 }
   
    
-
-   
 }
-
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-//     #[tokio::test]
-//     async fn test_multiple_joins() -> ElusionResult<()> {
-//         let df_sales = CustomDataFrame::new("sales.csv", "s").await?;
-//         let df_customers = CustomDataFrame::new("customers.csv", "c").await?;
-//         let df_products = CustomDataFrame::new("products.csv", "p").await?;
-
-//         let three_joins = df_sales
-//             .join(df_customers.clone(), "s.CustomerKey = c.CustomerKey", "INNER")
-//             .join(df_products.clone(), "s.ProductKey = p.ProductKey", "INNER")
-//             .agg(vec![
-//                 "SUM(s.OrderQuantity) AS total_quantity".to_string(),
-//             ])
-//             .group_by(vec![
-//                 "c.CustomerKey",
-//                 "c.FirstName",
-//                 "c.LastName",
-//                 "p.ProductName",
-//             ])
-//             .having("SUM(s.OrderQuantity) > 10")
-//             .select(vec![
-//                 "c.CustomerKey",
-//                 "c.FirstName",
-//                 "c.LastName",
-//                 "p.ProductName",
-//                 "total_quantity",
-//             ])
-//             .order_by(vec!["total_quantity"], vec![false])
-//             .limit(10);
-
-//         // Execute the query
-//         let executed_three_joins = three_joins.execute("test_result_three_joins").await?;
-
-//         // Verify the schema contains the expected columns
-//         let schema = executed_three_joins.df.schema();
-//         assert!(schema.field_with_name("total_quantity").is_ok());
-//         assert!(schema.field_with_name("CustomerKey").is_ok());
-//         assert!(schema.field_with_name("FirstName").is_ok());
-//         assert!(schema.field_with_name("LastName").is_ok());
-//         assert!(schema.field_with_name("ProductName").is_ok());
-
-//         Ok(())
-//     }
-// }
