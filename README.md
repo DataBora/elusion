@@ -265,10 +265,7 @@ join_df3.display().await?;
 let result_join = orders_df
     .join(
         customers_df,
-        [
-            "o.CustomerID = c.CustomerID",
-            "o.RegionID = c.RegionID"
-        ],
+        ["o.CustomerID = c.CustomerID" , "o.RegionID = c.RegionID"],
         "INNER"
     )
     .select([
@@ -303,56 +300,43 @@ res_joins.display().await?;
 ```rust
 let result_join_many = order_join_df
     .join_many([
-        (
-            customer_join_df,
-            [
-                "o.CustomerID = c.CustomerID",
-                "o.RegionID = c.RegionID"
-            ],
+        (customer_join_df,
+            ["o.CustomerID = c.CustomerID" , "o.RegionID = c.RegionID"],
             "INNER"
         ),
-        (
-            regions_join_df,
-            [
-                "c.RegionID = r.RegionID",
-                "r.IsActive = true"
-            ],
+        (regions_join_df,
+            ["c.RegionID = r.RegionID" , "r.IsActive = true"],
             "INNER"
         )
     ])
-    .select([
-        "o.OrderID",
-        "c.Name",
-        "r.RegionName",
-        "r.CountryID"
-    ])
+    .select(["o.OrderID","c.Name","r.RegionName", "r.CountryID"])
     .string_functions([
     "CONCAT(r.RegionName, ' (', r.CountryID, ')') AS region_info",
-    // Simple conditions
+    // Simple CASE conditions
     "CASE c.CreditLimit 
         WHEN 1000 THEN 'Basic'
         WHEN 2000 THEN 'Premium'
         ELSE 'Standard'
     END AS credit_tier",
-    // Complex conditions
+    // Complex CASE conditions
     "CASE 
         WHEN c.CreditLimit > 2000 THEN 'High'
         WHEN c.CreditLimit > 1000 THEN 'Medium'
         ELSE 'Low'
     END AS credit_status",
-    // Multiple conditions
+    // Multiple cASE conditions
     "CASE
         WHEN o.Amount > 1000 AND c.Status = 'active' THEN 'Priority'
         WHEN o.Amount > 500 THEN 'Regular'
         ELSE 'Standard'
     END AS order_priority",
-    // String comparisons
+    // String CASE comparisons
     "CASE r.RegionName
         WHEN 'East Coast' THEN 'Eastern'
         WHEN 'West Coast' THEN 'Western'
         ELSE 'Other'
     END AS region_category"
-        // Date/time conditions
+        // Date/time CASE conditions
     "CASE
         WHEN EXTRACT(DOW FROM o.OrderDate) IN (0, 6) THEN 'Weekend'
         ELSE 'Weekday'
@@ -374,6 +358,7 @@ res_joins_many.display().await?;
 ```
 ### JOIN_MANY with single condition and 3 dataframes, STRING FUNCTIONS, AGGREGATION, GROUP BY, HAVING_MANY, ORDER BY
 ```rust
+
 let str_func_joins = df_sales
     .join_many([
         (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
@@ -546,7 +531,6 @@ window_df.display().await?;
 ```
 #### Rolling Window Functions
 ```rust
-
 let rollin_query = df_sales
     .join(df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER")
     .select(["s.OrderDate", "c.FirstName", "c.LastName", "s.OrderQuantity"])
@@ -558,7 +542,6 @@ let rollin_query = df_sales
 
 let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
-
 ```
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
@@ -601,9 +584,10 @@ let intersect_df = df1.intersect(df2);
 ```
 ## PIVOT and UNPIVOT
 #### Pivot and Unpivot functions are ASYNC function
-#### They should be used separatelly from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
+#### They should be used separately from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
 #### Future needs to be in final state so .await? must be used
 ```rust
+
 // PIVOT
 // directly on initial CustomDataFrame
 let sales_p = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
@@ -633,7 +617,7 @@ let scalar_df = sales_order_df
     .filter("billable_value > 100.0")
     .order_by(["order_date"], [true])
     .limit(10);
-
+// elusion evaluation
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
 
@@ -642,7 +626,7 @@ let pivoted_scalar = scalar_res
         ["customer_name"],          // Row identifiers
         "order_date",               // Column to pivot
         "abs_billable_value",       // Value to aggregate
-        "SUM"                         // Aggregation function
+        "SUM"                       // Aggregation function
     ).await?;
 
 let pitvoted_scalar = pivoted_scalar.elusion("pivoted_df").await?;
@@ -670,6 +654,7 @@ let unpivot_scalar = scalar_res
 
 let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
 result_unpivot_scalar.display().await?;
+
 ```
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
