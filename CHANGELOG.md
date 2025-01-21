@@ -1,3 +1,7 @@
+## [1.1.1] - 2025-01-21
+### Added
+- Statistical Functions: display_stats(), display_null_analysis(), display_correlation_matrix()
+
 ## [1.1.0] - 2025-01-21
 ### Added
 - Dependencies: `plotly` `0.12.1` with Plots: Line, TimeSeries, Bar, Pie, Donut, Histogram, Box
