@@ -1,3 +1,7 @@
+## [1.1.0] - 2025-01-21
+### Added
+- Dependencies: `plotly` `0.12.1` with Plots: Line, TimeSeries, Bar, Pie, Donut, Histogram, Box
+
 ## [1.0.1] - 2025-01-20
 ### Updated
 - Platform Compatibility (MacOS, Linux, Microsoft) and Code/Dependencies Audit
