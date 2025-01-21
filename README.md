@@ -21,7 +21,9 @@ SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FU
 ### 📊 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
 Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
-Ploting: You can create HTML reports with diferent plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
+
+### 📊 Ploting
+You can create individual HTML files with single Plot, OR you can create HTML reports with multiple Plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
 
 ### 🔗 Flexible Joins
 Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
@@ -752,11 +754,12 @@ CustomDataFrame::create_report(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
 ).await?;
 ```
+---
 ### Example of single Plot
 ![Bar](images/bar.PNG)
 ### Example of Report with multiple Plots
 ![Report](images/report.PNG)
-
+---
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
