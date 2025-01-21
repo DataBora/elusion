@@ -752,7 +752,7 @@ df.display_correlation_matrix(&[
 let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
 let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
 
-let mix_df3 = sales_order_df.clone()
+let mix_df3 = sales_order_df
     .select([
         "customer_name",
         "order_date",
@@ -812,7 +812,7 @@ CustomDataFrame::save_plot(&billable_hist, "billable_hist.html", Some("C:\\Boriv
 // - label_col: column name for slice labels
 // - value_col: column name for slice values
 // - title: optional custom title
-let billable_pie = mix.plot_pie("customer_name","total_billable",Some("Sales Distribution by Customer")).await?;
+let billable_pie = mix.plot_pie("customer_name","total_billable", Some("Sales Distribution by Customer")).await?;
 CustomDataFrame::save_plot(&billable_pie, "billable_pie.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
 
 // plot_donut(label_col: &str, value_col: &str, title: Option<&str>, hole_size: Option<f64>)
@@ -820,7 +820,7 @@ CustomDataFrame::save_plot(&billable_pie, "billable_pie.html", Some("C:\\Borivoj
 // - value_col: column name for slice values
 // - title: optional custom title
 // - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
-let billable_donut = mix.plot_donut("customer_name","total_billable",Some("Sales Distribution by Customer"), Some(0.5)).await?;
+let billable_donut = mix.plot_donut("customer_name","total_billable", Some("Sales Distribution by Customer"), Some(0.5)).await?;
 CustomDataFrame::save_plot(&billable_donut, "billable_donut.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
 
 //Create report by Appening All Plots that you need 
