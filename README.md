@@ -52,7 +52,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.1.0"
+elusion = "1.1.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -403,7 +403,7 @@ join_str_df3.display().await?;
 "LEFT SEMI", "RIGHT SEMI", 
 "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
 ```
-
+---
 ### STRING FUNCTIONS
 ```rust
 let string_functions_df = df_sales
@@ -507,6 +507,8 @@ CONVERT() - Type conversion
 10. Control Flow:
 CASE()
 ```
+---
+---
 ### WINDOW functions
 #### Aggregate, Ranking and Analytical functions
 ```rust
@@ -549,6 +551,8 @@ let rollin_query = df_sales
 let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
 ```
+---
+---
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
 #### UNION ALL: Combines rows from both, keeping duplicates
@@ -588,6 +592,8 @@ let except_df = df1.except(df2);
 //INTERSECT
 let intersect_df = df1.intersect(df2);
 ```
+---
+---
 ## PIVOT and UNPIVOT
 #### Pivot and Unpivot functions are ASYNC function
 #### They should be used separately from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
@@ -661,7 +667,84 @@ let unpivot_scalar = scalar_res
 let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
 result_unpivot_scalar.display().await?;
 ```
+---
+---
+## Statistical Functions
+#### These Functions can give you quick statistical overview of your DataFrame columns and correlations
+#### Currently available: display_stats(), display_null_analysis(), display_correlation_matrix()
+```rust
+df.display_stats(&[
+    "abs_billable_value",
+    "sqrt_billable_value",
+    "double_billable_value",
+    "percentage_billable"
+]).await?;
 
+=== Column Statistics ===
+--------------------------------------------------------------------------------
+Column: abs_billable_value
+--------------------------------------------------------------------------------
+| Metric               |           Value |             Min |             Max |
+--------------------------------------------------------------------------------
+| Records              |              10 | -               | -               |
+| Non-null Records     |              10 | -               | -               |
+| Mean                 |         1025.71 | -               | -               |
+| Standard Dev         |          761.34 | -               | -               |
+| Value Range          |               - | 67.4            | 2505.23         |
+--------------------------------------------------------------------------------
+
+Column: sqrt_billable_value
+--------------------------------------------------------------------------------
+| Metric               |           Value |             Min |             Max |
+--------------------------------------------------------------------------------
+| Records              |              10 | -               | -               |
+| Non-null Records     |              10 | -               | -               |
+| Mean                 |           29.48 | -               | -               |
+| Standard Dev         |           13.20 | -               | -               |
+| Value Range          |               - | 8.21            | 50.05           |
+--------------------------------------------------------------------------------
+    
+// Display null analysis
+// Keep None if you want all columns to be analized
+df.display_null_analysis(None).await?;
+
+------------------------------------------------------------------------------------------
+| Column                         |      Total Rows |      Null Count | Null Percentage |
+------------------------------------------------------------------------------------------
+| total_billable                 |              10 |               0 |           0.00% |
+| order_count                    |              10 |               0 |           0.00% |
+| customer_name                  |              10 |               0 |           0.00% |
+| order_date                     |              10 |               0 |           0.00% |
+| abs_billable_value             |              10 |               0 |           0.00% |
+| sqrt_billable_value            |              10 |               0 |           0.00% |
+| double_billable_value          |              10 |               0 |           0.00% |
+| percentage_billable            |              10 |               0 |           0.00% |
+| trimmed_shipper                |              10 |               0 |           0.00% |
+| first_name                     |              10 |               0 |           0.00% |
+| last_name                      |              10 |               0 |           0.00% |
+-----------------------------------------------------------------------------------------
+
+// Display correlation matrix
+df.display_correlation_matrix(&[
+    "abs_billable_value",
+    "sqrt_billable_value",
+    "double_billable_value",
+    "percentage_billable"
+]).await?;
+
+=== Correlation Matrix ===
+-------------------------------------------------------------------------------------------
+|                 | abs_billable_va | sqrt_billable_v | double_billable | percentage_bill |
+-------------------------------------------------------------------------------------------
+| abs_billable_va |            1.00 |            0.98 |            1.00 |            1.00 |
+| sqrt_billable_v |            0.98 |            1.00 |            0.98 |            0.98 |
+| double_billable |            1.00 |            0.98 |            1.00 |            1.00 |
+| percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
+-------------------------------------------------------------------------------------------
+```
+---
+
+---
 # PLOTING
 ### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
 #### Bellow are examples how you can simply create different plots and Report
@@ -755,11 +838,12 @@ CustomDataFrame::create_report(
 ).await?;
 ```
 ---
+
 ### Example of single Plot
 ![Bar](images/bar.PNG)
 ### Example of Report with multiple Plots
 ![Report](images/report.PNG)
----
+
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING

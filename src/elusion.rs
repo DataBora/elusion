@@ -78,6 +78,9 @@ use arrow::array::{Array, Float64Array,Int64Array};
 use arrow::array::Date32Array;
 use std::cmp::Ordering;
 
+// STATISTICS
+use datafusion::common::ScalarValue;
+
 
 // custom error type
 #[derive(Debug)]
@@ -811,6 +814,37 @@ fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Val
     }
 }
 
+// ================= Statistics
+/// Struct to hold column statistics
+#[derive(Debug, Default)]
+pub struct ColumnStats {
+    pub columns: Vec<ColumnStatistics>,
+}
+
+#[derive(Debug)]
+pub struct ColumnStatistics {
+    pub name: String,
+    pub total_count: i64,
+    pub non_null_count: i64,
+    pub mean: Option<f64>,
+    pub min_value: ScalarValue,
+    pub max_value: ScalarValue,
+    pub std_dev: Option<f64>,
+}
+
+/// Struct to hold null value analysis
+#[derive(Debug)]
+pub struct NullAnalysis {
+    pub counts: Vec<NullCount>,
+}
+
+#[derive(Debug)]
+pub struct NullCount {
+    pub column_name: String,
+    pub total_rows: i64,
+    pub null_count: i64,
+    pub null_percentage: f64,
+}
 //======================= CSV WRITING OPTION ============================//
 
 /// Struct to encapsulate CSV write options
@@ -2771,6 +2805,288 @@ impl CustomDataFrame {
     //     let final_query = self.construct_sql();
     //     println!("Generated SQL Query: {}", final_query);
     // }
+
+    // ================== STATISTICS FUNCS =================== //
+    /// Compute basic statistics for specified columns
+    async fn compute_column_stats(&self, columns: &[&str]) -> ElusionResult<ColumnStats> {
+        let mut stats = ColumnStats::default();
+        let ctx = Arc::new(SessionContext::new());
+
+        // Register the current dataframe as a temporary table
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        for &column in columns {
+            let sql = format!(
+                "SELECT 
+                    COUNT(*) as total_count,
+                    COUNT({col}) as non_null_count,
+                    AVG({col}::float) as mean,
+                    MIN({col}) as min_value,
+                    MAX({col}) as max_value,
+                    STDDEV({col}::float) as std_dev
+                FROM {}",
+                self.table_alias,
+                col = column
+            );
+
+            let result_df = ctx.sql(&sql).await.map_err(|e| {
+                ElusionError::Custom(format!(
+                    "Failed to compute statistics for column '{}': {}",
+                    column, e
+                ))
+            })?;
+
+            let batches = result_df.collect().await.map_err(ElusionError::DataFusion)?;
+            
+            if let Some(batch) = batches.first() {
+                // Access columns directly instead of using row()
+                let total_count = batch.column(0).as_any().downcast_ref::<Int64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast total_count".to_string()))?
+                    .value(0);
+                
+                let non_null_count = batch.column(1).as_any().downcast_ref::<Int64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast non_null_count".to_string()))?
+                    .value(0);
+                
+                let mean = batch.column(2).as_any().downcast_ref::<Float64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast mean".to_string()))?
+                    .value(0);
+                
+                let min_value = ScalarValue::try_from_array(batch.column(3), 0)?;
+                let max_value = ScalarValue::try_from_array(batch.column(4), 0)?;
+                
+                let std_dev = batch.column(5).as_any().downcast_ref::<Float64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast std_dev".to_string()))?
+                    .value(0);
+
+                stats.columns.push(ColumnStatistics {
+                    name: column.to_string(),
+                    total_count,
+                    non_null_count,
+                    mean: Some(mean),
+                    min_value,
+                    max_value,
+                    std_dev: Some(std_dev),
+                });
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Check for null values in specified columns
+    async fn analyze_null_values(&self, columns: Option<&[&str]>) -> ElusionResult<NullAnalysis> {
+        let ctx = Arc::new(SessionContext::new());
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        let columns = match columns {
+            Some(cols) => cols.to_vec(),
+            None => {
+                self.df
+                    .schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().as_str())
+                    .collect()
+            }
+        };
+
+        let mut null_counts = Vec::new();
+        for column in columns {
+            let sql = format!(
+                "SELECT 
+                    '{}' as column_name,
+                    COUNT(*) as total_rows,
+                    COUNT(*) - COUNT({}) as null_count,
+                    (COUNT(*) - COUNT({})) * 100.0 / COUNT(*) as null_percentage
+                FROM {}",
+                column, column, column, self.table_alias
+            );
+
+            let result_df = ctx.sql(&sql).await.map_err(|e| {
+                ElusionError::Custom(format!(
+                    "Failed to analyze null values for column '{}': {}",
+                    column, e
+                ))
+            })?;
+
+            let batches = result_df.collect().await.map_err(ElusionError::DataFusion)?;
+            
+            if let Some(batch) = batches.first() {
+                let column_name = batch.column(0).as_any().downcast_ref::<StringArray>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast column_name".to_string()))?
+                    .value(0);
+
+                let total_rows = batch.column(1).as_any().downcast_ref::<Int64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast total_rows".to_string()))?
+                    .value(0);
+
+                let null_count = batch.column(2).as_any().downcast_ref::<Int64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast null_count".to_string()))?
+                    .value(0);
+
+                let null_percentage = batch.column(3).as_any().downcast_ref::<Float64Array>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast null_percentage".to_string()))?
+                    .value(0);
+
+                null_counts.push(NullCount {
+                    column_name: column_name.to_string(),
+                    total_rows,
+                    null_count,
+                    null_percentage,
+                });
+            }
+        }
+
+        Ok(NullAnalysis { counts: null_counts })
+    }
+
+    /// Compute correlation between two numeric columns
+    async fn compute_correlation(&self, col1: &str, col2: &str) -> ElusionResult<f64> {
+        let ctx = Arc::new(SessionContext::new());
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        let sql = format!(
+            "SELECT corr({}::float, {}::float) as correlation 
+             FROM {}",
+            col1, col2, self.table_alias
+        );
+
+        let result_df = ctx.sql(&sql).await.map_err(|e| {
+            ElusionError::Custom(format!(
+                "Failed to compute correlation between '{}' and '{}': {}",
+                col1, col2, e
+            ))
+        })?;
+
+        let batches = result_df.collect().await.map_err(ElusionError::DataFusion)?;
+        
+        if let Some(batch) = batches.first() {
+            if let Some(array) = batch.column(0).as_any().downcast_ref::<Float64Array>() {
+                if !array.is_null(0) {
+                    return Ok(array.value(0));
+                }
+            }
+        }
+
+        Ok(0.0) // Return 0 if no correlation could be computed
+    }
+
+
+     /// Display statistical summary of specified columns
+    pub async fn display_stats(&self, columns: &[&str]) -> ElusionResult<()> {
+        let stats = self.compute_column_stats(columns).await?;
+        
+        println!("\n=== Column Statistics ===");
+        println!("{:-<80}", "");
+        
+        for col_stat in stats.columns {
+            println!("Column: {}", col_stat.name);
+            println!("{:-<80}", "");
+            println!("| {:<20} | {:>15} | {:>15} | {:>15} |", 
+                "Metric", "Value", "Min", "Max");
+            println!("{:-<80}", "");
+            
+            println!("| {:<20} | {:>15} | {:<15} | {:<15} |", 
+                "Records", 
+                col_stat.total_count,
+                "-",
+                "-");
+                
+            println!("| {:<20} | {:>15} | {:<15} | {:<15} |", 
+                "Non-null Records", 
+                col_stat.non_null_count,
+                "-",
+                "-");
+                
+            if let Some(mean) = col_stat.mean {
+                println!("| {:<20} | {:>15.2} | {:<15} | {:<15} |", 
+                    "Mean", 
+                    mean,
+                    "-",
+                    "-");
+            }
+            
+            if let Some(std_dev) = col_stat.std_dev {
+                println!("| {:<20} | {:>15.2} | {:<15} | {:<15} |", 
+                    "Standard Dev", 
+                    std_dev,
+                    "-",
+                    "-");
+            }
+            
+            println!("| {:<20} | {:>15} | {:<15} | {:<15} |", 
+                "Value Range", 
+                "-",
+                format!("{}", col_stat.min_value),
+                format!("{}", col_stat.max_value));
+                
+            println!("{:-<80}\n", "");
+        }
+        Ok(())
+    }
+
+    /// Display null value analysis
+    pub async fn display_null_analysis(&self, columns: Option<&[&str]>) -> ElusionResult<()> {
+        let analysis = self.analyze_null_values(columns).await?;
+        
+        println!("\n=== Null Value Analysis ===");
+        println!("{:-<90}", "");
+        println!("| {:<30} | {:>15} | {:>15} | {:>15} |", 
+            "Column", "Total Rows", "Null Count", "Null Percentage");
+        println!("{:-<90}", "");
+        
+        for count in analysis.counts {
+            println!("| {:<30} | {:>15} | {:>15} | {:>14.2}% |", 
+                count.column_name,
+                count.total_rows,
+                count.null_count,
+                count.null_percentage);
+        }
+        println!("{:-<90}\n", "");
+        Ok(())
+    }
+
+    /// Display correlation matrix for multiple columns
+    pub async fn display_correlation_matrix(&self, columns: &[&str]) -> ElusionResult<()> {
+        println!("\n=== Correlation Matrix ===");
+        let col_width = 15;
+        let total_width = (columns.len() + 1) * (col_width + 3) + 1;
+        println!("{:-<width$}", "", width = total_width);
+        
+        // Print header
+        print!("| {:<width$} |", "", width = col_width);
+        for col in columns {
+            print!(" {:<width$} |", 
+                if col.len() > col_width {
+                    &col[..col_width]
+                } else {
+                    col
+                }, 
+                width = col_width);
+        }
+        println!();
+        println!("{:-<width$}", "", width = total_width);
+        
+        // Calculate and print correlations
+        for &col1 in columns {
+            print!("| {:<width$} |", 
+                if col1.len() > col_width {
+                    &col1[..col_width]
+                } else {
+                    col1
+                }, 
+                width = col_width);
+                
+            for &col2 in columns {
+                let correlation = self.compute_correlation(col1, col2).await?;
+                print!(" {:>width$.2} |", correlation, width = col_width);
+            }
+            println!();
+        }
+        println!("{:-<width$}\n", "", width = total_width);
+        Ok(())
+    }
 
 // ====================== WRITERS ==================== //
 

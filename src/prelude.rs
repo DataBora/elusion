@@ -77,3 +77,6 @@ pub use plotly::color::Rgb;
 pub use arrow::array::{Array, Float64Array,Int64Array};
 pub use arrow::array::Date32Array;
 pub use std::cmp::Ordering;
+
+// STATISTICS
+pub use datafusion::common::ScalarValue;
