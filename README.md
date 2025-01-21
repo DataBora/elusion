@@ -752,6 +752,10 @@ CustomDataFrame::create_report(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
 ).await?;
 ```
+### Example of single Plot
+![Bar](images/bar.PNG)
+### Example of Report with multiple Plots
+![Report](images/report.PNG)
 
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
