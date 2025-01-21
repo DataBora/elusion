@@ -21,6 +21,7 @@ SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FU
 ### 📊 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
 Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
+Ploting: You can create HTML reports with diferent plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
 
 ### 🔗 Flexible Joins
 Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
@@ -49,7 +50,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.0.1"
+elusion = "1.1.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -622,7 +623,6 @@ let scalar_df = sales_order_df
     .limit(10);
 // elusion evaluation
 let scalar_res = scalar_df.elusion("scalar_df").await?;
-scalar_res.display().await?;
 
 let pivoted_scalar = scalar_res
     .pivot(
@@ -646,6 +646,7 @@ let unpivoted = result_pivot
 
 let result_unpivot = unpivoted.elusion("unpivoted_df").await?;
 result_unpivot.display().await?;
+
 // example 2
 let unpivot_scalar = scalar_res
     .unpivot(
@@ -657,8 +658,101 @@ let unpivot_scalar = scalar_res
 
 let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
 result_unpivot_scalar.display().await?;
-
 ```
+
+# PLOTING
+### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
+#### Bellow are examples how you can simply create different plots and Report
+```rust
+let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
+
+let mix_df3 = sales_order_df.clone()
+    .select([
+        "customer_name",
+        "order_date",
+        "ABS(billable_value) AS abs_billable_value",
+        "ROUND(SQRT(billable_value), 2) AS sqrt_billable_value", 
+        "billable_value * 2 AS double_billable_value", 
+        "billable_value / 100 AS percentage_billable"  
+    ])
+    .string_functions([
+        "TRIM(shipper_name) AS trimmed_shipper",
+        "SPLIT_PART(customer_contact_name, ',', 1) AS first_name",
+        "SPLIT_PART(customer_contact_name, ',', 2) AS last_name",
+    ])
+    .agg([
+        "SUM(billable_value) AS total_billable",
+        "COUNT(*) AS order_count"
+    ])
+    .group_by_all()
+    .filter("billable_value > 50.0")
+    .limit(100);
+
+let mix = mix_df3.elusion("result_sales").await?;
+
+//PLOTING
+// plot_bar(x_col: &str, y_col: &str, orientation: Option<&str>, title: Option<&str>)
+// - x_col: column name for x-axis
+// - y_col: column name for y-axis
+// - orientation: Keep None for Horisontal
+// - title: optional custom title
+let billable_plot = mix.plot_bar("customer_name", "total_billable", None, Some("Total Sales By Customer")).await?;
+CustomDataFrame::save_plot(&billable_plot, "billable_plot.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+// plot_line(x_col: &str, y_col: &str, show_markers: bool, title: Option<&str>)
+// - x_col: column name for x-axis (can be date or numeric)
+// - y_col: column name for y-axis
+// - show_markers: true to show points, false for line only
+// - title: optional custom title
+let billable_line = mix.plot_line("order_date", "double_billable_value", true, Some("Sales over time")).await?;
+CustomDataFrame::save_plot(&billable_line, "billable_line.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+// plot_time_series(date_col: &str, value_col: &str, show_markers: bool, title: Option<&str>)
+// - date_col: column name for dates (must be Date32 type)
+// - value_col: column name for values
+// - show_markers: true to show points, false for line only
+// - title: optional custom title
+let billable_ts = mix.plot_time_series("order_date", "double_billable_value", true, Some("Sales Over Time")).await?;
+CustomDataFrame::save_plot(&billable_ts, "billable_ts.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+// plot_histogram(col: &str, bins: Option<usize>, title: Option<&str>)
+// - col: column name for values to distribute
+// - bins: optional number of bins (defaults to 30)
+// - title: optional custom title
+let billable_hist = mix.plot_histogram("abs_billable_value", Some(20), Some("Distribution of Sales")).await?;
+CustomDataFrame::save_plot(&billable_hist, "billable_hist.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+// plot_pie(label_col: &str, value_col: &str, title: Option<&str>)
+// - label_col: column name for slice labels
+// - value_col: column name for slice values
+// - title: optional custom title
+let billable_pie = mix.plot_pie("customer_name","total_billable",Some("Sales Distribution by Customer")).await?;
+CustomDataFrame::save_plot(&billable_pie, "billable_pie.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+// plot_donut(label_col: &str, value_col: &str, title: Option<&str>, hole_size: Option<f64>)
+// - label_col: column name for slice labels
+// - value_col: column name for slice values
+// - title: optional custom title
+// - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
+let billable_donut = mix.plot_donut("customer_name","total_billable",Some("Sales Distribution by Customer"), Some(0.5)).await?;
+CustomDataFrame::save_plot(&billable_donut, "billable_donut.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+
+//Create report by Appening All Plots that you need 
+let plots = [
+    (&billable_plot, "Sales by Customer"),
+    (&billable_line, "Sales Over Time"),
+    (&billable_pie, "Sales Distribution by Customer")
+];
+
+CustomDataFrame::create_report(
+    &plots,  
+    "Sales Analysis Report", // Report Title
+    "sales_report.html", // File name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
+).await?;
+```
+
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING

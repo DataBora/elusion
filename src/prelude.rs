@@ -68,3 +68,12 @@ pub use std::error::Error;
 // PIVOT
 pub use arrow::compute;
 pub use arrow::array::StringArray;
+
+//PLOTTING
+pub use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
+pub use plotly::common::{Mode, Line, Marker, Orientation};
+pub use plotly::layout::{Axis, Layout};
+pub use plotly::color::Rgb;
+pub use arrow::array::{Array, Float64Array,Int64Array};
+pub use arrow::array::Date32Array;
+pub use std::cmp::Ordering;

@@ -69,6 +69,16 @@ use std::error::Error;
 use arrow::compute;
 use arrow::array::StringArray;
 
+// PLOTTING
+use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
+use plotly::common::{Mode, Line, Marker, Orientation};
+use plotly::layout::{Axis, Layout};
+use plotly::color::Rgb;
+use arrow::array::{Array, Float64Array,Int64Array};
+use arrow::array::Date32Array;
+use std::cmp::Ordering;
+
+
 // custom error type
 #[derive(Debug)]
 pub enum ElusionError {
@@ -3260,6 +3270,624 @@ pub async fn load(
         ))),
     }
 }
-  
+
+
+// -------------------- PLOTING -------------------------- //
+    ///Create line plot
+    pub async fn plot_line(
+        &self, 
+        x_col: &str, 
+        y_col: &str,
+        show_markers: bool,
+        title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+        
+        let x_idx = batch.schema().index_of(x_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", x_col, e)))?;
+        let y_idx = batch.schema().index_of(y_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", y_col, e)))?;
+
+        // Get arrays and convert to vectors
+        let x_values: Vec<f64> = convert_to_f64_vec(batch.column(x_idx))?;
+        let y_values: Vec<f64> = convert_to_f64_vec(batch.column(y_idx))?;
+
+        // Sort values chronologically
+        let (sorted_x, sorted_y) = sort_by_date(&x_values, &y_values);
+
+        // Create trace with appropriate mode
+        let trace = if show_markers {
+            Scatter::new(sorted_x, sorted_y)
+                .mode(Mode::LinesMarkers)
+                .name(&format!("{} vs {}", y_col, x_col))
+                .line(Line::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .width(2.0))
+                .marker(Marker::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .size(8))
+        } else {
+            Scatter::new(sorted_x, sorted_y)
+                .mode(Mode::Lines)
+                .name(&format!("{} vs {}", y_col, x_col))
+                .line(Line::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .width(2.0))
+        };
+            
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+        
+        // Check if x column is a date type and set axis accordingly
+        let x_axis = if matches!(batch.column(x_idx).data_type(), ArrowDataType::Date32) {
+            Axis::new()
+                .title(x_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true)
+                .type_(plotly::layout::AxisType::Date)
+        } else {
+            Axis::new()
+                .title(x_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true)
+        };
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("{} vs {}", y_col, x_col))) 
+            .x_axis(x_axis)
+            .y_axis(Axis::new()
+                .title(y_col.to_string())     
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create time series Plot
+    pub async fn plot_time_series(
+        &self,
+        date_col: &str,
+        value_col: &str,
+        show_markers: bool,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+        
+        let x_idx = batch.schema().index_of(date_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", date_col, e)))?;
+        let y_idx = batch.schema().index_of(value_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", value_col, e)))?;
+
+        // Check if x column is a date type
+        if !matches!(batch.column(x_idx).data_type(), ArrowDataType::Date32) {
+            return Err(ElusionError::Custom(
+                format!("Column {} must be a Date32 type for time series plot", date_col)
+            ));
+        }
+
+        let x_values = convert_to_f64_vec(batch.column(x_idx))?;
+        let y_values = convert_to_f64_vec(batch.column(y_idx))?;
+
+        // Sort values chronologically
+        let (sorted_x, sorted_y) = sort_by_date(&x_values, &y_values);
+
+        let trace = if show_markers {
+            Scatter::new(sorted_x, sorted_y)
+                .mode(Mode::LinesMarkers)
+                .name(value_col)
+                .line(Line::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .width(2.0))
+                .marker(Marker::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .size(8))
+        } else {
+            Scatter::new(sorted_x, sorted_y)
+                .mode(Mode::Lines)
+                .name(value_col)
+                .line(Line::new()
+                    .color(Rgb::new(55, 128, 191))
+                    .width(2.0))
+        };
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("{} over Time", value_col)))
+            .x_axis(Axis::new()
+                .title(date_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true)
+                .type_(plotly::layout::AxisType::Date))
+            .y_axis(Axis::new()
+                .title(value_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a scatter plot from two columns
+    pub async fn plot_scatter(
+        &self,
+        x_col: &str,
+        y_col: &str,
+        marker_size: Option<usize>,
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+        
+        let x_idx = batch.schema().index_of(x_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", x_col, e)))?;
+        let y_idx = batch.schema().index_of(y_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", y_col, e)))?;
+
+        let x_values: Vec<f64> = convert_to_f64_vec(batch.column(x_idx))?;
+        let y_values: Vec<f64> = convert_to_f64_vec(batch.column(y_idx))?;
+
+        let trace = Scatter::new(x_values, y_values)
+            .mode(Mode::Markers)
+            .name(&format!("{} vs {}", y_col, x_col))
+            .marker(Marker::new()
+                .color(Rgb::new(55, 128, 191))
+                .size(marker_size.unwrap_or(8)));
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+        
+        let layout = Layout::new()
+            .title(format!("Scatter Plot: {} vs {}", y_col, x_col))
+            .x_axis(Axis::new().title(x_col.to_string()))
+            .y_axis(Axis::new().title(y_col.to_string()));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a bar chart from two columns
+    pub async fn plot_bar(
+        &self,
+        x_col: &str,
+        y_col: &str,
+        orientation: Option<&str>, 
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+
+        let x_idx = batch.schema().index_of(x_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", x_col, e)))?;
+        let y_idx = batch.schema().index_of(y_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", y_col, e)))?;
+
+        let (x_values, y_values) = if batch.column(x_idx).data_type() == &ArrowDataType::Utf8 {
+            (convert_to_string_vec(batch.column(x_idx))?, convert_to_f64_vec(batch.column(y_idx))?)
+        } else {
+            (convert_to_string_vec(batch.column(y_idx))?, convert_to_f64_vec(batch.column(x_idx))?)
+        };
+
+        let trace = match orientation.unwrap_or("v") {
+            "h" => {
+                Bar::new(x_values.clone(), y_values.clone())
+                    .orientation(Orientation::Horizontal)
+                    .name(&format!("{} by {}", y_col, x_col))
+            },
+            _ => {
+                Bar::new(x_values, y_values)
+                    .orientation(Orientation::Vertical)
+                    .name(&format!("{} by {}", y_col, x_col))
+            }
+        };
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("Bar Chart: {} by {}", y_col, x_col)))
+            .x_axis(Axis::new().title(x_col.to_string()))
+            .y_axis(Axis::new().title(y_col.to_string()));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a histogram from a single column
+    pub async fn plot_histogram(
+        &self,
+        col: &str,
+        bins: Option<usize>,
+        title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+
+        let idx = batch.schema().index_of(col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", col, e)))?;
+
+        let values = convert_to_f64_vec(batch.column(idx))?;
+
+        let trace = Histogram::new(values)
+            .name(col)
+            .n_bins_x(bins.unwrap_or(30));
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("Histogram of {}", col)))
+            .x_axis(Axis::new().title(col.to_string()))
+            .y_axis(Axis::new().title("Count".to_string()));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a box plot from a column
+    pub async fn plot_box(
+        &self,
+        value_col: &str,
+        group_by_col: Option<&str>,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+        
+        // Get value column index
+        let value_idx = batch.schema().index_of(value_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", value_col, e)))?;
+
+        // Convert values column
+        let values = convert_to_f64_vec(batch.column(value_idx))?;
+
+        let trace = if let Some(group_col) = group_by_col {
+            // Get group column index
+            let group_idx = batch.schema().index_of(group_col)
+                .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", group_col, e)))?;
+
+            // Convert group column to strings
+            let groups = convert_to_f64_vec(batch.column(group_idx))?;
+
+            BoxPlot::new(values)
+                .x(groups) // Groups on x-axis
+                .name(value_col)
+        } else {
+            BoxPlot::new(values)
+                .name(value_col)
+        };
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("Distribution of {}", value_col)))
+            .y_axis(Axis::new()
+                .title(value_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true))
+            .x_axis(Axis::new()
+                .title(group_by_col.unwrap_or("").to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+     /// Create a pie chart from two columns: labels and values
+     pub async fn plot_pie(
+        &self,
+        label_col: &str,
+        value_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+
+        // Get column indices
+        let label_idx = batch.schema().index_of(label_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", label_col, e)))?;
+        let value_idx = batch.schema().index_of(value_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", value_col, e)))?;
+
+        // Convert columns to appropriate types
+        let labels = convert_to_string_vec(batch.column(label_idx))?;
+        let values = convert_to_f64_vec(batch.column(value_idx))?;
+
+        // Create the pie chart trace
+        let trace = Pie::new(values)
+            .labels(labels)
+            .name(value_col)
+            .hole(0.0);
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        // Create layout
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("Distribution of {}", value_col)))
+            .show_legend(true);
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a donut chart (pie chart with a hole)
+    pub async fn plot_donut(
+        &self,
+        label_col: &str,
+        value_col: &str,
+        title: Option<&str>,
+        hole_size: Option<f64>, // Value between 0 and 1
+    ) -> ElusionResult<Plot> {
+        let batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+
+        let label_idx = batch.schema().index_of(label_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", label_col, e)))?;
+        let value_idx = batch.schema().index_of(value_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", value_col, e)))?;
+
+        let labels = convert_to_string_vec(batch.column(label_idx))?;
+        let values = convert_to_f64_vec(batch.column(value_idx))?;
+
+        // Ensure hole size is between 0 and 1
+        let hole_size = hole_size.unwrap_or(0.5).max(0.0).min(1.0);
+
+        let trace = Pie::new(values)
+            .labels(labels)
+            .name(value_col)
+            .hole(hole_size); 
+
+        let mut plot = Plot::new();
+        plot.add_trace(trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or(&format!("Distribution of {}", value_col)))
+            .show_legend(true);
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
    
+    /// Save plot to HTML file
+    pub async fn save_plot(plot: &Plot, filename: &str, path: Option<&str>) -> ElusionResult<()> {
+        let file_path = if let Some(dir_path) = path {
+            let path = std::path::Path::new(dir_path);
+            // Create directories if they don't exist
+            if !path.exists() {
+                std::fs::create_dir_all(path)
+                    .map_err(|e| ElusionError::Custom(
+                        format!("Failed to create directory '{}': {}", dir_path, e)
+                    ))?;
+            }
+            path.join(filename)
+        } else {
+            std::path::Path::new(filename).to_path_buf()
+        };
+
+        // Convert the path to string for write_html
+        let file_path_str = file_path.to_str()
+            .ok_or_else(|| ElusionError::Custom("Invalid path".to_string()))?;
+
+        // Write the plot directly since plotly's types aren't thread-safe
+        plot.write_html(file_path_str);
+
+        Ok(())
+    }
+    /// Create a report containing multiple plots in a single HTML file
+    pub async fn create_report(
+        plots: &[(&Plot, &str)],
+        report_title: &str,
+        filename: &str,
+        path: Option<&str>,
+    ) -> ElusionResult<()> {
+        // Handle file path
+        let file_path = if let Some(dir_path) = path {
+            let path = std::path::Path::new(dir_path);
+            if !path.exists() {
+                std::fs::create_dir_all(path)
+                    .map_err(|e| ElusionError::Custom(
+                        format!("Failed to create directory '{}': {}", dir_path, e)
+                    ))?;
+            }
+            path.join(filename)
+        } else {
+            std::path::Path::new(filename).to_path_buf()
+        };
+
+        let file_path_str = file_path.to_str()
+            .ok_or_else(|| ElusionError::Custom("Invalid path".to_string()))?;
+
+        // Create HTML content
+        let mut html_content = format!(
+            r#"<!DOCTYPE html>
+                <html>
+                <head>
+                    <title>{}</title>
+                    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+                    <style>
+                        body {{
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 20px;
+                            background-color: #f5f5f5;
+                        }}
+                        .container {{
+                            max-width: 1200px;
+                            margin: 0 auto;
+                            background-color: white;
+                            padding: 20px;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }}
+                        h1 {{
+                            color: #333;
+                            text-align: center;
+                            margin-bottom: 30px;
+                        }}
+                        .plot-container {{
+                            margin-bottom: 30px;
+                            padding: 15px;
+                            background-color: white;
+                            border-radius: 4px;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        }}
+                        .plot-title {{
+                            font-size: 18px;
+                            font-weight: bold;
+                            margin-bottom: 10px;
+                            color: #444;
+                        }}
+                        .grid {{
+                            display: grid;
+                            grid-template-columns: 1fr;
+                            gap: 20px;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>{}</h1>
+                        <div class="grid">
+                "#,
+            report_title, report_title
+        );
+
+        // Add each plot
+        for (index, (plot, title)) in plots.iter().enumerate() {
+            let div_id = format!("plot_{}", index);
+            let data_json = serde_json::to_string(plot.data())
+                .map_err(|e| ElusionError::Custom(format!("Failed to serialize plot data: {}", e)))?;
+            let layout_json = serde_json::to_string(plot.layout())
+                .map_err(|e| ElusionError::Custom(format!("Failed to serialize plot layout: {}", e)))?;
+                
+            html_content.push_str(&format!(
+                r#"            
+                <div class="plot-container">
+                    <div class="plot-title">{}</div>
+                    <div id="{}"></div>
+                    <script>
+                        var data = {};
+                        var layout = {};
+                        Plotly.newPlot("{}", data, layout);
+                    </script>
+                </div>
+                "#,
+                title,
+                div_id,
+                data_json,
+                layout_json,
+                div_id
+            ));
+        }
+
+        // Close HTML
+        html_content.push_str(
+        r#"        
+                    </div>
+                    </div>
+                    </body>
+                </html>"#
+        );
+
+        // Write to file
+        let mut file = File::create(file_path_str)
+            .map_err(|e| ElusionError::Custom(format!("Failed to create file: {}", e)))?;
+        
+        file.write_all(html_content.as_bytes())
+            .map_err(|e| ElusionError::Custom(format!("Failed to write to file: {}", e)))?;
+
+        Ok(())
+    }
+
+   
+}
+
+
+fn convert_to_f64_vec(array: &dyn Array) -> ElusionResult<Vec<f64>> {
+    match array.data_type() {
+        ArrowDataType::Float64 => {
+            let float_array = array.as_any()
+                .downcast_ref::<Float64Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Float64Array".to_string()))?;
+            Ok(float_array.values().to_vec())
+        },
+        ArrowDataType::Int64 => {
+            let int_array = array.as_any()
+                .downcast_ref::<Int64Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Int64Array".to_string()))?;
+            Ok(int_array.values().iter().map(|&x| x as f64).collect())
+        },
+        ArrowDataType::Date32 => {
+            let date_array = array.as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Date32Array".to_string()))?;
+            Ok(convert_date32_to_timestamps(date_array))
+        },
+        ArrowDataType::Utf8 => {
+            let string_array = array.as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
+            let mut values = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                let value = string_array.value(i).parse::<f64>().unwrap_or(0.0);
+                values.push(value);
+            }
+            Ok(values)
+        },
+        other_type => {
+            Err(ElusionError::Custom(format!("Unsupported data type for plotting: {:?}", other_type)))
+        }
+    }
+}
+
+fn convert_to_string_vec(array: &dyn Array) -> ElusionResult<Vec<String>> {
+    match array.data_type() {
+        ArrowDataType::Utf8 => {
+            let string_array = array.as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
+            
+            let mut values = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                values.push(string_array.value(i).to_string());
+            }
+            Ok(values)
+        },
+        other_type => {
+            Err(ElusionError::Custom(format!("Expected string type but got: {:?}", other_type)))
+        }
+    }
+}
+
+fn convert_date32_to_timestamps(array: &Date32Array) -> Vec<f64> {
+    array.values()
+        .iter()
+        .map(|&days| {
+            // Convert days since epoch to timestamp
+            let date = NaiveDate::from_num_days_from_ce_opt(days + 719163)
+                .unwrap_or(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+            let datetime = date.and_hms_opt(0, 0, 0).unwrap();
+            datetime.and_utc().timestamp() as f64 * 1000.0 // Convert to milliseconds for plotly
+        })
+        .collect()
+}
+
+// Helper function to sort date-value pairs
+fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let mut pairs: Vec<(f64, f64)> = x_values.iter()
+        .cloned()
+        .zip(y_values.iter().cloned())
+        .collect();
+    
+    // Sort by date (x values)
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+    
+    // Unzip back into separate vectors
+    pairs.into_iter().unzip()
 }
