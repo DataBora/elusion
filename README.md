@@ -748,14 +748,19 @@ df.display_correlation_matrix(&[
 
 ---
 # DATABASE Connectors 
-### ODBC connectors available for MySQL and PostgreSQL with RAW SQL
+### ODBC connectors available for MySQL and PostgreSQL
 #### Requirements: You need to install Driver for you database ODBC connector
-### NOTE: You can always load tables into Dataframes and work with DataFrame API 
+For ODBC connectivity on Ubuntu and macOS you need to install unixodbc:
+Ubuntu/Debian: sudo apt-get install unixodbc-dev
+macOS: brew install unixodbc
+Windows: ODBC drivers are typically included with the OS
+
+#### Don't forget that you can always load tables from Database into DataFrames and work with DataFrame API, but for better performance you should aggregate data in SQL server than push it into dataframe. 
 
 ### MySQL example
 ```rust
 let connection_string = "
-    Driver={MySQL ODBC 9.1 Unicode Driver};\
+    Driver={MySQL ODBC 9.1 Unicode Driver};\ 
     Server=127.0.0.1;\
     Port=3306;\
     Database=your_database_name;\
