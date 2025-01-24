@@ -2,8 +2,10 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, and DELTA and ODBC Database Connections: MySQL, Postgres
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA and ODBC Database Connectors: MySQL and PostgreSQL.
+
 DataFrame operations are built atop the DataFusion SQL query engine, and Database operations are built atop Arrow ODBC.
+
 Elusion provides a robust DataFrame-like interface for managing and querying data efficiently.
 
 Tailored for developers seeking a powerful abstraction over data transformations, Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable API.
