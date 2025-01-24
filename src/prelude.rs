@@ -55,6 +55,10 @@ pub use std::fmt::{self, Debug};
 pub use std::error::Error;
 
 // ================ DATABASE
+
+pub use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
+pub use arrow_odbc::OdbcReaderBuilder;
+pub use lazy_static::lazy_static;
 // pub use futures::Future;
 // pub use datafusion::sql::TableReference;
 // pub use datafusion_table_providers::postgres::PostgresTableFactory;
@@ -80,3 +84,4 @@ pub use std::cmp::Ordering;
 
 // STATISTICS
 pub use datafusion::common::ScalarValue;
+
