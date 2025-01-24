@@ -2,7 +2,9 @@
 
 ![Elusion Logo](images/elusion.png)
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, and DELTA. Built atop the DataFusion SQL query engine, Elusion provides a robust DataFrame-like interface for managing and querying data efficiently.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, and DELTA and ODBC Database Connections: MySQL, Postgres
+DataFrame operations are built atop the DataFusion SQL query engine, and Database operations are built atop Arrow ODBC.
+Elusion provides a robust DataFrame-like interface for managing and querying data efficiently.
 
 Tailored for developers seeking a powerful abstraction over data transformations, Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable API.
 
@@ -18,12 +20,9 @@ Tested for MacOS, Linux and Windows
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, GROUP BY, and WINDOW with ease.
 
-### 📊 Aggregations and Analytics
+### 📉 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
 Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
-
-### 📊 Ploting
-You can create individual HTML files with single Plot, OR you can create HTML reports with multiple Plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
 
 ### 🔗 Flexible Joins
 Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
@@ -34,6 +33,9 @@ Analytical Capabilities: Implement window functions like RANK, DENSE_RANK, ROW_N
 
 ### 🔄 Pivot and Unpivot Functions
 Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions to suit your analytical needs.
+
+### 📊 Plotting
+You can create individual HTML files with single Plot, OR you can create HTML reports with multiple Plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
 
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
@@ -52,7 +54,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.1.1"
+elusion = "1.2.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -745,7 +747,84 @@ df.display_correlation_matrix(&[
 ---
 
 ---
-# PLOTING
+# DATABASE Connectors 
+### ODBC connectors available for MySQL and PostgreSQL with RAW SQL
+#### Requirements: You need to install Driver for you database ODBC connector
+### NOTE: You can always load tables into Dataframes and work with DataFrame API 
+
+### MySQL example
+```rust
+let connection_string = "
+    Driver={MySQL ODBC 9.1 Unicode Driver};\
+    Server=127.0.0.1;\
+    Port=3306;\
+    Database=your_database_name;\
+    User=your_user_name;\
+    Password=your_password";
+    
+let sql_query = "
+    SELECT 
+        b.beer_style,
+        b.location,
+        c.color,
+        AVG(b.fermentation_time) AS avg_fermentation_time,
+        ROUND(AVG(b.temperature), 2) AS avg_temperature,
+        ROUND(AVG(b.quality_score), 2) AS avg_quality,
+        ROUND(AVG(b.brewhouse_efficiency), 2) AS avg_efficiency,
+        SUM(b.volume_produced) AS total_volume,
+        ROUND(AVG(b.loss_during_brewing), 2) AS avg_brewing_loss,
+        ROUND(AVG(b.loss_during_fermentation), 2) AS avg_fermentation_loss,
+        ROUND(SUM(b.total_sales), 2) AS total_sales,
+        ROUND(AVG(b.brewhouse_efficiency - (b.loss_during_brewing + b.loss_during_fermentation)), 2) AS net_efficiency
+    FROM brewery_data b
+    JOIN colors c ON b.color = c.color_number
+    WHERE volume_produced > 1000
+    GROUP BY b.beer_style, b.location, c.color
+    HAVING avg_quality > 8
+    ORDER BY total_sales DESC, avg_quality DESC
+    LIMIT 20
+";
+
+let mysql_df = CustomDataFrame::from_db(
+    connection_string,
+    sql_query
+).await?;
+
+let analysis_df = mysql_df.elusion("brewing_analysis").await?;
+analysis_df.display().await?;
+```
+### PostgreSQL example
+```rust
+let pg_connection = "\
+        Driver={PostgreSQL UNICODE};\
+        Servername=127.0.0.1;\
+        Port=5433;\
+        Database=your_database_name;\
+        UID=your_user_name;\
+        PWD=your_password;\
+    ";
+
+let sql_query = "
+    SELECT 
+        c.name,
+        c.email,
+        SUM(s.quantity * s.price) as total_sales,
+        COUNT(*) as number_of_purchases
+    FROM sales s
+    JOIN customers c ON s.customer_id = c.id
+    GROUP BY c.id, c.name, c.email
+    ORDER BY total_sales DESC
+";
+
+let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
+
+let pg_res = pg_df.elusion("pg_res").await?;
+pg_res.display().await?;
+```
+---
+
+---
+# PLOTTING
 ### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
 #### Bellow are examples how you can simply create different plots and Report
 ```rust
@@ -850,11 +929,11 @@ CustomDataFrame::create_report(
 ```rust
 // example json structure
 {
-    "name": "Adeel Solangi",
-    "language": "Sindhi",
-    "id": "V59OF92YF627HFY0",
-    "bio": "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum.",
-    "version": 6.1
+"name": "Adeel Solangi",
+"language": "Sindhi",
+"id": "V59OF92YF627HFY0",
+"bio": "Donec lobortis eleifend condimentum. Cras dictum dolor lacinia lectus vehicula rutrum.",
+"version": 6.1
 }
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
@@ -978,7 +1057,7 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
-, Arrow for efficient query processing. Special thanks to the open-source community for making this project possible.
+,Appache Arrow, Arrow ODBC... for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 ## Where you can find me:
 

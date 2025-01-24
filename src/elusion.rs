@@ -1,5 +1,6 @@
 pub mod prelude;
 
+// =========== DataFusion
 use datafusion::logical_expr::col;
 use regex::Regex;
 use datafusion::prelude::*;
@@ -33,6 +34,7 @@ use arrow::error::Result as ArrowResult;
 
 use datafusion::arrow::datatypes::TimeUnit;
 
+// ========== DELTA
 use std::result::Result;
 use std::path::{Path as LocalPath, PathBuf};
 use deltalake::operations::DeltaOps;
@@ -47,29 +49,14 @@ use deltalake::storage::object_store::local::LocalFileSystem;
 
 
 // =========== ERRROR
-
 use std::fmt::{self, Debug};
 use std::error::Error;
 
-// ============= DATABASE
-// use futures::Future;
-// use datafusion::sql::TableReference;
-// use datafusion_table_providers::postgres::PostgresTableFactory;
-// use datafusion_table_providers::sql::db_connection_pool::postgrespool::PostgresConnectionPool;
-// use datafusion_table_providers::mysql::MySQLTableFactory;
-// use datafusion_table_providers::sql::db_connection_pool::mysqlpool::MySQLConnectionPool;
-// use datafusion_table_providers::odbc::ODBCTableFactory;
-// use datafusion_table_providers::sql::db_connection_pool::odbcpool::ODBCPool;
-// use datafusion_table_providers::util::secrets::to_secret_map;
-// use datafusion_federation;
-// use mongodb::{Client, options::ClientOptions, bson::Document};
-// use futures::stream::TryStreamExt;
-
-// PIVOT
+// ======== PIVOT
 use arrow::compute;
 use arrow::array::StringArray;
 
-// PLOTTING
+// ======== PLOTTING
 use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
 use plotly::common::{Mode, Line, Marker, Orientation};
 use plotly::layout::{Axis, Layout};
@@ -78,11 +65,155 @@ use arrow::array::{Array, Float64Array,Int64Array};
 use arrow::array::Date32Array;
 use std::cmp::Ordering;
 
-// STATISTICS
+// ======== STATISTICS
 use datafusion::common::ScalarValue;
 
+// ============ DATABASE
+use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
+use arrow_odbc::OdbcReaderBuilder;
+use lazy_static::lazy_static;
 
-// custom error type
+// ===== struct to manage DB connections
+lazy_static!{
+    static ref DB_ENV: Environment = {
+        Environment::new().expect("Failed to create odbc environment")
+    };
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum DatabaseType {
+    MySQL,
+    PostgreSQL,
+    MongoDB,
+    SQLServer,
+    Unknown
+}
+// ========== Database helper functions
+fn detect_database(connection_string: &str) -> DatabaseType {
+    if connection_string.contains("MySQL") {
+        DatabaseType::MySQL
+    } else if connection_string.contains("PostgreSQL") {
+        DatabaseType::PostgreSQL
+    } else if connection_string.contains("MongoDB") {
+        DatabaseType::MongoDB
+    } else if connection_string.contains("SQL Server") {
+        DatabaseType::SQLServer
+    } else {
+        DatabaseType::Unknown
+    }
+ }
+
+ fn extract_alias_from_sql(query: &str, db_type: DatabaseType) -> Option<String> {
+    let lower_query = query.to_lowercase();
+    if let Some(from_idx) = lower_query.find(" from ") {
+        let after_from = &query[from_idx + 6..];
+        let parts: Vec<&str> = after_from.split_whitespace().collect();
+        
+        if parts.len() >= 3 && (parts[1].eq_ignore_ascii_case("as") || parts[1].eq_ignore_ascii_case("")) {
+            let alias = parts[2];
+            match db_type {
+                DatabaseType::SQLServer => {
+                    Some(alias.to_string())
+                },
+                DatabaseType::MySQL => Some(alias.trim_matches('`').to_string()),
+                DatabaseType::PostgreSQL => Some(alias.trim_matches('"').to_string()),
+                DatabaseType::MongoDB => Some(alias.to_string()),
+                DatabaseType::Unknown => Some(alias.trim_matches(|c| c == '`' || c == '"').to_string()),
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+//======= Ploting Helper functions
+
+fn convert_to_f64_vec(array: &dyn Array) -> ElusionResult<Vec<f64>> {
+    match array.data_type() {
+        ArrowDataType::Float64 => {
+            let float_array = array.as_any()
+                .downcast_ref::<Float64Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Float64Array".to_string()))?;
+            Ok(float_array.values().to_vec())
+        },
+        ArrowDataType::Int64 => {
+            let int_array = array.as_any()
+                .downcast_ref::<Int64Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Int64Array".to_string()))?;
+            Ok(int_array.values().iter().map(|&x| x as f64).collect())
+        },
+        ArrowDataType::Date32 => {
+            let date_array = array.as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Date32Array".to_string()))?;
+            Ok(convert_date32_to_timestamps(date_array))
+        },
+        ArrowDataType::Utf8 => {
+            let string_array = array.as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
+            let mut values = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                let value = string_array.value(i).parse::<f64>().unwrap_or(0.0);
+                values.push(value);
+            }
+            Ok(values)
+        },
+        other_type => {
+            Err(ElusionError::Custom(format!("Unsupported data type for plotting: {:?}", other_type)))
+        }
+    }
+}
+
+fn convert_to_string_vec(array: &dyn Array) -> ElusionResult<Vec<String>> {
+    match array.data_type() {
+        ArrowDataType::Utf8 => {
+            let string_array = array.as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
+            
+            let mut values = Vec::with_capacity(array.len());
+            for i in 0..array.len() {
+                values.push(string_array.value(i).to_string());
+            }
+            Ok(values)
+        },
+        other_type => {
+            Err(ElusionError::Custom(format!("Expected string type but got: {:?}", other_type)))
+        }
+    }
+}
+
+fn convert_date32_to_timestamps(array: &Date32Array) -> Vec<f64> {
+    array.values()
+        .iter()
+        .map(|&days| {
+            // Convert days since epoch to timestamp
+            let date = NaiveDate::from_num_days_from_ce_opt(days + 719163)
+                .unwrap_or(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
+            let datetime = date.and_hms_opt(0, 0, 0).unwrap();
+            datetime.and_utc().timestamp() as f64 * 1000.0 // Convert to milliseconds for plotly
+        })
+        .collect()
+}
+
+// Helper function to sort date-value pairs
+fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let mut pairs: Vec<(f64, f64)> = x_values.iter()
+        .cloned()
+        .zip(y_values.iter().cloned())
+        .collect();
+    
+    // Sort by date (x values)
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+    
+    // Unzip back into separate vectors
+    pairs.into_iter().unzip()
+}
+
+// ======== Custom error type
 #[derive(Debug)]
 pub enum ElusionError {
     DataFusion(DataFusionError),
@@ -116,264 +247,14 @@ impl From<std::io::Error> for ElusionError {
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
 
-// Database connectors
-/// A trait for data sources that can register a table in a SessionContext
-// pub trait DataSource {
-//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send;
-// }
-
-// pub struct MongoDbSource {
-//     connection_string: String,
-//     database: String,
-//     collection: String,
-// }
-// impl MongoDbSource {
-//     async fn fetch_documents(&self) -> Result<Vec<Document>, ElusionError> {
-//         let client_options = ClientOptions::parse(&self.connection_string)
-//             .await
-//             .map_err(|e| ElusionError::Custom(format!("MongoDB connection error: {}", e)))?;
-
-//         let client = Client::with_options(client_options)
-//             .map_err(|e| ElusionError::Custom(format!("MongoDB client error: {}", e)))?;
-
-//         let collection = client
-//             .database(&self.database)
-//             .collection::<Document>(&self.collection);
-
-//             let filter = Document::new();
-//             let cursor = collection.find(filter)
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(format!("MongoDB find error: {}", e)))?;
-
-//         cursor.try_collect().await.map_err(|e| ElusionError::Custom(format!("MongoDB cursor error: {}", e)))
-//     }
-// }
-
-
-// impl DataSource for MongoDbSource {
-//     async fn register(&self, _ctx: &SessionContext, alias: &str) -> Result<(), ElusionError> {
-//         println!("Connecting to MongoDB...");
-
-//         // Fetch documents from MongoDB
-//         let documents = self.fetch_documents().await?;
-
-//         println!("Fetched {} documents from MongoDB.", documents.len());
-
-//         // Convert documents to JSON string
-//         let json_string = serde_json::to_string(&documents)
-//             .map_err(|e| ElusionError::Custom(format!("JSON serialization error: {}", e)))?;
-
-//         // Create DataFrame based on the number of documents
-//         if documents.len() > 1 {
-//             println!("Creating DataFrame from multiple documents...");
-//             create_dataframe_from_multiple_json(&json_string, alias).await
-//                 .map_err(|e| ElusionError::Custom(format!("DataFrame creation error: {}", e)))?;
-//         } else {
-//             println!("Creating DataFrame from single document...");
-//             create_dataframe_from_json(&json_string, alias).await
-//                 .map_err(|e| ElusionError::Custom(format!("DataFrame creation error: {}", e)))?;
-//         };
-
-//         println!("Table '{}' registered successfully.", alias);
-//         Ok(())
-//     }
-// }
-
-// /// A struct capturing connection info + table name for Postgres
-// pub struct PostgresSource {
-//     host: String,
-//     user: String,
-//     password: String,
-//     database: String,
-//     port: String,
-//     table_name: String,
-// }
-
-// impl PostgresSource {
-//     pub fn new(
-//         host: &str,
-//         user: &str,
-//         password: &str,
-//         database: &str,
-//         port: &str,
-//         table_name: &str,
-//     ) -> Self {
-//         Self {
-//             host: host.to_owned(),
-//             user: user.to_owned(),
-//             password: password.to_owned(),
-//             database: database.to_owned(),
-//             port: port.to_owned(),
-//             table_name: table_name.to_owned(),
-//         }
-//     }
-// }
-
-// impl DataSource for PostgresSource {
-//     async fn register(&self, ctx: &SessionContext, alias: &str) -> ElusionResult<()> {
-      
-//         let params = to_secret_map(HashMap::from([
-//             ("host".to_owned(), self.host.clone()),
-//             ("user".to_owned(), self.user.clone()),
-//             ("pass".to_owned(), self.password.clone()),
-//             ("db".to_owned(), self.database.clone()),
-//             ("port".to_owned(), self.port.clone()),
-//             ("sslmode".to_owned(), "disable".to_owned()), // or "enable" if needed
-//         ]));
-
-//         let pool = Arc::new(
-//             PostgresConnectionPool::new(params)
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(e.to_string()))?
-//         );
-
-//         let factory = PostgresTableFactory::new(pool);
-
-//         let table_provider = factory
-//             .table_provider(TableReference::partial("public", &*self.table_name))
-//             .await
-//             .map_err(|e| ElusionError::Custom(e.to_string()))?;
-
-//         ctx.register_table(alias, table_provider)
-//             .map_err(ElusionError::DataFusion)?;
-
-//         Ok(())
-//     }
-// }
-
-// /// MySQL Source
-// pub struct MySqlSource {
-//     connection_string: String,
-//     table_name: String,
-//     ssl_mode: String,
-// }
-
-// impl MySqlSource {
-//     pub fn new(connection_string: &str, table_name: &str, ssl_mode: &str) -> Self {
-//         Self {
-//             connection_string: connection_string.to_owned(),
-//             table_name: table_name.to_owned(),
-//             ssl_mode: ssl_mode.to_owned(),
-//         }
-//     }
-
-// }
-
-// impl DataSource for MySqlSource {
-//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send {
-//         async move {
-//             println!("Starting MySQL connection process...");
-            
-//             let params = to_secret_map(HashMap::from([
-//                 ("connection_string".to_owned(), self.connection_string.clone()),
-//                 ("sslmode".to_owned(), self.ssl_mode.clone()),
-//                 // performance parameters
-//                 ("pool_min_idle".to_owned(), "5".to_owned()),  
-//                 ("pool_max_size".to_owned(), "20".to_owned()), 
-//                 ("statement_cache_capacity".to_owned(), "100".to_owned()),
-//                 ("prefer_socket".to_owned(), "true".to_owned()),
-//             ]));
-
-//             println!("Creating MySQL connection pool...");
-//             let pool = match tokio::time::timeout(
-//                 std::time::Duration::from_secs(10), 
-//                 MySQLConnectionPool::new(params)
-//             ).await {
-//                 Ok(pool_result) => {
-//                     match pool_result {
-//                         Ok(pool) => {
-//                             println!("MySQL pool created successfully");
-//                             pool
-//                         },
-//                         Err(e) => {
-//                             println!("Failed to create MySQL pool: {}", e);
-//                             return Err(ElusionError::Custom(format!("MySQL pool creation error: {}", e)));
-//                         }
-//                     }
-//                 },
-//                 Err(_) => {
-//                     println!("MySQL pool creation timed out");
-//                     return Err(ElusionError::Custom("MySQL connection pool creation timed out".to_string()));
-//                 }
-//             };
-
-//             println!("Creating MySQL table factory...");
-//             let pool = Arc::new(pool);
-//             let factory = MySQLTableFactory::new(pool);
-
-//             println!("Creating table provider for table: {}", self.table_name);
-//             let table_provider = factory
-//                 .table_provider(TableReference::bare(&*self.table_name))
-//                 .await
-//                 .map_err(|e| {
-//                     println!("Failed to create table provider: {}", e);
-//                     ElusionError::Custom(format!("Failed to create table provider: {}", e))
-//                 })?;
-
-//             println!("Registering table with alias: {}", alias);
-//             ctx.register_table(alias, table_provider)
-//                 .map_err(|e| {
-//                     println!("Failed to register table: {}", e);
-//                     ElusionError::DataFusion(e)
-//                 })?;
-
-//             println!("MySQL table registration completed successfully");
-//             Ok(())
-//         }
-//     }
-// }
-
-// /// ODBC Source
-// pub struct ODBCSource {
-//     connection_string: String,
-//     table_name: String,
-// }
-
-// impl ODBCSource {
-//     pub fn new(connection_string: &str, table_name: &str) -> Self {
-//         Self {
-//             connection_string: connection_string.to_owned(),
-//             table_name: table_name.to_owned(),
-//         }
-//     }
-// }
-
-// impl DataSource for ODBCSource {
-//     fn register(&self, ctx: &SessionContext, alias: &str) -> impl Future<Output = ElusionResult<()>> + Send {
-//         async move {
-//             let params = to_secret_map(HashMap::from([(
-//                 "connection_string".to_owned(),
-//                 self.connection_string.clone(),
-//             )]));
-
-//             let pool = Arc::new(
-//                 ODBCPool::new(params)
-//                     .map_err(|e| ElusionError::Custom(e.to_string()))?
-//             );
-
-//             let factory = ODBCTableFactory::new(pool);
-
-//             let table_provider = factory
-//                 .table_provider(TableReference::bare(&*self.table_name), None)
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(e.to_string()))?;
-
-//             ctx.register_table(alias, table_provider)
-//                 .map_err(ElusionError::DataFusion)?;
-
-//             Ok(())
-//         }
-//     }
-// }
-
-// JOin struct
+/// JOIN Struckt
 #[derive(Clone, Debug)]
 pub struct Join {
     dataframe: CustomDataFrame,
     condition: String,
     join_type: String,
 }
-// CustomDataFrame struct
+/// CustomDataFrame struct
 #[derive(Clone, Debug)]
 pub struct CustomDataFrame {
     df: DataFrame,
@@ -405,11 +286,6 @@ struct GenericJson {
     #[serde(flatten)]
     fields: HashMap<String, Value>,
 }
-
-/// Deserializes a JSON string into the GenericJson struct.
-// fn deserialize_generic_json(json_str: &str) -> serde_json::Result<GenericJson> {
-//     serde_json::from_str(json_str)
-// }
 
 /// Flattens the GenericJson struct into a single-level HashMap.
 fn flatten_generic_json(data: GenericJson) -> HashMap<String, Value> {
@@ -837,7 +713,7 @@ pub struct ColumnStatistics {
 pub struct NullAnalysis {
     pub counts: Vec<NullCount>,
 }
-
+/// Struct to hold null count analysis
 #[derive(Debug)]
 pub struct NullCount {
     pub column_name: String,
@@ -931,22 +807,12 @@ impl CsvWriteOptions {
     }
 }
 // ================== NORMALIZERS
-//===WRITERS
-// fn normalize_column_name_write(name: &str) -> String {
-//     name.trim().to_lowercase().replace(" ", "_")
-// }
 
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.
 fn normalize_alias_write(alias: &str) -> String {
     alias.trim().to_lowercase()
 }
 
-/// Normalizes a condition string by converting it to lowercase.
-// fn normalize_condition_write(condition: &str) -> String {
-//     condition.trim().to_lowercase()
-// }
-
-//==== DATAFRAME NORMALIZERS
 /// Normalizes column name by trimming whitespace and properly quoting table aliases and column names.
 fn normalize_column_name(name: &str) -> String {
     if let Some(pos) = name.find('.') {
@@ -1135,7 +1001,7 @@ fn normalize_function_arg(arg: &str) -> String {
 }
 
 // ================= DELTA
-  /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
+/// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
 /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
 /// or an error
 async fn glean_arrow_schema(df: &DataFrame) -> Result<SchemaRef, DataFusionError> {
@@ -3392,15 +3258,7 @@ pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, 
         alias: alias.to_string(),
     })
 }
-    // async fn load_csv<'a>(file_path: &'a str, alias: &'a str) -> ElusionResult<AliasedDataFrame> {
-//     let ctx = SessionContext::new();
-//     let df = ctx.read_csv(file_path, CsvReadOptions::new()).await
-//         .map_err(ElusionError::DataFusion)?;
-//     Ok(AliasedDataFrame {
-//         dataframe: df,
-//         alias: alias.to_string(),
-//     })
-// }
+
 
 /// LOAD function for Parquet file type
 pub fn load_parquet<'a>(
@@ -3555,6 +3413,116 @@ pub fn load_delta<'a>(
             dataframe: aliased_df,
             alias: alias.to_string(),
         })
+    })
+}
+
+pub async fn load_db(
+    connection_string: &str,
+    query: &str,
+    alias: &str,
+) -> Result<AliasedDataFrame, DataFusionError> {
+    // println!("Debug - Query: {}", query);
+
+    let connection = DB_ENV
+        .connect_with_connection_string(connection_string, ConnectionOptions::default())
+        .map_err(|e| DataFusionError::Execution(format!("DB Connection failed: {}", e)))?;
+
+    // Execute query and get owned cursor
+    let owned_cursor = connection
+        .into_cursor(query, ())
+        .map_err(|e| e.error)
+        .map_err(|e| DataFusionError::Execution(format!("Query execution failed: {}", e)))?
+        .expect("SELECT must produce cursor");
+
+    // Configure ODBC reader for optimal performance
+    let reader = OdbcReaderBuilder::new()
+        .with_max_num_rows_per_batch(50000)  
+        .with_max_bytes_per_batch(1024 * 1024 * 1024)  // 512MB limit per batch
+        .with_fallibale_allocations(true) 
+        .build(owned_cursor)
+        .map_err(|e| DataFusionError::Execution(format!("Failed to create ODBC reader: {}", e)))?;
+
+    //  concurrent reader for better performance
+    let concurrent_reader = reader.into_concurrent()
+        .map_err(|e| DataFusionError::Execution(format!("Failed to create concurrent reader: {}", e)))?;
+
+    //  all batches
+    let mut all_batches = Vec::new();
+    for batch_result in concurrent_reader {
+        let batch = batch_result.map_err(|e| DataFusionError::Execution(format!("Batch reading failed: {}", e)))?;
+        all_batches.push(batch);
+    }
+
+    // Create DataFrame from batches
+    let ctx = SessionContext::new();
+    if let Some(first_batch) = all_batches.first() {
+        let schema = first_batch.schema();
+        let mem_table = MemTable::try_new(schema, vec![all_batches])
+            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+
+        let normalized_alias = normalize_alias_write(alias);
+        ctx.register_table(&normalized_alias, Arc::new(mem_table))
+            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+
+        let df = ctx.table(&normalized_alias).await?;
+
+
+        Ok(AliasedDataFrame {
+            dataframe: df,
+            alias: alias.to_string(),
+        })
+    } else {
+        Err(DataFusionError::Execution("No data returned from query".to_string()))
+    }
+}
+
+// Constructor for database sources
+pub async fn from_db(
+    connection_string: &str, 
+    query: &str
+) -> ElusionResult<Self> {
+    let db_type = detect_database(connection_string);
+    let db_name = connection_string
+    .split(';')
+    .find(|s| s.trim().starts_with("Database="))
+    .and_then(|s| s.split('=').nth(1).map(str::trim))
+    .unwrap_or("default");
+
+    // Extract alias from SQL if present
+    let table_alias = if db_type == DatabaseType::SQLServer {
+        "SQLServerTable".to_string()
+    } else {
+        extract_alias_from_sql(query, db_type.clone())
+            .unwrap_or_else(|| db_name.to_string())
+    };
+
+    let aliased_df = Self::load_db(connection_string, query, &table_alias).await?;
+
+    if aliased_df.dataframe.schema().fields().is_empty() {
+        return Err(ElusionError::Custom("Query returned no data".to_string()));
+    }
+    
+    Ok(CustomDataFrame {
+        df: aliased_df.dataframe,
+        table_alias: aliased_df.alias.clone(),
+        from_table: aliased_df.alias,
+        selected_columns: Vec::new(),
+        alias_map: Vec::new(),
+        aggregations: Vec::new(),
+        group_by_columns: Vec::new(),
+        where_conditions: Vec::new(),
+        having_conditions: Vec::new(),
+        order_by_columns: Vec::new(),
+        limit_count: None,
+        joins: Vec::new(),
+        window_functions: Vec::new(),
+        ctes: Vec::new(),
+        subquery_source: None,
+        set_operations: Vec::new(),
+        query: String::new(),
+        aggregated_df: None,
+        union_tables: None,
+        original_expressions: Vec::new(),
     })
 }
 
@@ -4062,7 +4030,7 @@ pub async fn load(
                         .grid {{
                             display: grid;
                             grid-template-columns: 1fr;
-                            gap: 20px;
+                            gap: 30px;
                         }}
                     </style>
                 </head>
@@ -4120,90 +4088,5 @@ pub async fn load(
 
         Ok(())
     }
-
-   
 }
 
-
-fn convert_to_f64_vec(array: &dyn Array) -> ElusionResult<Vec<f64>> {
-    match array.data_type() {
-        ArrowDataType::Float64 => {
-            let float_array = array.as_any()
-                .downcast_ref::<Float64Array>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Float64Array".to_string()))?;
-            Ok(float_array.values().to_vec())
-        },
-        ArrowDataType::Int64 => {
-            let int_array = array.as_any()
-                .downcast_ref::<Int64Array>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Int64Array".to_string()))?;
-            Ok(int_array.values().iter().map(|&x| x as f64).collect())
-        },
-        ArrowDataType::Date32 => {
-            let date_array = array.as_any()
-                .downcast_ref::<Date32Array>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to Date32Array".to_string()))?;
-            Ok(convert_date32_to_timestamps(date_array))
-        },
-        ArrowDataType::Utf8 => {
-            let string_array = array.as_any()
-                .downcast_ref::<StringArray>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
-            let mut values = Vec::with_capacity(array.len());
-            for i in 0..array.len() {
-                let value = string_array.value(i).parse::<f64>().unwrap_or(0.0);
-                values.push(value);
-            }
-            Ok(values)
-        },
-        other_type => {
-            Err(ElusionError::Custom(format!("Unsupported data type for plotting: {:?}", other_type)))
-        }
-    }
-}
-
-fn convert_to_string_vec(array: &dyn Array) -> ElusionResult<Vec<String>> {
-    match array.data_type() {
-        ArrowDataType::Utf8 => {
-            let string_array = array.as_any()
-                .downcast_ref::<StringArray>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
-            
-            let mut values = Vec::with_capacity(array.len());
-            for i in 0..array.len() {
-                values.push(string_array.value(i).to_string());
-            }
-            Ok(values)
-        },
-        other_type => {
-            Err(ElusionError::Custom(format!("Expected string type but got: {:?}", other_type)))
-        }
-    }
-}
-
-fn convert_date32_to_timestamps(array: &Date32Array) -> Vec<f64> {
-    array.values()
-        .iter()
-        .map(|&days| {
-            // Convert days since epoch to timestamp
-            let date = NaiveDate::from_num_days_from_ce_opt(days + 719163)
-                .unwrap_or(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap());
-            let datetime = date.and_hms_opt(0, 0, 0).unwrap();
-            datetime.and_utc().timestamp() as f64 * 1000.0 // Convert to milliseconds for plotly
-        })
-        .collect()
-}
-
-// Helper function to sort date-value pairs
-fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let mut pairs: Vec<(f64, f64)> = x_values.iter()
-        .cloned()
-        .zip(y_values.iter().cloned())
-        .collect();
-    
-    // Sort by date (x values)
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
-    
-    // Unzip back into separate vectors
-    pairs.into_iter().unzip()
-}
