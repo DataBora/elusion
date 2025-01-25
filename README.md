@@ -908,7 +908,7 @@ let mix = mix_df3.elusion("result_sales").await?;
 // plot_bar(x_col: &str, y_col: &str, orientation: Option<&str>, title: Option<&str>)
 // - x_col: column name for x-axis
 // - y_col: column name for y-axis
-// - orientation: Keep None for Horisontal
+// - orientation: Keep None for Horizontal chart (Vertical Bars)
 // - title: optional custom title
 let billable_plot = mix.plot_bar("customer_name", "total_billable", None, Some("Total Sales By Customer")).await?;
 CustomDataFrame::save_plot(&billable_plot, "billable_plot.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
