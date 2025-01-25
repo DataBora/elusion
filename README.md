@@ -896,7 +896,8 @@ let mix_df3 = sales_order_df
 let mix = mix_df3.elusion("result_sales").await?;
 
 // PLOTTING
-// plot_bar(x_col: &str, y_col: &str, orientation: Option<&str>, title: Option<&str>)
+
+// plot_bar()
 let billable_plot = mix.plot_bar(
     "customer_name", // - x_col: column name for x-axis
     "total_billable", // - y_col: column name for y-axis
@@ -910,7 +911,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-// plot_line(x_col: &str, y_col: &str, show_markers: bool, title: Option<&str>)
+// plot_line()
 let billable_line = mix.plot_line(
     "order_date", // - x_col: column name for x-axis (can be date or numeric)
     "double_billable_value", // - y_col: column name for y-axis
@@ -924,7 +925,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-// plot_time_series(date_col: &str, value_col: &str, show_markers: bool, title: Option<&str>)
+// plot_time_series()
 let billable_ts = mix.plot_time_series(
     "order_date", // - date_col: column name for dates (must be Date32 type)
     "double_billable_value", // - value_col: column name for values
@@ -938,7 +939,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-// plot_histogram(col: &str, bins: Option<usize>, title: Option<&str>)
+// plot_histogram()
 let billable_hist = mix.plot_histogram(
     "abs_billable_value", // - col: column name for values to distribute
     Some(20), // - bins: optional number of bins (defaults to 30)
@@ -951,7 +952,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-// plot_pie(label_col: &str, value_col: &str, title: Option<&str>)
+// plot_pie()
 let billable_pie = mix.plot_pie(
     "customer_name", // - label_col: column name for slice labels
     "total_billable", // - value_col: column name for slice values
@@ -964,7 +965,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-// plot_donut(label_col: &str, value_col: &str, title: Option<&str>, hole_size: Option<f64>)
+// plot_donut()
 let billable_donut = mix.plot_donut(
     "customer_name", // - label_col: column name for slice labels
     "total_billable", // - value_col: column name for slice values
@@ -978,7 +979,7 @@ CustomDataFrame::save_plot(
     Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
 ).await?;
 
-//Create report by Appening All Plots that you need 
+// Create report by Appening All Plots that you created
 let plots = [
     (&billable_plot, "Sales by Customer"),
     (&billable_line, "Sales Over Time"),
