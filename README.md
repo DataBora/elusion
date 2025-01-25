@@ -3,20 +3,23 @@
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Connections.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections (more features comming).
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS endpoints available.
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available.
 
-Elusion provides a robust DataFrame-like interface for managing and querying data efficiently.
-
-Tailored for developers seeking a powerful abstraction over data transformations, Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable API.
+Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
 ## Core Philosophy
+Elusion wants you to be you!
+
 Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in any sequence that best fits your logic, writing functions in a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
 
 ## Platform Compatibility
 Tested for MacOS, Linux and Windows
 ![Platform comp](images/platformcom.png)
+
+## Security
+Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it is fully prepared for Production.
 
 ## Key Features
 
@@ -52,7 +55,6 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
 
 ---
-
 ## Installation
 
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
@@ -71,8 +73,8 @@ tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ### MAIN function 
 
 ```rust
-
-use elusion::prelude::*; // Import everything needed
+// Import everything needed
+use elusion::prelude::*; 
 
 #[tokio::main]
 async fn main() -> ElusionResult<()> {
@@ -111,9 +113,9 @@ let customers_alias = df_customers
 ```
 ---
 ## Where to use which Functions:
-#### Scalar and Operators -> in SELECT() function
-#### Aggregation Functions -> in AGG() function
-#### String Column Functions -> in STRING_FUNCTIONS() function
+### Scalar and Operators -> in SELECT() function
+### Aggregation Functions -> in AGG() function
+### String Column Functions -> in STRING_FUNCTIONS() function
 ---
 
 ### Numerical Operators (supported +, -, * , / , %)
@@ -324,31 +326,31 @@ let result_join_many = order_join_df
     .select(["o.OrderID","c.Name","r.RegionName", "r.CountryID"])
     .string_functions([
     "CONCAT(r.RegionName, ' (', r.CountryID, ')') AS region_info",
-    // Simple CASE conditions
+ 
     "CASE c.CreditLimit 
         WHEN 1000 THEN 'Basic'
         WHEN 2000 THEN 'Premium'
         ELSE 'Standard'
     END AS credit_tier",
-    // Complex CASE conditions
+
     "CASE 
         WHEN c.CreditLimit > 2000 THEN 'High'
         WHEN c.CreditLimit > 1000 THEN 'Medium'
         ELSE 'Low'
     END AS credit_status",
-    // Multiple cASE conditions
+
     "CASE
         WHEN o.Amount > 1000 AND c.Status = 'active' THEN 'Priority'
         WHEN o.Amount > 500 THEN 'Regular'
         ELSE 'Standard'
     END AS order_priority",
-    // String CASE comparisons
+
     "CASE r.RegionName
         WHEN 'East Coast' THEN 'Eastern'
         WHEN 'West Coast' THEN 'Western'
         ELSE 'Other'
     END AS region_category"
-        // Date/time CASE conditions
+
     "CASE
         WHEN EXTRACT(DOW FROM o.OrderDate) IN (0, 6) THEN 'Weekend'
         ELSE 'Weekday'
@@ -514,7 +516,6 @@ CONVERT() - Type conversion
 CASE()
 ```
 ---
----
 ### WINDOW functions
 #### Aggregate, Ranking and Analytical functions
 ```rust
@@ -558,7 +559,6 @@ let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
 ```
 ---
----
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
 #### UNION ALL: Combines rows from both, keeping duplicates
@@ -598,7 +598,6 @@ let except_df = df1.except(df2);
 //INTERSECT
 let intersect_df = df1.intersect(df2);
 ```
----
 ---
 ## PIVOT and UNPIVOT
 #### Pivot and Unpivot functions are ASYNC function
@@ -674,7 +673,6 @@ let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
 result_unpivot_scalar.display().await?;
 ```
 ---
----
 ## Statistical Functions
 #### These Functions can give you quick statistical overview of your DataFrame columns and correlations
 #### Currently available: display_stats(), display_null_analysis(), display_correlation_matrix()
@@ -742,8 +740,6 @@ df.display_correlation_matrix(&[
 | percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
 -------------------------------------------------------------------------------------------
 ```
----
-
 ---
 # DATABASE Connectors 
 ### ODBC connectors available for MySQL and PostgreSQL
@@ -825,8 +821,6 @@ let pg_res = pg_df.elusion("pg_res").await?;
 pg_res.display().await?;
 ```
 ---
-
----
 # AZURE Blob Storage Connector 
 ## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided
 ### Currently supported file types .JSON and .CSV
@@ -844,15 +838,15 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         "data" // alias for registering table
     ).await?;
 
-let data_df = df
-    .select(["*"])
-    .limit(20);
+let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
 ```
 ### DFS endpoint example
+
 ```rust
+
 let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
 let sas_token = "your_sas_token";
 
@@ -863,15 +857,12 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         "data" // alias for registering table
     ).await?;
 
-let data_df = df
-    .select(["*"])
-    .limit(20);
+let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
-```
----
 
+```
 ---
 # PLOTTING
 ### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
@@ -904,52 +895,88 @@ let mix_df3 = sales_order_df
 
 let mix = mix_df3.elusion("result_sales").await?;
 
-//PLOTING
+// PLOTTING
 // plot_bar(x_col: &str, y_col: &str, orientation: Option<&str>, title: Option<&str>)
-// - x_col: column name for x-axis
-// - y_col: column name for y-axis
-// - orientation: Keep None for Horizontal chart (Vertical Bars)
-// - title: optional custom title
-let billable_plot = mix.plot_bar("customer_name", "total_billable", None, Some("Total Sales By Customer")).await?;
-CustomDataFrame::save_plot(&billable_plot, "billable_plot.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_plot = mix.plot_bar(
+    "customer_name", // - x_col: column name for x-axis
+    "total_billable", // - y_col: column name for y-axis
+    None, // - orientation: Keep None for Horizontal chart (Vertical Bars)
+    Some("Total Sales By Customer") // - title: optional custom title (can be None)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_plot, // reference to above variable
+    "billable_plot.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 // plot_line(x_col: &str, y_col: &str, show_markers: bool, title: Option<&str>)
-// - x_col: column name for x-axis (can be date or numeric)
-// - y_col: column name for y-axis
-// - show_markers: true to show points, false for line only
-// - title: optional custom title
-let billable_line = mix.plot_line("order_date", "double_billable_value", true, Some("Sales over time")).await?;
-CustomDataFrame::save_plot(&billable_line, "billable_line.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_line = mix.plot_line(
+    "order_date", // - x_col: column name for x-axis (can be date or numeric)
+    "double_billable_value", // - y_col: column name for y-axis
+    true,  // - show_markers: true to show points, false for line only
+    Some("Sales over time") // - title: optional custom title (can be None)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_line, // reference to above variable
+    "billable_line.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 // plot_time_series(date_col: &str, value_col: &str, show_markers: bool, title: Option<&str>)
-// - date_col: column name for dates (must be Date32 type)
-// - value_col: column name for values
-// - show_markers: true to show points, false for line only
-// - title: optional custom title
-let billable_ts = mix.plot_time_series("order_date", "double_billable_value", true, Some("Sales Over Time")).await?;
-CustomDataFrame::save_plot(&billable_ts, "billable_ts.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_ts = mix.plot_time_series(
+    "order_date", // - date_col: column name for dates (must be Date32 type)
+    "double_billable_value", // - value_col: column name for values
+    true, // - show_markers: true to show points, false for line only
+    Some("Sales Over Time") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_ts, // reference to above variable
+    "billable_ts.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 // plot_histogram(col: &str, bins: Option<usize>, title: Option<&str>)
-// - col: column name for values to distribute
-// - bins: optional number of bins (defaults to 30)
-// - title: optional custom title
-let billable_hist = mix.plot_histogram("abs_billable_value", Some(20), Some("Distribution of Sales")).await?;
-CustomDataFrame::save_plot(&billable_hist, "billable_hist.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_hist = mix.plot_histogram(
+    "abs_billable_value", // - col: column name for values to distribute
+    Some(20), // - bins: optional number of bins (defaults to 30)
+    Some("Distribution of Sales") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_hist, // reference to above variable
+    "billable_hist.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 // plot_pie(label_col: &str, value_col: &str, title: Option<&str>)
-// - label_col: column name for slice labels
-// - value_col: column name for slice values
-// - title: optional custom title
-let billable_pie = mix.plot_pie("customer_name","total_billable", Some("Sales Distribution by Customer")).await?;
-CustomDataFrame::save_plot(&billable_pie, "billable_pie.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_pie = mix.plot_pie(
+    "customer_name", // - label_col: column name for slice labels
+    "total_billable", // - value_col: column name for slice values
+    Some("Sales Distribution by Customer") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_pie, // reference to above variable
+    "billable_pie.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 // plot_donut(label_col: &str, value_col: &str, title: Option<&str>, hole_size: Option<f64>)
-// - label_col: column name for slice labels
-// - value_col: column name for slice values
-// - title: optional custom title
-// - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
-let billable_donut = mix.plot_donut("customer_name","total_billable", Some("Sales Distribution by Customer"), Some(0.5)).await?;
-CustomDataFrame::save_plot(&billable_donut, "billable_donut.html", Some("C:\\Borivoj\\RUST\\Elusion\\Plots")).await?;
+let billable_donut = mix.plot_donut(
+    "customer_name", // - label_col: column name for slice labels
+    "total_billable", // - value_col: column name for slice values
+    Some("Sales Distribution by Customer"), // - title: optional custom title
+    Some(0.5) // - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_donut, // reference to above variable
+    "billable_donut.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
 
 //Create report by Appening All Plots that you need 
 let plots = [
@@ -966,7 +993,6 @@ CustomDataFrame::create_report(
 ).await?;
 ```
 ---
-
 ### Example of single Plot
 ![Bar](images/bar.PNG)
 ### Example of Report with multiple Plots
@@ -1075,9 +1101,8 @@ result_df
 ```
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
-#### Partitioning column is optional
-#### DISCLAIMER: if you decide to use column for partitioning, make sure that you don't need that column as you wont be able to read it back to dataframe
-#### DISCLAIMER 2: once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, Append also need to have same column for partitioning
+#### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
+#### Once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, append also need to have same column for partitioning
 ```rust
 // Overwrite
 result_df
