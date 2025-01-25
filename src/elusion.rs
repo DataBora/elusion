@@ -73,7 +73,91 @@ use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
 use arrow_odbc::OdbcReaderBuilder;
 use lazy_static::lazy_static;
 
-// ===== struct to manage DB connections
+// ========== AZURE
+use azure_storage_blobs::prelude::*;
+use azure_storage::StorageCredentials;
+use azure_storage::CloudLocation;
+
+// use log::{info, debug};
+
+// Azure ULR validator helper function
+fn validate_azure_url(url: &str) -> ElusionResult<()> {
+    if !url.starts_with("https://") {
+        return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
+    }
+
+    if !url.contains(".blob.core.windows.net/") && !url.contains(".dfs.core.windows.net/") {
+        return Err(ElusionError::Custom(
+            "URL must contain either '.blob.core.windows.net/' or '.dfs.core.windows.net/'".to_string()
+        ));
+    }
+
+    Ok(())
+}
+
+// Helper funciton for processing both json and csv files
+async fn process_blob_content(
+    blob_name: &str, 
+    content: Vec<u8>
+) -> ElusionResult<Vec<HashMap<String, serde_json::Value>>> {
+    let mut all_data = Vec::new();
+    
+    if blob_name.ends_with(".json") {
+        let json_str = String::from_utf8(content)
+            .map_err(|e| ElusionError::Custom(format!("Invalid UTF-8: {}", e)))?;
+
+        let json_value: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| ElusionError::Custom(format!("Invalid JSON in {}: {}", blob_name, e)))?;
+
+        match json_value {
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    if let serde_json::Value::Object(map) = item {
+                        all_data.push(flatten_json_object(map));
+                    }
+                }
+            },
+            serde_json::Value::Object(map) => {
+                all_data.push(flatten_json_object(map));
+            },
+            _ => return Err(ElusionError::Custom(format!("Invalid JSON structure in {}", blob_name))),
+        }
+    } else if blob_name.ends_with(".csv") {
+        let content_str = String::from_utf8(content)
+            .map_err(|e| ElusionError::Custom(format!("Invalid UTF-8 in CSV: {}", e)))?;
+
+        let mut reader = csv::ReaderBuilder::new()
+            .flexible(true)
+            .trim(csv::Trim::All)
+            .from_reader(content_str.as_bytes());
+
+        let headers: Vec<String> = reader.headers()
+            .map_err(|e| ElusionError::Custom(format!("Failed to read CSV headers: {}", e)))?
+            .iter()
+            .map(|h| h.to_string())
+            .collect();
+
+        for record in reader.records() {
+            let record = record.map_err(|e| ElusionError::Custom(format!("Failed to read CSV record: {}", e)))?;
+            let mut row_data = HashMap::new();
+            
+            for (i, value) in record.iter().enumerate() {
+                if i < headers.len() {
+                    let header = &headers[i];
+                    // Try to parse as number first, fallback to string
+                    let json_value = value.parse::<f64>()
+                        .map(serde_json::Value::from)
+                        .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
+                    row_data.insert(header.clone(), json_value);
+                }
+            }
+            all_data.push(row_data);
+        }
+    }
+
+    Ok(all_data)
+}
+// ===== struct to manage ODBC DB connections
 lazy_static!{
     static ref DB_ENV: Environment = {
         Environment::new().expect("Failed to create odbc environment")
@@ -213,6 +297,11 @@ fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
     pairs.into_iter().unzip()
 }
 
+fn flatten_json_object(obj: Map<String, Value>) -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    flatten_json_value(&Value::Object(obj), "", &mut map);
+    map
+}
 // ======== Custom error type
 #[derive(Debug)]
 pub enum ElusionError {
@@ -3506,6 +3595,145 @@ pub async fn from_db(
         df: aliased_df.dataframe,
         table_alias: aliased_df.alias.clone(),
         from_table: aliased_df.alias,
+        selected_columns: Vec::new(),
+        alias_map: Vec::new(),
+        aggregations: Vec::new(),
+        group_by_columns: Vec::new(),
+        where_conditions: Vec::new(),
+        having_conditions: Vec::new(),
+        order_by_columns: Vec::new(),
+        limit_count: None,
+        joins: Vec::new(),
+        window_functions: Vec::new(),
+        ctes: Vec::new(),
+        subquery_source: None,
+        set_operations: Vec::new(),
+        query: String::new(),
+        aggregated_df: None,
+        union_tables: None,
+        original_expressions: Vec::new(),
+    })
+}
+
+// ================= AZURE 
+/// Aazure function that connects to Azure blob storage
+pub async fn from_azure_with_sas_token(
+    url: &str,
+    sas_token: &str,
+    filter_keyword: Option<&str>, 
+    alias: &str,
+) -> ElusionResult<Self> {
+    validate_azure_url(url)?;
+    println!("Starting from_azure_with_sas_token with url={}, alias={}", url, alias);
+    // Extract account and container from URL
+    let url_parts: Vec<&str> = url.split('/').collect();
+    let (account, endpoint_type) = url_parts[2]
+        .split('.')
+        .next()
+        .map(|acc| {
+            if url.contains(".dfs.") {
+                (acc, "dfs")
+            } else {
+                (acc, "blob")
+            }
+        })
+        .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?;
+
+
+     let container = url_parts.last()
+        .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?
+        .to_string();
+
+    // info!("Extracted account='{}', container='{}'", account, container);
+
+    let credentials = StorageCredentials::sas_token(sas_token.to_string())
+        .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
+
+    // info!("Created StorageCredentials with SAS token");
+
+    let client = if endpoint_type == "dfs" {
+        // For ADLS Gen2, create client with cloud location
+        let cloud_location = CloudLocation::Public {
+            account: account.to_string(),
+        };
+        ClientBuilder::with_location(cloud_location, credentials)
+            .blob_service_client()
+            .container_client(container)
+    } else {
+        ClientBuilder::new(account.to_string(), credentials)
+            .blob_service_client()
+            .container_client(container)
+    };
+
+    let mut blobs = Vec::new();
+    let mut stream = client.list_blobs().into_stream();
+    // info!("Listing blobs...");
+    
+    while let Some(response) = stream.next().await {
+        let response = response.map_err(|e| 
+            ElusionError::Custom(format!("Failed to list blobs: {}", e)))?;
+        
+        for blob in response.blobs.blobs() {
+            if (blob.name.ends_with(".json") || blob.name.ends_with(".csv")) && 
+               filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) &&
+               blob.properties.content_length > 2048 {
+                // debug!("Adding blob '{}' to the download list", blob.name);
+                blobs.push(blob.name.clone());
+            }
+        }
+    }
+
+    println!("Total number of blobs to process: {}", blobs.len());
+
+    let mut all_data = Vec::new();
+
+    for blob_name in &blobs {
+        // info!("Downloading blob: {}", blob_name);
+
+        let blob_client = client.blob_client(blob_name);
+        let content = blob_client
+            .get_content()
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
+
+        // debug!("Got content for blob: {} ({} bytes)", blob_name, content.len());
+        
+        let mut blob_data = process_blob_content(blob_name, content).await?;
+        all_data.append(&mut blob_data);
+    }
+
+    println!("Total records after reading all blobs: {}", all_data.len());
+
+    if all_data.is_empty() {
+        return Err(ElusionError::Custom(format!(
+            "No valid JSON files found{} (size > 2KB)",
+            filter_keyword.map_or("".to_string(), |k| format!(" containing keyword: {}", k))
+        )));
+    }
+
+    let schema = infer_schema_from_json(&all_data);
+    let batch = build_record_batch(&all_data, schema.clone())
+        .map_err(|e| ElusionError::Custom(format!("Failed to build RecordBatch: {}", e)))?;
+
+    let ctx = SessionContext::new();
+    let mem_table = MemTable::try_new(schema, vec![vec![batch]])
+        .map_err(|e| ElusionError::Custom(format!("Failed to create MemTable: {}", e)))?;
+
+    ctx.register_table(alias, Arc::new(mem_table))
+        .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+
+    println!("Successfully created and registered in-memory table with alias '{}'", alias);
+
+    let df = ctx.table(alias)
+        .await
+        .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
+
+    // info!("Returning CustomDataFrame for alias '{}'", alias);
+
+    Ok(CustomDataFrame {
+        df,
+        table_alias: alias.to_string(),
+        from_table: alias.to_string(),
         selected_columns: Vec::new(),
         alias_map: Vec::new(),
         aggregations: Vec::new(),
