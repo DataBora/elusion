@@ -44,10 +44,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - name: Create deny.toml
+      run: |
+        echo '[advisories]' > deny.toml
+        echo 'unmaintained = "allow"' >> deny.toml
     - name: Run dependency-check
       run: |
         cargo install cargo-deny
-        cargo deny check advisories --allow-unmaintained
+        cargo deny check advisories
 
   security-audit:
     runs-on: ubuntu-latest
