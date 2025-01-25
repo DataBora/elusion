@@ -47,7 +47,7 @@ jobs:
     - name: Run dependency-check
       run: |
         cargo install cargo-deny
-        cargo deny check advisories --allow-unmaintained instant
+        cargo deny check advisories --allow-unmaintained
 
   security-audit:
     runs-on: ubuntu-latest
