@@ -1,3 +1,11 @@
+## [1.3.0] - 2025-01-25
+### Added
+- Azure Blob Connection. You can connect and download .json or .csv files with from_azure_with_sas_token() function 
+
+## [1.2.0] - 2025-01-24
+### Added
+- ODBC Database connections for MySQL and PostgreSQL
+
 ## [1.1.1] - 2025-01-21
 ### Added
 - Statistical Functions: display_stats(), display_null_analysis(), display_correlation_matrix()

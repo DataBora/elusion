@@ -59,15 +59,6 @@ pub use std::error::Error;
 pub use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
 pub use arrow_odbc::OdbcReaderBuilder;
 pub use lazy_static::lazy_static;
-// pub use futures::Future;
-// pub use datafusion::sql::TableReference;
-// pub use datafusion_table_providers::postgres::PostgresTableFactory;
-// pub use datafusion_table_providers::sql::db_connection_pool::postgrespool::PostgresConnectionPool;
-// pub use datafusion_table_providers::mysql::MySQLTableFactory;
-// pub use datafusion_table_providers::sql::db_connection_pool::mysqlpool::MySQLConnectionPool;
-// pub use datafusion_table_providers::odbc::ODBCTableFactory;
-// pub use datafusion_table_providers::sql::db_connection_pool::odbcpool::ODBCPool;
-// pub use datafusion_table_providers::util::secrets::to_secret_map;
 
 // PIVOT
 pub use arrow::compute;
@@ -84,4 +75,9 @@ pub use std::cmp::Ordering;
 
 // STATISTICS
 pub use datafusion::common::ScalarValue;
+
+// ========== AZURE
+pub use azure_storage_blobs::prelude::*;
+pub use azure_storage::StorageCredentials;
+pub use azure_storage::CloudLocation;
 

@@ -2,6 +2,7 @@
 
 ![Elusion Logo](images/elusion.png)
 
+
 Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA and ODBC Database Connectors: MySQL and PostgreSQL.
 
 DataFrame operations are built atop the DataFusion SQL query engine, and Database operations are built atop Arrow ODBC.
@@ -15,6 +16,7 @@ Elusion offers flexibility in constructing queries without enforcing specific pa
 
 ## Platform Compatibility
 Tested for MacOS, Linux and Windows
+![Platform comp](images/platformcom.png)
 
 ## Key Features
 
@@ -56,7 +58,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.2.0"
+elusion = "1.3.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -687,46 +689,40 @@ df.display_stats(&[
 === Column Statistics ===
 --------------------------------------------------------------------------------
 Column: abs_billable_value
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 | Metric               |           Value |             Min |             Max |
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 | Records              |              10 | -               | -               |
 | Non-null Records     |              10 | -               | -               |
 | Mean                 |         1025.71 | -               | -               |
 | Standard Dev         |          761.34 | -               | -               |
 | Value Range          |               - | 67.4            | 2505.23         |
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 
 Column: sqrt_billable_value
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 | Metric               |           Value |             Min |             Max |
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
 | Records              |              10 | -               | -               |
 | Non-null Records     |              10 | -               | -               |
 | Mean                 |           29.48 | -               | -               |
 | Standard Dev         |           13.20 | -               | -               |
 | Value Range          |               - | 8.21            | 50.05           |
---------------------------------------------------------------------------------
+------------------------------------------------------------------------------
     
 // Display null analysis
 // Keep None if you want all columns to be analized
 df.display_null_analysis(None).await?;
 
-------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
 | Column                         |      Total Rows |      Null Count | Null Percentage |
-------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
 | total_billable                 |              10 |               0 |           0.00% |
 | order_count                    |              10 |               0 |           0.00% |
 | customer_name                  |              10 |               0 |           0.00% |
 | order_date                     |              10 |               0 |           0.00% |
 | abs_billable_value             |              10 |               0 |           0.00% |
-| sqrt_billable_value            |              10 |               0 |           0.00% |
-| double_billable_value          |              10 |               0 |           0.00% |
-| percentage_billable            |              10 |               0 |           0.00% |
-| trimmed_shipper                |              10 |               0 |           0.00% |
-| first_name                     |              10 |               0 |           0.00% |
-| last_name                      |              10 |               0 |           0.00% |
------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------
 
 // Display correlation matrix
 df.display_correlation_matrix(&[
@@ -827,6 +823,52 @@ let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
 
 let pg_res = pg_df.elusion("pg_res").await?;
 pg_res.display().await?;
+```
+---
+
+---
+# AZURE Blob Storage Connector 
+## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided
+### Currently supported file types .JSON and .CSV
+#### DFS endpoint is “Data Lake Storage Gen2” and behave more like a real file system. This makes reading operations more efficient—especially at large scale.
+
+### BLOB endpoint example
+```rust
+let blob_url= "https://your_storage_account_name.blob.core.windows.net/your-container-name";
+let sas_token = "your_sas_token";
+
+let df = CustomDataFrame::from_azure_with_sas_token(
+        blob_url, 
+        sas_token, 
+        Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
+        "data" // alias for registering table
+    ).await?;
+
+let data_df = df
+    .select(["*"])
+    .limit(20);
+
+let test_data = data_df.elusion("data_df").await?;
+test_data.display().await?;
+```
+### DFS endpoint example
+```rust
+let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
+let sas_token = "your_sas_token";
+
+let df = CustomDataFrame::from_azure_with_sas_token(
+        dfs_url, 
+        sas_token, 
+        Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
+        "data" // alias for registering table
+    ).await?;
+
+let data_df = df
+    .select(["*"])
+    .limit(20);
+
+let test_data = data_df.elusion("data_df").await?;
+test_data.display().await?;
 ```
 ---
 
