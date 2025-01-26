@@ -3,9 +3,11 @@
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections (more features comming).
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available.
+All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
+
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
@@ -60,7 +62,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.3.0"
+elusion = "1.4.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -846,7 +848,6 @@ test_data.display().await?;
 ### DFS endpoint example
 
 ```rust
-
 let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
 let sas_token = "your_sas_token";
 
@@ -861,7 +862,69 @@ let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
+```
+---
+# Pipeline Scheduler
+### Currently available job frequencies
+```rust
+"1min","2min","5min","10min","15min","30min" ,
+"1h","2h","3h","4h","5h","6h","7h","8h","9h","10h","11h","12h","24h" 
+"2days","3days","4days","5days","6days","7days","14days","30days" 
+```
+### PipelineScheduler Example (parsing data from Azure BLOB Stoarge, DataFrame operation and Writing to Parquet)
+```rust
+use elusion::prelude::*;
 
+#[tokio::main]
+async fn main() -> ElusionResult<()>{
+// Create Pipeline Scheduler with custom job frequency interval
+let scheduler = PipelineScheduler::new("5min", || async {
+
+let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
+let sas_token = "your_sas_token";
+// Read from Azure
+let header_df = CustomDataFrame::from_azure_with_sas_token(
+    dfs_url,
+    dfs_sas_token,
+    Some("folder_name/"), // Optional - FILTERING can filter any part of string (file path, fiie name. extension...)
+    "head"
+).await?;
+
+// DataFrame operation
+let headers_payments = header_df
+   .select(["Brand", "Id", "Name", "Item", "Bill", "Tax",
+           "ServCharge", "Percentage", "Discount", "Date"])
+   .agg([
+       "SUM(Bill) AS total_bill",
+       "SUM(Tax) AS total_tax", 
+       "SUM(ServCharge) AS total_service",
+       "AVG(Percentage) AS avg_percentage",
+       "COUNT(*) AS transaction_count",
+       "SUM(ServCharge) / SUM(Bill) * 100 AS service_ratio"
+   ])
+   .group_by(["Brand", "Date"])
+   .filter("Bill > 0")
+   .sort("total_bill DESC")
+
+let headers_data = headers_payments.elusion("headers_df").await?;
+
+// Write output
+headers_data
+    .write_to_parquet(
+        "overwrite",
+        "C:\\Borivoj\\RUST\\Elusion\\Scheduler\\sales_data.parquet",
+        None
+    )
+    .await?;
+    
+    Ok(())
+
+}).await?;
+
+scheduler.shutdown().await?;
+
+Ok(())
+}
 ```
 ---
 # PLOTTING
