@@ -865,7 +865,9 @@ test_data.display().await?;
 ```
 ---
 # Pipeline Scheduler
-### Currently available job frequencies
+### Time is set according to UTC
+
+#### Currently available job frequencies
 ```rust
 "1min","2min","5min","10min","15min","30min" ,
 "1h","2h","3h","4h","5h","6h","7h","8h","9h","10h","11h","12h","24h" 
