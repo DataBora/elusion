@@ -20,7 +20,6 @@ use arrow::csv::writer::WriterBuilder;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write, BufWriter};
 
-
 //============ WRITERS
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
@@ -46,7 +45,6 @@ use deltalake::kernel::StructField;
 use futures::StreamExt;
 use deltalake::storage::object_store::local::LocalFileSystem;
 // use object_store::path::Path as ObjectStorePath;
-
 
 // =========== ERRROR
 use std::fmt::{self, Debug};
@@ -340,14 +338,13 @@ impl From<std::io::Error> for ElusionError {
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
 
-/// JOIN Struckt
 #[derive(Clone, Debug)]
 pub struct Join {
     dataframe: CustomDataFrame,
     condition: String,
     join_type: String,
 }
-/// CustomDataFrame struct
+
 #[derive(Clone, Debug)]
 pub struct CustomDataFrame {
     df: DataFrame,
@@ -784,7 +781,6 @@ fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Val
 }
 
 // ================= Statistics
-/// Struct to hold column statistics
 #[derive(Debug, Default)]
 pub struct ColumnStats {
     pub columns: Vec<ColumnStatistics>,
@@ -801,12 +797,12 @@ pub struct ColumnStatistics {
     pub std_dev: Option<f64>,
 }
 
-/// Struct to hold null value analysis
+
 #[derive(Debug)]
 pub struct NullAnalysis {
     pub counts: Vec<NullCount>,
 }
-/// Struct to hold null count analysis
+
 #[derive(Debug)]
 pub struct NullCount {
     pub column_name: String,
@@ -816,7 +812,6 @@ pub struct NullCount {
 }
 //======================= CSV WRITING OPTION ============================//
 
-/// Struct to encapsulate CSV write options
 #[derive(Debug, Clone)]
 pub struct CsvWriteOptions {
     pub delimiter: u8,
