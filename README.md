@@ -893,7 +893,7 @@ let sas_token = "your_sas_token";
 let header_df = CustomDataFrame::from_azure_with_sas_token(
     dfs_url,
     dfs_sas_token,
-    Some("folder_name/"), // Optional - FILTERING can filter any part of string (file path, fiie name. extension...)
+    Some("folder_name/"), // Optional: FILTERING can filter any part of string: file path, file name...
     "head"
 ).await?;
 
