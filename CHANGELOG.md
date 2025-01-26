@@ -1,10 +1,20 @@
+## [1.4.0] - 2025-01-26
+### Added
+- Pipeline Scheduler
+### Added
+- Dependencies: `tokio-cron-scheduler` `0.13.0`
+
 ## [1.3.0] - 2025-01-25
 ### Added
 - Azure Blob Connection. You can connect and download .json or .csv files with from_azure_with_sas_token() function 
+### Added
+- Dependencies: `azure_storage_blobs` `0.21.0`, `azure_storage` `0.21.0`, `csv` `1.1`
 
 ## [1.2.0] - 2025-01-24
 ### Added
 - ODBC Database connections for MySQL and PostgreSQL
+### Added
+- Dependencies: `lazy_static` `1.5.0`, `arrow-odbc` `14.1.0`
 
 ## [1.1.1] - 2025-01-21
 ### Added

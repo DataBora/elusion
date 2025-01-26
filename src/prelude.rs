@@ -1,3 +1,4 @@
+pub use crate::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
@@ -81,3 +82,6 @@ pub use azure_storage_blobs::prelude::*;
 pub use azure_storage::StorageCredentials;
 pub use azure_storage::CloudLocation;
 
+// ======== Scheduler
+pub use std::future::Future;
+pub use tokio_cron_scheduler::{JobScheduler, Job};
