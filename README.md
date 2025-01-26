@@ -26,9 +26,9 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 ## Key Features
 
 ### 🔄 Job Scheduling (PipelineScheduler)
-Flexible Intervals: From 1 minute to 30 days scheduling intervals
-Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination
-Async Support: Built on tokio for non-blocking operations
+Flexible Intervals: From 1 minute to 30 days scheduling intervals.
+Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
+Async Support: Built on tokio for non-blocking operations.
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
