@@ -911,7 +911,7 @@ let headers_payments = header_df
    ])
    .group_by(["Brand", "Date"])
    .filter("Bill > 0")
-   .sort("total_bill DESC")
+   .order_by(["total_bill"], [true])
 
 let headers_data = headers_payments.elusion("headers_df").await?;
 
