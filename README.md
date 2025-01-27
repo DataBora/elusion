@@ -108,7 +108,7 @@ async fn main() -> ElusionResult<()> {
 #### -> NEXT is example for reading data from local files, 
 #### down bellow are examples for Azure Blob Storage, REST APIs and ODBC
 ---
-### LOADING Files into CustomDataFrame (in-memry data formats)
+### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
 #### - All you have to do is to provide path to your file
 ```rust
