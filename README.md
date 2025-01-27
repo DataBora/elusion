@@ -3,11 +3,11 @@
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as HTTPS API Connections.
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, HTTPS API calls are built atop Reqwest. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
@@ -29,6 +29,11 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 Flexible Intervals: From 1 minute to 30 days scheduling intervals.
 Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
 Async Support: Built on tokio for non-blocking operations.
+
+### 🌐 External Data Sources Integration
+- Azure Blob Storage: Direct integration with Azure Blob Storage for reading data files.
+- Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
+- REST API Integration: Built-in support for fetching data from REST APIs with customizable headers.
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
@@ -67,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.4.0"
+elusion = "1.5.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -867,6 +872,75 @@ let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
+```
+---
+# REST API Connector 
+## Available for fetching data from REST APIs with customizable headers
+####  Currently supported for .JSON 
+
+### REST APIs without headers
+```rust
+// example 1
+let posts_df = CustomDataFrame::from_api("https://jsonplaceholder.typicode.com/posts").await?;
+posts_df.display().await?;
+
+// example 2
+let users_df = CustomDataFrame::from_api("https://jsonplaceholder.typicode.com/users").await?;
+users_df.display().await?;
+```
+### REST APIs with headers
+```rust
+// example 1
+let mut headers = HashMap::new();
+headers.insert("Custom-Header".to_string(), "test-value".to_string());
+
+let bin_df = CustomDataFrame::from_api_with_headers(
+    "https://httpbin.org/headers",
+    headers
+).await?;
+    
+bin_df.display().await?;
+
+// example 2
+let mut headers = HashMap::new();
+// Specify the response format (JSON in this case)
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+// Identify your application to the API server
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let git_hub = CustomDataFrame::from_api_with_headers(
+    "https://api.github.com/search/repositories?q=rust+language:rust&sort=stars&order=desc",
+    headers
+).await?;
+
+git_hub.select(["name", "description", "stargazers_count", "language"]).display().await?;
+
+// example 3
+let mut headers = HashMap::new();
+
+headers.insert("Accept".to_string(), "application/json".to_string());
+headers.insert("X-Version".to_string(), "1".to_string());
+
+let pokemon_df = CustomDataFrame::from_api_with_headers(
+    "https://pokeapi.co/api/v2/pokemon", 
+    headers
+).await?;
+
+pokemon_df.display().await?;
+```
+## Common header types
+```rust
+//Accept - Specifies the expected response format
+rustCopyheaders.insert("Accept".to_string(), "application/json".to_string());
+
+//Authorization - For authenticated requests
+rustCopyheaders.insert("Authorization".to_string(), "Bearer your_token_here".to_string());
+
+//User-Agent - Identifies your application
+rustCopyheaders.insert("User-Agent".to_string(), "your-app-name".to_string());
+
+//Content-Type - Specifies the format of sent data
+rustCopyheaders.insert("Content-Type".to_string(), "application/json".to_string());
 ```
 ---
 # Pipeline Scheduler

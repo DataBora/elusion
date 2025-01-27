@@ -1,3 +1,9 @@
+## [1.5.0] - 2025-01-27
+### Added
+- Reading Data From API into CustomDataFrame
+### Added
+- Dependencies: `reqwest` `0.12`
+
 ## [1.4.0] - 2025-01-26
 ### Added
 - Pipeline Scheduler
