@@ -80,6 +80,9 @@ use azure_storage::CloudLocation;
 use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
+// ======== From API
+use reqwest::Client;
+
 // use log::{info, debug};
 
 // Azure ULR validator helper function
@@ -94,6 +97,14 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         ));
     }
 
+    Ok(())
+}
+
+// HTTPS validator
+fn validate_https_url(url: &str) -> ElusionResult<()> {
+    if !url.starts_with("https://") {
+        return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
+    }
     Ok(())
 }
 
@@ -159,6 +170,7 @@ async fn process_blob_content(
 
     Ok(all_data)
 }
+
 // ===== struct to manage ODBC DB connections
 lazy_static!{
     static ref DB_ENV: Environment = {
@@ -1660,7 +1672,7 @@ impl CustomDataFrame {
         self.where_conditions.push(normalize_condition(condition));
         self
     }
-
+    
     /// Add multiple HAVING conditions using const generics.
     /// Allows passing arrays like ["condition1", "condition2", ...]
     pub fn having_many<const N: usize>(self, conditions: [&str; N]) -> Self {
@@ -2390,10 +2402,8 @@ impl CustomDataFrame {
         Ok(self)
     }
     
-
-
-     /// SELECT clause using const generics
-     pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
+    /// SELECT clause using const generics
+    pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
         self.select_vec(columns.to_vec())
     }
 
@@ -3543,6 +3553,7 @@ pub async fn from_azure_with_sas_token(
     alias: &str,
 ) -> ElusionResult<Self> {
     validate_azure_url(url)?;
+    
     println!("Starting from_azure_with_sas_token with url={}, alias={}", url, alias);
     // Extract account and container from URL
     let url_parts: Vec<&str> = url.split('/').collect();
@@ -3596,7 +3607,7 @@ pub async fn from_azure_with_sas_token(
             if (blob.name.ends_with(".json") || blob.name.ends_with(".csv")) && 
                filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) &&
                blob.properties.content_length > 2048 {
-                // debug!("Adding blob '{}' to the download list", blob.name);
+                println!("Adding blob '{}' to the download list", blob.name);
                 blobs.push(blob.name.clone());
             }
         }
@@ -3615,7 +3626,7 @@ pub async fn from_azure_with_sas_token(
             .await
             .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
 
-        // debug!("Got content for blob: {} ({} bytes)", blob_name, content.len());
+        println!("Got content for blob: {} ({} bytes)", blob_name, content.len());
         
         let mut blob_data = process_blob_content(blob_name, content).await?;
         all_data.append(&mut blob_data);
@@ -3653,6 +3664,110 @@ pub async fn from_azure_with_sas_token(
         df,
         table_alias: alias.to_string(),
         from_table: alias.to_string(),
+        selected_columns: Vec::new(),
+        alias_map: Vec::new(),
+        aggregations: Vec::new(),
+        group_by_columns: Vec::new(),
+        where_conditions: Vec::new(),
+        having_conditions: Vec::new(),
+        order_by_columns: Vec::new(),
+        limit_count: None,
+        joins: Vec::new(),
+        window_functions: Vec::new(),
+        ctes: Vec::new(),
+        subquery_source: None,
+        set_operations: Vec::new(),
+        query: String::new(),
+        aggregated_df: None,
+        union_tables: None,
+        original_expressions: Vec::new(),
+    })
+}
+
+/// Create a DataFrame from a REST API endpoint that returns JSON
+pub async fn from_api(url: &str) -> ElusionResult<Self> {
+    validate_https_url(url)?;
+    let client = Client::new();
+    let response = client.get(url)
+        .send()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+    
+    let json_value: Value = response.json()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
+
+    Self::process_json_response(json_value, "api_data").await
+}
+
+/// Create a DataFrame from a REST API endpoint with custom headers
+pub async fn from_api_with_headers(url: &str, headers: HashMap<String, String>) -> ElusionResult<Self> {
+    validate_https_url(url)?;
+    let client = Client::new();
+    let mut request = client.get(url);
+    
+    for (key, value) in headers {
+        request = request.header(&key, value);
+    }
+    
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+    
+    let json_value: Value = response.json()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
+
+    Self::process_json_response(json_value, "api_data").await
+}
+
+
+/// Process JSON response into DataFrame
+async fn process_json_response(json_value: Value, table_name: &str) -> ElusionResult<Self> {
+    let mut all_data = Vec::new();
+
+    match json_value {
+        Value::Array(items) => {
+            for item in items {
+                if let Value::Object(map) = item {
+                    all_data.push(flatten_json_object(map));
+                }
+            }
+        },
+        Value::Object(map) => {
+            all_data.push(flatten_json_object(map));
+        },
+        _ => return Err(ElusionError::Custom("Invalid JSON structure: expected object or array".to_string())),
+    }
+
+    if all_data.is_empty() {
+        return Err(ElusionError::Custom("No valid data found in JSON response".to_string()));
+    }
+
+    let ctx = Arc::new(SessionContext::new());
+
+    // Use existing schema inference function
+    let schema = infer_schema_from_json(&all_data);
+    
+    // Use existing record batch builder
+    let batch = build_record_batch(&all_data, schema.clone())
+        .map_err(|e| ElusionError::Custom(format!("Failed to create RecordBatch: {}", e)))?;
+
+    let mem_table = MemTable::try_new(schema, vec![vec![batch]])
+        .map_err(|e| ElusionError::Custom(format!("Failed to create MemTable: {}", e)))?;
+
+    ctx.register_table(table_name, Arc::new(mem_table))
+        .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+
+    let df = ctx.table(table_name)
+        .await // Now we can properly await this async call
+        .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
+
+    Ok(CustomDataFrame {
+        df,
+        table_alias: table_name.to_string(),
+        from_table: table_name.to_string(),
         selected_columns: Vec::new(),
         alias_map: Vec::new(),
         aggregations: Vec::new(),
@@ -4340,4 +4455,6 @@ impl PipelineScheduler {
             .map_err(|e| ElusionError::Custom(format!("Shutdown failed: {}", e)))
     }
 }
+
+
 
