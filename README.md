@@ -99,19 +99,18 @@ async fn main() -> ElusionResult<()> {
 #### SCHEMA IS DYNAMICALLY INFERED since v0.2.5
 ---
 ## LOADING
-### Loading data into CustomDataFrame can be from:
-#### In-Memory data formats: CSV, JSON, PARQUET, DELTA 
-#### Azure Blob Storage endpoints (BLOB, DFS)
-#### REST API endpoints
-#### ODBC Connectors (databases)
+### - Loading data into CustomDataFrame can be from:
+#### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
+#### - Azure Blob Storage endpoints (BLOB, DFS)
+#### - REST API endpoints
+#### - ODBC Connectors (databases)
 
-#### NEXT is example for reading data from local files, 
+#### -> NEXT is example for reading data from local files, 
 #### down bellow are examples for Azure Blob Storage, REST APIs and ODBC
 ---
 ### LOADING Files into CustomDataFrame (in-memry data formats)
-#### File extensions are automatically recognized 
-#### All you have to do is to provide path to your file
-### Currently supported data files: CSV, PARQUET, JSON, DELTA
+#### - File extensions are automatically recognized 
+#### - All you have to do is to provide path to your file
 ```rust
 let csv_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
 let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
