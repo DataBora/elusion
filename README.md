@@ -7,7 +7,7 @@ Elusion is a high-performance DataFrame library designed for in-memory data form
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, HTTPS API calls are built atop Reqwest. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API calls are built atop Reqwest. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
@@ -97,8 +97,18 @@ async fn main() -> ElusionResult<()> {
 ```
 ## Schema 
 #### SCHEMA IS DYNAMICALLY INFERED since v0.2.5
+---
+## LOADING
+### Loading data into CustomDataFrame can be from:
+#### In-Memory data formats: CSV, JSON, PARQUET, DELTA 
+#### Azure Blob Storage endpoints (BLOB, DFS)
+#### REST API endpoints
+#### ODBC Connectors (databases)
 
-### LOADING Files into CustomDataFrame
+#### NEXT is example for reading data from local files, 
+#### down bellow are examples for Azure Blob Storage, REST APIs and ODBC
+---
+### LOADING Files into CustomDataFrame (in-memry data formats)
 #### File extensions are automatically recognized 
 #### All you have to do is to provide path to your file
 ### Currently supported data files: CSV, PARQUET, JSON, DELTA
@@ -115,8 +125,7 @@ let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just 
 let df_sales = CustomDataFrame::new(csv_data, "sales").await?; 
 let df_customers = CustomDataFrame::new(parquet_path, "customers").await?;
 ```
-## RULE of thumb: 
-#### ALL Column names and Dataframe alias names, will be TRIM(), REPLACE(" ", "_")
+---
 
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
@@ -129,7 +138,6 @@ let customers_alias = df_customers
 ### Aggregation Functions -> in AGG() function
 ### String Column Functions -> in STRING_FUNCTIONS() function
 ---
-
 ### Numerical Operators (supported +, -, * , / , %)
 ```rust
 let num_ops_sales = sales_order_df.clone()
