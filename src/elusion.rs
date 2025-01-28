@@ -3722,6 +3722,89 @@ pub async fn from_api_with_headers(url: &str, headers: HashMap<String, String>) 
     Self::process_json_response(json_value, "api_data").await
 }
 
+/// Create DataFrame from API with date range parameters
+pub async fn from_api_with_dates(
+    base_url: &str, 
+    from_date: &str, 
+    to_date: &str
+) -> ElusionResult<Self> {
+    let url = format!("{}?from={}&to={}", 
+        base_url,
+        urlencoding::encode(from_date),
+        urlencoding::encode(to_date)
+    );
+    Self::from_api(&url).await
+}
+
+/// Create DataFrame from API with pagination
+pub async fn from_api_with_pagination(
+    base_url: &str,
+    page: u32,
+    per_page: u32
+) -> ElusionResult<Self> {
+    let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
+    Self::from_api(&url).await
+}
+
+/// Create DataFrame from API with sorting
+pub async fn from_api_with_sort(
+    base_url: &str,
+    sort_field: &str,
+    order: &str
+) -> ElusionResult<Self> {
+    let url = format!("{}?sort={}&order={}", 
+        base_url,
+        urlencoding::encode(sort_field),
+        urlencoding::encode(order)
+    );
+    Self::from_api(&url).await
+}
+
+/// Create DataFrame from API with custom query parameters
+pub async fn from_api_with_params(
+    base_url: &str,
+    params: HashMap<&str, &str>
+) -> ElusionResult<Self> {
+    if params.is_empty() {
+        return Self::from_api(base_url).await;
+    }
+
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", 
+            urlencoding::encode(k), 
+            urlencoding::encode(v))
+        )
+        .collect::<Vec<String>>()
+        .join("&");
+
+    let url = format!("{}?{}", base_url, query_string);
+    Self::from_api(&url).await
+}
+
+/// Create DataFrame from API with parameters and headers
+pub async fn from_api_with_params_and_headers(
+    base_url: &str,
+    params: HashMap<&str, &str>,
+    headers: HashMap<String, String>
+) -> ElusionResult<Self> {
+    if params.is_empty() {
+        return Self::from_api_with_headers(base_url, headers).await;
+    }
+
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", 
+            urlencoding::encode(k), 
+            urlencoding::encode(v))
+        )
+        .collect::<Vec<String>>()
+        .join("&");
+
+    let url = format!("{}?{}", base_url, query_string);
+    Self::from_api_with_headers(&url, headers).await
+}
+
 
 /// Process JSON response into DataFrame
 async fn process_json_response(json_value: Value, table_name: &str) -> ElusionResult<Self> {
