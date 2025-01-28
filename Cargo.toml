@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "1.5.0"
+version = "1.5.1"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -32,6 +32,7 @@ azure_storage = "0.21.0"
 csv = "1.1"
 tokio-cron-scheduler = "0.13.0"
 reqwest = { version = "0.12", features = ["json"] }
+urlencoding = "2.1.3"
 log = "0.4.25"
 env_logger = "0.11.6"
 

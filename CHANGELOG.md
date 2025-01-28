@@ -1,3 +1,9 @@
+## [1.5.1] - 2025-01-28
+### Added
+- URL Encoding for REST API params and headers 
+### Added
+- Dependencies: `urlencoding` `2.1.3`
+
 ## [1.5.0] - 2025-01-27
 ### Added
 - Reading Data From API into CustomDataFrame

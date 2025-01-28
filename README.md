@@ -33,7 +33,7 @@ Async Support: Built on tokio for non-blocking operations.
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for reading data files.
 - Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
-- REST API Integration: Built-in support for fetching data from REST APIs with customizable headers.
+- REST API Integration: Built-in support for fetching data from REST APIs with customizable Headers, Params, Pagination, Dates...
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.5.0"
+elusion = "1.5.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -882,10 +882,10 @@ test_data.display().await?;
 ```
 ---
 # REST API Connector 
-## Available for fetching data from REST APIs with customizable headers
-####  Currently supported for .JSON 
+## Available for fetching data from REST APIs with customizable Headers, Params, Pagination, Dates....
+#### Currently supported for .JSON 
 
-### REST APIs without headers
+### REST API
 ```rust
 // example 1
 let posts_df = CustomDataFrame::from_api("https://jsonplaceholder.typicode.com/posts").await?;
@@ -894,8 +894,13 @@ posts_df.display().await?;
 // example 2
 let users_df = CustomDataFrame::from_api("https://jsonplaceholder.typicode.com/users").await?;
 users_df.display().await?;
+
+
+// Dog CEO API (random dog images)
+let ceo = CustomDataFrame::from_api("https://dog.ceo/api/breeds/image/random/3").await?;
+ceo.display().await?;
 ```
-### REST APIs with headers
+### REST API with Headers
 ```rust
 // example 1
 let mut headers = HashMap::new();
@@ -935,7 +940,111 @@ let pokemon_df = CustomDataFrame::from_api_with_headers(
 
 pokemon_df.display().await?;
 ```
-## Common header types
+### REST API with Params
+```rust
+// Using OpenLibrary API with params
+let mut params = HashMap::new();
+params.insert("q", "rust programming");
+params.insert("limit", "10");
+
+let open_lib: CustomDataFrame = CustomDataFrame::from_api_with_params(
+    "https://openlibrary.org/search.json",
+    params
+).await?;
+open_lib.display().await?;
+
+// Random User Generator API with params
+let mut params = HashMap::new();
+params.insert("results", "10");
+params.insert("nat", "us,gb");
+
+let generator = CustomDataFrame::from_api_with_params(
+    "https://randomuser.me/api",
+    params
+).await?;
+generator.display().await?;
+
+// JSON Placeholder with multiple endpoints
+let mut params = HashMap::new();
+params.insert("userId", "1");
+params.insert("_limit", "5");
+
+let multi = CustomDataFrame::from_api_with_params(
+    "https://jsonplaceholder.typicode.com/posts",
+    params
+).await?;
+multi.display().await?;
+```
+### REST API with Params and Headers
+```rust
+// example1 : GitHub commits with date range
+let mut params = HashMap::new();
+params.insert("since", "2024-01-01T00:00:00Z");
+params.insert("until", "2024-01-07T23:59:59Z");
+
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let commits_df = CustomDataFrame::from_api_with_params_and_headers(
+    "https://api.github.com/repos/rust-lang/rust/commits",
+    params,
+    headers
+).await?;
+
+commits_df.display().await?;
+
+//example2: with API key, dates, and other parameters
+let mut params = HashMap::new();
+params.insert("api_key", "YOUR_API_KEY");
+params.insert("start_date", "2024-01-01");
+params.insert("end_date", "2024-01-07");
+params.insert("count", "5");
+params.insert("thumbs", "true");
+
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/json".to_string());
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let nasa = CustomDataFrame::from_api_with_params_and_headers(
+    "https://api.nasa.gov/planetary/apod",
+    params,
+    headers
+).await?;
+
+nasa.display().await?;
+```
+### REST API with Pagination
+```rust
+// Using ReqRes API with pagination
+let reqres = CustomDataFrame::from_api_with_pagination(
+    "https://reqres.in/api/users",
+    1,  // page
+    10  // per_page
+).await?;
+reqres.display().await?;
+```
+### REST API with Dates
+```rust
+// Example 1: COVID-19 historical data
+let posts_df = CustomDataFrame::from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts",
+    "2024-01-01",
+    "2024-01-07"
+).await?;
+
+posts_df.display().await?;
+
+// Example 2: COVID-19 historical data
+let covid_df = CustomDataFrame::from_api_with_dates(
+    "https://disease.sh/v3/covid-19/historical/all",
+    "2024-01-01",
+    "2024-01-07"
+).await?;
+
+covid_df.display().await?;
+```
+## Common Header types
 ```rust
 //Accept - Specifies the expected response format
 rustCopyheaders.insert("Accept".to_string(), "application/json".to_string());
