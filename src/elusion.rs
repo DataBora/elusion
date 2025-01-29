@@ -80,8 +80,6 @@ use azure_storage::CloudLocation;
 use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
-// ======== From API
-use reqwest::Client;
 
 // use log::{info, debug};
 
@@ -97,14 +95,6 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         ));
     }
 
-    Ok(())
-}
-
-// HTTPS validator
-fn validate_https_url(url: &str) -> ElusionResult<()> {
-    if !url.starts_with("https://") {
-        return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
-    }
     Ok(())
 }
 
@@ -3659,198 +3649,10 @@ pub async fn from_azure_with_sas_token(
         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
 
     // info!("Returning CustomDataFrame for alias '{}'", alias);
-
     Ok(CustomDataFrame {
         df,
         table_alias: alias.to_string(),
         from_table: alias.to_string(),
-        selected_columns: Vec::new(),
-        alias_map: Vec::new(),
-        aggregations: Vec::new(),
-        group_by_columns: Vec::new(),
-        where_conditions: Vec::new(),
-        having_conditions: Vec::new(),
-        order_by_columns: Vec::new(),
-        limit_count: None,
-        joins: Vec::new(),
-        window_functions: Vec::new(),
-        ctes: Vec::new(),
-        subquery_source: None,
-        set_operations: Vec::new(),
-        query: String::new(),
-        aggregated_df: None,
-        union_tables: None,
-        original_expressions: Vec::new(),
-    })
-}
-
-/// Create a DataFrame from a REST API endpoint that returns JSON
-pub async fn from_api(url: &str) -> ElusionResult<Self> {
-    validate_https_url(url)?;
-    let client = Client::new();
-    let response = client.get(url)
-        .send()
-        .await
-        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
-    
-    let json_value: Value = response.json()
-        .await
-        .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
-
-    Self::process_json_response(json_value, "api_data").await
-}
-
-/// Create a DataFrame from a REST API endpoint with custom headers
-pub async fn from_api_with_headers(url: &str, headers: HashMap<String, String>) -> ElusionResult<Self> {
-    validate_https_url(url)?;
-    let client = Client::new();
-    let mut request = client.get(url);
-    
-    for (key, value) in headers {
-        request = request.header(&key, value);
-    }
-    
-    let response = request
-        .send()
-        .await
-        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
-    
-    let json_value: Value = response.json()
-        .await
-        .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
-
-    Self::process_json_response(json_value, "api_data").await
-}
-
-/// Create DataFrame from API with date range parameters
-pub async fn from_api_with_dates(
-    base_url: &str, 
-    from_date: &str, 
-    to_date: &str
-) -> ElusionResult<Self> {
-    let url = format!("{}?from={}&to={}", 
-        base_url,
-        urlencoding::encode(from_date),
-        urlencoding::encode(to_date)
-    );
-    Self::from_api(&url).await
-}
-
-/// Create DataFrame from API with pagination
-pub async fn from_api_with_pagination(
-    base_url: &str,
-    page: u32,
-    per_page: u32
-) -> ElusionResult<Self> {
-    let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
-    Self::from_api(&url).await
-}
-
-/// Create DataFrame from API with sorting
-pub async fn from_api_with_sort(
-    base_url: &str,
-    sort_field: &str,
-    order: &str
-) -> ElusionResult<Self> {
-    let url = format!("{}?sort={}&order={}", 
-        base_url,
-        urlencoding::encode(sort_field),
-        urlencoding::encode(order)
-    );
-    Self::from_api(&url).await
-}
-
-/// Create DataFrame from API with custom query parameters
-pub async fn from_api_with_params(
-    base_url: &str,
-    params: HashMap<&str, &str>
-) -> ElusionResult<Self> {
-    if params.is_empty() {
-        return Self::from_api(base_url).await;
-    }
-
-    let query_string: String = params
-        .iter()
-        .map(|(k, v)| format!("{}={}", 
-            urlencoding::encode(k), 
-            urlencoding::encode(v))
-        )
-        .collect::<Vec<String>>()
-        .join("&");
-
-    let url = format!("{}?{}", base_url, query_string);
-    Self::from_api(&url).await
-}
-
-/// Create DataFrame from API with parameters and headers
-pub async fn from_api_with_params_and_headers(
-    base_url: &str,
-    params: HashMap<&str, &str>,
-    headers: HashMap<String, String>
-) -> ElusionResult<Self> {
-    if params.is_empty() {
-        return Self::from_api_with_headers(base_url, headers).await;
-    }
-
-    let query_string: String = params
-        .iter()
-        .map(|(k, v)| format!("{}={}", 
-            urlencoding::encode(k), 
-            urlencoding::encode(v))
-        )
-        .collect::<Vec<String>>()
-        .join("&");
-
-    let url = format!("{}?{}", base_url, query_string);
-    Self::from_api_with_headers(&url, headers).await
-}
-
-
-/// Process JSON response into DataFrame
-async fn process_json_response(json_value: Value, table_name: &str) -> ElusionResult<Self> {
-    let mut all_data = Vec::new();
-
-    match json_value {
-        Value::Array(items) => {
-            for item in items {
-                if let Value::Object(map) = item {
-                    all_data.push(flatten_json_object(map));
-                }
-            }
-        },
-        Value::Object(map) => {
-            all_data.push(flatten_json_object(map));
-        },
-        _ => return Err(ElusionError::Custom("Invalid JSON structure: expected object or array".to_string())),
-    }
-
-    if all_data.is_empty() {
-        return Err(ElusionError::Custom("No valid data found in JSON response".to_string()));
-    }
-
-    let ctx = Arc::new(SessionContext::new());
-
-    // Use existing schema inference function
-    let schema = infer_schema_from_json(&all_data);
-    
-    // Use existing record batch builder
-    let batch = build_record_batch(&all_data, schema.clone())
-        .map_err(|e| ElusionError::Custom(format!("Failed to create RecordBatch: {}", e)))?;
-
-    let mem_table = MemTable::try_new(schema, vec![vec![batch]])
-        .map_err(|e| ElusionError::Custom(format!("Failed to create MemTable: {}", e)))?;
-
-    ctx.register_table(table_name, Arc::new(mem_table))
-        .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
-
-    let df = ctx.table(table_name)
-        .await // Now we can properly await this async call
-        .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
-
-    Ok(CustomDataFrame {
-        df,
-        table_alias: table_name.to_string(),
-        from_table: table_name.to_string(),
         selected_columns: Vec::new(),
         alias_map: Vec::new(),
         aggregations: Vec::new(),

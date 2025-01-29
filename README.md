@@ -7,7 +7,7 @@ Elusion is a high-performance DataFrame library designed for in-memory data form
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API calls are built atop Reqwest. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
@@ -33,7 +33,6 @@ Async Support: Built on tokio for non-blocking operations.
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for reading data files.
 - Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
-- REST API Integration: Built-in support for fetching data from REST APIs with customizable Headers, Params, Pagination, Dates...
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
@@ -72,7 +71,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.5.1"
+elusion = "1.6.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed

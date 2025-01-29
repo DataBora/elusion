@@ -1,3 +1,7 @@
+## [1.6.0] - 2025-01-28
+### Removed
+- REST API (until I fix it)
+
 ## [1.5.1] - 2025-01-28
 ### Added
 - URL Encoding for REST API params and headers 
