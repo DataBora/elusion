@@ -81,6 +81,8 @@ pub use datafusion::common::ScalarValue;
 pub use azure_storage_blobs::prelude::*;
 pub use azure_storage::StorageCredentials;
 pub use azure_storage::CloudLocation;
+pub use tempfile::{NamedTempFile, tempdir}; 
+pub use walkdir::WalkDir; 
 
 // ======== Scheduler
 pub use std::future::Future;
