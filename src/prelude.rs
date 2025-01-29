@@ -81,10 +81,20 @@ pub use datafusion::common::ScalarValue;
 pub use azure_storage_blobs::prelude::*;
 pub use azure_storage::StorageCredentials;
 pub use azure_storage::CloudLocation;
-
+//==== pisanje
+pub use azure_storage_blobs::blob::{BlockList, BlobBlockType};
+pub use bytes::Bytes;
+pub use datafusion::parquet::basic::Compression;
+pub use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
+pub use datafusion::parquet::arrow::ArrowWriter;
+pub use base64::engine::general_purpose::STANDARD;
+pub use base64::Engine;
 
 // ======== Scheduler
 pub use std::future::Future;
 pub use tokio_cron_scheduler::{JobScheduler, Job};
 
-
+// ======== From API
+// pub use reqwest::Client;
+// pub use urlencoding::encode;
+// pub use std::fs::remove_file;

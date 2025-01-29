@@ -3,7 +3,7 @@
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as HTTPS API Connections.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections.
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -31,7 +31,7 @@ Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
 Async Support: Built on tokio for non-blocking operations.
 
 ### 🌐 External Data Sources Integration
-- Azure Blob Storage: Direct integration with Azure Blob Storage for reading data files.
+- Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
 
 ### 🚀 High-Performance DataFrame Operations
@@ -71,7 +71,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.7.0"
+elusion = "1.7.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -1205,6 +1205,21 @@ result_df
     )
     .await
     .expect("Failed to append to Delta table");
+```
+
+## Writing Parquet to Azure BLOB Storage 
+#### Writing is set to Default, Overwrite, Compresion SNAPPY and Parquet 2.0 
+```rust
+let df = CustomDataFrame::new(csv_data, "sales").await?; 
+
+let query = df.select(["*"]);
+
+let data = query.elusion("df_sales").await?;
+
+let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
+let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
+
+data.write_parquet_to_azure_with_sas(url_to_folder, sas_write_token).await?;
 ```
 ---
 ### License

@@ -75,11 +75,21 @@ use lazy_static::lazy_static;
 use azure_storage_blobs::prelude::*;
 use azure_storage::StorageCredentials;
 use azure_storage::CloudLocation;
-
+// ==== pisanje
+use azure_storage_blobs::blob::{BlockList, BlobBlockType};
+use bytes::Bytes;
+use datafusion::parquet::basic::Compression;
+use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
+use datafusion::parquet::arrow::ArrowWriter;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 //  ==================== Pipeline Scheduler
 use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
+// ======== From API
+// use reqwest::Client;
+// use std::fs::remove_file;
 
 // use log::{info, debug};
 
@@ -97,6 +107,22 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
 
     Ok(())
 }
+
+// Enum for writing options
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AzureWriteMode {
+    Overwrite,
+    Append,
+    ErrorIfExists,
+}
+
+// // HTTPS validator
+// fn validate_https_url(url: &str) -> ElusionResult<()> {
+//     if !url.starts_with("https://") {
+//         return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
+//     }
+//     Ok(())
+// }
 
 // Helper funciton for processing both json and csv files
 async fn process_blob_content(
@@ -3226,6 +3252,378 @@ pub async fn write_to_delta_table(
     .await
 }
 
+// ========= AZURE WRITING
+fn setup_azure_client(&self, url: &str, sas_token: &str) -> ElusionResult<(ContainerClient, String)> {
+    // // Validate SAS token format and permissions
+    // let normalized_token = sas_token.trim_start_matches('?');
+
+    // // Parse and validate SAS token permissions
+    // let permissions = normalized_token
+    //     .split('&')
+    //     .find(|&param| param.starts_with("sp="))
+    //     .ok_or_else(|| ElusionError::Custom("Missing permissions (sp) in SAS token".to_string()))?;
+
+    // let has_write = permissions.contains('w');
+    // let has_create = permissions.contains('c');
+
+    // if !has_write || !has_create {
+    //     return Err(ElusionError::Custom(
+    //         "SAS token missing required permissions. Need both Write (w) and Create (c) permissions".to_string()
+    //     ));
+    // }
+
+    // Validate URL format and parse components
+    let url_parts: Vec<&str> = url.split('/').collect();
+    if url_parts.len() < 5 {
+        return Err(ElusionError::Custom(
+            "Invalid URL format. Expected format: https://{account}.{endpoint}.core.windows.net/{container}/{blob}".to_string()
+        ));
+    }
+
+    let (account, endpoint_type) = url_parts[2]
+        .split('.')
+        .next()
+        .map(|acc| {
+            if url.contains(".dfs.") {
+                (acc, "dfs")
+            } else {
+                (acc, "blob")
+            }
+        })
+        .ok_or_else(|| ElusionError::Custom("Invalid URL format: cannot extract account name".to_string()))?;
+
+    // Validate container and blob name
+    let container = url_parts[3].to_string();
+    if container.is_empty() {
+        return Err(ElusionError::Custom("Container name cannot be empty".to_string()));
+    }
+
+    let blob_name = url_parts[4..].join("/");
+    if blob_name.is_empty() {
+        return Err(ElusionError::Custom("Blob name cannot be empty".to_string()));
+    }
+
+    // Validate SAS token expiry
+    if let Some(expiry_param) = sas_token.split('&').find(|&param| param.starts_with("se=")) {
+        let expiry = expiry_param.trim_start_matches("se=");
+        // Parse the expiry timestamp (typically in format like "2024-01-29T00:00:00Z")
+        if let Ok(expiry_time) = chrono::DateTime::parse_from_rfc3339(expiry) {
+            let now = chrono::Utc::now();
+            if expiry_time < now {
+                return Err(ElusionError::Custom("SAS token has expired".to_string()));
+            }
+        }
+    }
+
+    // Create storage credentials
+    let credentials = StorageCredentials::sas_token(sas_token.to_string())
+        .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
+
+    // Create client based on endpoint type
+    let client = if endpoint_type == "dfs" {
+        let cloud_location = CloudLocation::Public {
+            account: account.to_string(),
+        };
+        ClientBuilder::with_location(cloud_location, credentials)
+            .blob_service_client()
+            .container_client(container)
+    } else {
+        ClientBuilder::new(account.to_string(), credentials)
+            .blob_service_client()
+            .container_client(container)
+    };
+
+    Ok((client, blob_name))
+}
+
+// async fn prepare_parquet_content(&self) -> ElusionResult<Bytes> {
+//     // Convert DataFrame to RecordBatch
+//     let batches: Vec<RecordBatch> = self.clone().df.collect().await
+//         .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+
+//     // Create ParquetWriter properties
+//     let props = WriterProperties::builder()
+//         .set_writer_version(WriterVersion::PARQUET_2_0)
+//         .set_compression(Compression::SNAPPY)
+//         .set_created_by("Elusion".to_string())
+//         .build();
+
+//     // Write RecordBatch to in-memory Parquet file
+//     let mut buffer = Vec::new();
+//     {
+//         let schema = self.df.schema();
+//         let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+//             .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+//         for batch in batches {
+//             writer.write(&batch)
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+//         }
+//         writer.close()
+//             .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+//     }
+
+//     Ok(Bytes::from(buffer))
+// }
+
+// pub async fn write_parquet_to_azure_with_sas(
+//     &self,
+//     mode: &str,
+//     url: &str,
+//     sas_token: &str,
+// ) -> ElusionResult<()> {
+//     validate_azure_url(url)?;
+    
+//     let (client, blob_name) = self.setup_azure_client(url, sas_token)?;
+//     let blob_client = client.blob_client(&blob_name);
+
+//     // Check if blob exists
+//     let exists = blob_client
+//         .get_properties()
+//         .await
+//         .is_ok();
+
+//     match mode.to_lowercase().as_str() {
+//         "overwrite" => {
+//             // Convert DataFrame to Parquet
+//             let content = self.prepare_parquet_content().await?;
+//             let content_length = content.len();
+
+//             // Use block blob operations with staged upload for larger files
+//             if content_length > 100_000_000 {  // 100MB threshold
+//                 let block_id = STANDARD.encode(format!("{:0>20}", 1));
+
+//                 blob_client
+//                     .put_block(block_id.clone(), content)
+//                     .await
+//                     .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
+
+//                 let block_list = BlockList {
+//                     blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
+//                 };
+
+//                 blob_client
+//                     .put_block_list(block_list)
+//                     .content_type("application/parquet")
+//                     .await
+//                     .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
+//             } else {
+//                 blob_client
+//                     .put_block_blob(content)
+//                     .content_type("application/parquet")
+//                     .await
+//                     .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
+//             }
+//             println!("Data successfully overwritten to Azure blob: '{}'", url);
+//         }
+//         "append" => {
+//             if !exists {
+//                 return Err(ElusionError::Custom(format!(
+//                     "Append mode requires an existing blob at '{}'",
+//                     url
+//                 )));
+//             }
+
+//             // Get existing blocks for append
+//             let existing_blocks = blob_client
+//                 .get_block_list()
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to get block list: {}", e)))?
+//                 .block_with_size_list
+//                 .blocks
+//                 .into_iter()
+//                 .filter_map(|block| {
+//                     if let BlobBlockType::Committed(id) = block.block_list_type {
+//                         Some(id)
+//                     } else {
+//                         None
+//                     }
+//                 })
+//                 .collect::<Vec<_>>();
+
+//             // Generate next block ID
+//             let next_block_id = format!("{:0>20}", existing_blocks.len() + 1);
+//             let new_block_id = STANDARD.encode(next_block_id);
+
+//             // Convert DataFrame to Parquet and upload new block
+//             let content = self.prepare_parquet_content().await?;
+
+//             // Upload new block
+//             blob_client
+//                 .put_block(new_block_id.clone(), content)
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
+
+//             // Prepare final block list (existing + new)
+//             let mut blocks = existing_blocks
+//                 .into_iter()
+//                 .map(|id| BlobBlockType::Committed(id))
+//                 .collect::<Vec<_>>();
+//             blocks.push(BlobBlockType::Uncommitted(new_block_id.into_bytes().into()));
+
+//             // Commit all blocks
+//             let block_list = BlockList { blocks };
+//             blob_client
+//                 .put_block_list(block_list)
+//                 .content_type("application/parquet")
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
+
+//             println!("Data successfully appended to Azure blob: '{}'", url);
+//         }
+//         _ => {
+//             return Err(ElusionError::Custom(format!(
+//                 "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
+//                 mode
+//             )));
+//         }
+//     }
+
+//     Ok(())
+// }
+/// Write DataFrame to Azure Blob Storage as Parquet
+pub async fn write_parquet_to_azure_with_sas(
+    &self,
+    url: &str,
+    sas_token: &str,
+) -> ElusionResult<()> {
+    validate_azure_url(url)?;
+    
+    let (client, blob_name) = self.setup_azure_client(url, sas_token)?;
+    let blob_client = client.blob_client(&blob_name);
+
+    let batches: Vec<RecordBatch> = self.clone().df.collect().await
+        .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+
+
+    let props = WriterProperties::builder()
+        .set_writer_version(WriterVersion::PARQUET_2_0)
+        .set_compression(Compression::SNAPPY)
+        .set_created_by("Elusion".to_string())
+        .build();
+
+    let mut buffer = Vec::new();
+    {
+        let schema = self.df.schema();
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+            .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+        for batch in batches {
+            writer.write(&batch)
+                .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+        }
+        writer.close()
+            .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+    }
+
+    let content = Bytes::from(buffer);
+    let content_length = content.len();
+
+    if content_length > 100_000_000 {  // 100MB threshold
+        let block_id = STANDARD.encode(format!("{:0>20}", 1));
+
+        blob_client
+            .put_block(block_id.clone(), content)
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
+
+        let block_list = BlockList {
+            blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
+        };
+
+        blob_client
+            .put_block_list(block_list)
+            .content_type("application/parquet")
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
+    } else {
+        blob_client
+            .put_block_blob(content)
+            .content_type("application/parquet")
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
+    }
+
+    println!("Successfully wrote parquet data to Azure blob: {}", url);
+    Ok(())
+}
+// / Write DataFrame to Azure Blob Storage as CSV
+
+
+/// Write DataFrame to Azure Blob Storage as Delta table
+// pub async fn write_delta_to_azure_with_sas(
+//     &self,
+//     mode: &str,
+//     url: &str,
+//     sas_token: &str,
+//     partition_columns: Option<Vec<String>>,
+// ) -> ElusionResult<()> {
+//     // Similar setup but handling directory structure for Delta
+//     validate_azure_url(url)?;
+    
+//     let url_parts: Vec<&str> = url.split('/').collect();
+//     let (account, endpoint_type) = url_parts[2]
+//         .split('.')
+//         .next()
+//         .map(|acc| {
+//             if url.contains(".dfs.") {
+//                 (acc, "dfs")
+//             } else {
+//                 (acc, "blob")
+//             }
+//         })
+//         .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?;
+
+//         let container = url_parts.last()
+//         .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?
+//         .to_string();
+
+//     let credentials = StorageCredentials::sas_token(sas_token.to_string())
+//         .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
+
+//     let client = if endpoint_type == "dfs" {
+//         let cloud_location = CloudLocation::Public {
+//             account: account.to_string(),
+//         };
+//         ClientBuilder::with_location(cloud_location, credentials)
+//             .blob_service_client()
+//             .container_client(container)
+//     } else {
+//         ClientBuilder::new(account.to_string(), credentials)
+//             .blob_service_client()
+//             .container_client(container)
+//     };
+
+//     // For Delta tables we need to handle multiple files
+//     let temp_dir = tempfile::tempdir()
+//         .map_err(|e| ElusionError::Custom(format!("Failed to create temp directory: {}", e)))?;
+//     let temp_path = temp_dir.path().to_str().unwrap();
+
+//     self.write_to_delta_table(mode, temp_path, partition_columns).await?;
+
+//     // Walk the temp directory and upload all files
+//     for entry in walkdir::WalkDir::new(temp_path) {
+//         let entry = entry.map_err(|e| ElusionError::Custom(format!("Failed to read directory: {}", e)))?;
+//         if entry.file_type().is_file() {
+//             let relative_path = entry.path().strip_prefix(temp_path)
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to get relative path: {}", e)))?;
+//             let blob_name = format!("{}/{}", url_parts[4..].join("/"), relative_path.display());
+            
+//             let content = std::fs::read(entry.path())
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to read file: {}", e)))?;
+
+//             let blob_client = client.blob_client(&blob_name);
+//             blob_client
+//                 .put_block_blob(content)
+//                 .await
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to upload to Azure: {}", e)))?;
+//         }
+//     }
+
+//     println!("Successfully wrote Delta table to Azure: {}", url);
+//     Ok(())
+// }
+
 //=================== LOADERS ============================= //
 /// LOAD function for CSV file type
 pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, DataFusionError> {
@@ -3266,7 +3664,6 @@ pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, 
         alias: alias.to_string(),
     })
 }
-
 
 /// LOAD function for Parquet file type
 pub fn load_parquet<'a>(
@@ -3672,6 +4069,238 @@ pub async fn from_azure_with_sas_token(
         original_expressions: Vec::new(),
     })
 }
+
+// ================ FROM API
+
+// /// Create a DataFrame from a REST API endpoint that returns JSON
+// pub async fn from_api(url: &str, alias: &str) -> ElusionResult<CustomDataFrame> {
+//     validate_https_url(url)?;
+//     let client = Client::new();
+//     let response = client.get(url)
+//         .send()
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+    
+//     let json_value: Value = response.json()
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
+
+//     Self::process_json_response(json_value, alias).await
+// }
+
+// /// Create a DataFrame from a REST API endpoint with custom headers
+// pub async fn from_api_with_headers(
+//     url: &str, 
+//     headers: HashMap<String, String>,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     validate_https_url(url)?;
+//     let client = Client::new();
+//     let mut request = client.get(url);
+    
+//     for (key, value) in headers {
+//         request = request.header(&key, value);
+//     }
+    
+//     let response = request
+//         .send()
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+    
+//     let json_value: Value = response.json()
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
+
+//     Self::process_json_response(json_value, alias).await
+// }
+
+// /// Create DataFrame from API with custom query parameters
+// pub async fn from_api_with_params(
+//     base_url: &str, 
+//     params: HashMap<&str, &str>,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     validate_https_url(base_url)?;
+
+//     if params.is_empty() {
+//         return Self::from_api(base_url, alias).await;
+//     }
+
+//     let query_string: String = params
+//         .iter()
+//         .map(|(k, v)| {
+//             // Only encode if the value contains a space
+//             if v.contains(' ') {
+//                 format!("{}={}", k, v)
+//             } else {
+//                 format!("{}={}", urlencoding::encode(k), urlencoding::encode(v))
+//             }
+//         })
+//         .collect::<Vec<String>>()
+//         .join("&");
+
+//     let url = format!("{}?{}", base_url, query_string);
+//     println!("Generated URL: {}", url);
+
+//     // Pass the alias to from_api
+//     Self::from_api(&url, alias).await
+// }
+
+
+// /// Create DataFrame from API with parameters and headers
+// pub async fn from_api_with_params_and_headers(
+//     base_url: &str,
+//     params: HashMap<&str, &str>,
+//     headers: HashMap<String, String>,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     if params.is_empty() {
+//         return Self::from_api_with_headers(base_url, headers, alias).await;
+//     }
+
+//     let query_string: String = params
+//         .iter()
+//         .map(|(k, v)| {
+//             // Only encode if the key or value contains no spaces
+//             if !k.contains(' ') && !v.contains(' ') {
+//                 format!("{}={}", 
+//                     urlencoding::encode(k), 
+//                     urlencoding::encode(v)
+//                 )
+//             } else {
+//                 format!("{}={}", k, v)
+//             }
+//         })
+//         .collect::<Vec<String>>()
+//         .join("&");
+
+//     let url = format!("{}?{}", base_url, query_string);
+//     // Pass the alias to from_api_with_headers
+//     Self::from_api_with_headers(&url, headers, alias).await
+// }
+
+// /// Create DataFrame from API with date range parameters
+// pub async fn from_api_with_dates(
+//     base_url: &str, 
+//     from_date: &str, 
+//     to_date: &str,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     let url = format!("{}?from={}&to={}", 
+//         base_url,
+//         // Only encode if the date contains a space
+//         if from_date.contains(' ') { from_date.to_string() } else { urlencoding::encode(from_date).to_string() },
+//         if to_date.contains(' ') { to_date.to_string() } else { urlencoding::encode(to_date).to_string() }
+//     );
+//     println!("Generated URL: {}", url);
+//     // Pass the alias to from_api
+//     Self::from_api(&url, alias).await
+// }
+
+// /// Create DataFrame from API with pagination
+// pub async fn from_api_with_pagination(
+//     base_url: &str,
+//     page: u32,
+//     per_page: u32,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
+//     println!("Generated URL: {}", url);
+//     // Pass the alias to from_api
+//     Self::from_api(&url, alias).await
+// }
+
+// /// Create DataFrame from API with sorting
+// pub async fn from_api_with_sort(
+//     base_url: &str,
+//     sort_field: &str,
+//     order: &str,
+//     alias: &str
+// ) -> ElusionResult<CustomDataFrame> {
+//     let url = format!("{}?sort={}&order={}", 
+//         base_url,
+//         if sort_field.contains(' ') { sort_field.to_string() } else { urlencoding::encode(sort_field).to_string() },
+//         if order.contains(' ') { order.to_string() } else { urlencoding::encode(order).to_string() }
+//     );
+//     println!("Generated URL: {}", url);
+//     // Pass the alias to from_api
+//     Self::from_api(&url, alias).await
+// }
+
+// /// Process JSON response into DataFrame
+// async fn process_json_response(json_value: Value, table_name: &str) -> ElusionResult<CustomDataFrame> {
+//     // Save JSON to temporary file
+//     let file_path = format!("{}.json", table_name);
+//     let mut file = OpenOptions::new()
+//         .create(true)
+//         .write(true)
+//         .truncate(true)
+//         .open(&file_path)
+//         .map_err(|e| ElusionError::Custom(format!("Failed to open file for writing: {}", e)))?;
+
+//     // Write JSON to file
+//     let json_str = serde_json::to_string_pretty(&json_value)
+//         .map_err(|e| ElusionError::Custom(format!("Failed to serialize JSON: {}", e)))?;
+    
+//     writeln!(file, "{}", json_str)
+//         .map_err(|e| ElusionError::Custom(format!("Failed to write JSON to file: {}", e)))?;
+
+//     // Drop the file handle
+//     drop(file);
+
+//     // Read the file contents
+//     let file_contents = read_file_to_string(&file_path)
+//         .map_err(|e| ElusionError::Custom(format!("Failed to read file: {}", e)))?;
+
+//     // Check if JSON is array or object
+//     let is_array = match serde_json::from_str::<Value>(&file_contents) {
+//         Ok(Value::Array(_)) => true,
+//         Ok(Value::Object(_)) => false,
+//         Ok(_) => false,
+//         Err(e) => {
+//             return Err(ElusionError::Custom(format!("Invalid JSON structure: {}", e)));
+//         }
+//     };
+    
+//     // Create DataFrame based on JSON structure
+//     let df = if is_array {
+//         create_dataframe_from_multiple_json(&file_contents, table_name).await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from array: {}", e)))?
+//     } else {
+//         create_dataframe_from_json(&file_contents, table_name).await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from object: {}", e)))?
+//     };
+
+//     // Clean up temporary file
+//     if let Err(e) = remove_file(&file_path) {
+//         println!("Warning: Failed to remove temporary file {}: {}", file_path, e);
+//     }
+
+//     Ok(CustomDataFrame {
+//         df,
+//         table_alias: table_name.to_string(),
+//         from_table: table_name.to_string(),
+//         selected_columns: Vec::new(),
+//         alias_map: Vec::new(),
+//         aggregations: Vec::new(),
+//         group_by_columns: Vec::new(),
+//         where_conditions: Vec::new(),
+//         having_conditions: Vec::new(),
+//         order_by_columns: Vec::new(),
+//         limit_count: None,
+//         joins: Vec::new(),
+//         window_functions: Vec::new(),
+//         ctes: Vec::new(),
+//         subquery_source: None,
+//         set_operations: Vec::new(),
+//         query: String::new(),
+//         aggregated_df: None,
+//         union_tables: None,
+//         original_expressions: Vec::new(),
+//     })
+// }
+
+
 
 /// Unified load function that determines the file type based on extension
 pub async fn load(
@@ -4340,6 +4969,3 @@ impl PipelineScheduler {
             .map_err(|e| ElusionError::Custom(format!("Shutdown failed: {}", e)))
     }
 }
-
-
-
