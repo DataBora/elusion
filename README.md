@@ -946,141 +946,6 @@ Ok(())
 }
 ```
 ---
-# PLOTTING
-### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
-#### Bellow are examples how you can simply create different plots and Report
-```rust
-let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
-let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
-
-let mix_df3 = sales_order_df
-    .select([
-        "customer_name",
-        "order_date",
-        "ABS(billable_value) AS abs_billable_value",
-        "ROUND(SQRT(billable_value), 2) AS sqrt_billable_value", 
-        "billable_value * 2 AS double_billable_value", 
-        "billable_value / 100 AS percentage_billable"  
-    ])
-    .string_functions([
-        "TRIM(shipper_name) AS trimmed_shipper",
-        "SPLIT_PART(customer_contact_name, ',', 1) AS first_name",
-        "SPLIT_PART(customer_contact_name, ',', 2) AS last_name",
-    ])
-    .agg([
-        "SUM(billable_value) AS total_billable",
-        "COUNT(*) AS order_count"
-    ])
-    .group_by_all()
-    .filter("billable_value > 50.0")
-    .limit(100);
-
-let mix = mix_df3.elusion("result_sales").await?;
-
-// PLOTTING
-
-// plot_bar()
-let billable_plot = mix.plot_bar(
-    "customer_name", // - x_col: column name for x-axis
-    "total_billable", // - y_col: column name for y-axis
-    None, // - orientation: Keep None for Horizontal chart (Vertical Bars)
-    Some("Total Sales By Customer") // - title: optional custom title (can be None)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_plot, // reference to above variable
-    "billable_plot.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_line()
-let billable_line = mix.plot_line(
-    "order_date", // - x_col: column name for x-axis (can be date or numeric)
-    "double_billable_value", // - y_col: column name for y-axis
-    true,  // - show_markers: true to show points, false for line only
-    Some("Sales over time") // - title: optional custom title (can be None)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_line, // reference to above variable
-    "billable_line.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_time_series()
-let billable_ts = mix.plot_time_series(
-    "order_date", // - date_col: column name for dates (must be Date32 type)
-    "double_billable_value", // - value_col: column name for values
-    true, // - show_markers: true to show points, false for line only
-    Some("Sales Over Time") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_ts, // reference to above variable
-    "billable_ts.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_histogram()
-let billable_hist = mix.plot_histogram(
-    "abs_billable_value", // - col: column name for values to distribute
-    Some(20), // - bins: optional number of bins (defaults to 30)
-    Some("Distribution of Sales") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_hist, // reference to above variable
-    "billable_hist.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_pie()
-let billable_pie = mix.plot_pie(
-    "customer_name", // - label_col: column name for slice labels
-    "total_billable", // - value_col: column name for slice values
-    Some("Sales Distribution by Customer") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_pie, // reference to above variable
-    "billable_pie.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_donut()
-let billable_donut = mix.plot_donut(
-    "customer_name", // - label_col: column name for slice labels
-    "total_billable", // - value_col: column name for slice values
-    Some("Sales Distribution by Customer"), // - title: optional custom title
-    Some(0.5) // - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_donut, // reference to above variable
-    "billable_donut.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// Create report by Appening All Plots that you created
-let plots = [
-    (&billable_plot, "Sales by Customer"),
-    (&billable_line, "Sales Over Time"),
-    (&billable_pie, "Sales Distribution by Customer")
-];
-
-CustomDataFrame::create_report(
-    &plots,  
-    "Sales Analysis Report", // Report Title
-    "sales_report.html", // File name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
-).await?;
-```
----
-### Example of single Plot
-![Bar](images/bar.PNG)
-### Example of Report with multiple Plots
-![Report](images/report.PNG)
-
 ## JSON files
 ### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
@@ -1222,6 +1087,141 @@ let sas_write_token = "your_sas_token"; // make sure SAS token has writing permi
 data.write_parquet_to_azure_with_sas(url_to_folder, sas_write_token).await?;
 ```
 ---
+# PLOTTING
+### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
+#### Bellow are examples how you can simply create different plots and Report
+```rust
+let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
+
+let mix_df3 = sales_order_df
+    .select([
+        "customer_name",
+        "order_date",
+        "ABS(billable_value) AS abs_billable_value",
+        "ROUND(SQRT(billable_value), 2) AS sqrt_billable_value", 
+        "billable_value * 2 AS double_billable_value", 
+        "billable_value / 100 AS percentage_billable"  
+    ])
+    .string_functions([
+        "TRIM(shipper_name) AS trimmed_shipper",
+        "SPLIT_PART(customer_contact_name, ',', 1) AS first_name",
+        "SPLIT_PART(customer_contact_name, ',', 2) AS last_name",
+    ])
+    .agg([
+        "SUM(billable_value) AS total_billable",
+        "COUNT(*) AS order_count"
+    ])
+    .group_by_all()
+    .filter("billable_value > 50.0")
+    .limit(100);
+
+let mix = mix_df3.elusion("result_sales").await?;
+
+// PLOTTING
+
+// plot_bar()
+let billable_plot = mix.plot_bar(
+    "customer_name", // - x_col: column name for x-axis
+    "total_billable", // - y_col: column name for y-axis
+    None, // - orientation: Keep None for Horizontal chart (Vertical Bars)
+    Some("Total Sales By Customer") // - title: optional custom title (can be None)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_plot, // reference to above variable
+    "billable_plot.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// plot_line()
+let billable_line = mix.plot_line(
+    "order_date", // - x_col: column name for x-axis (can be date or numeric)
+    "double_billable_value", // - y_col: column name for y-axis
+    true,  // - show_markers: true to show points, false for line only
+    Some("Sales over time") // - title: optional custom title (can be None)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_line, // reference to above variable
+    "billable_line.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// plot_time_series()
+let billable_ts = mix.plot_time_series(
+    "order_date", // - date_col: column name for dates (must be Date32 type)
+    "double_billable_value", // - value_col: column name for values
+    true, // - show_markers: true to show points, false for line only
+    Some("Sales Over Time") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_ts, // reference to above variable
+    "billable_ts.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// plot_histogram()
+let billable_hist = mix.plot_histogram(
+    "abs_billable_value", // - col: column name for values to distribute
+    Some(20), // - bins: optional number of bins (defaults to 30)
+    Some("Distribution of Sales") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_hist, // reference to above variable
+    "billable_hist.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// plot_pie()
+let billable_pie = mix.plot_pie(
+    "customer_name", // - label_col: column name for slice labels
+    "total_billable", // - value_col: column name for slice values
+    Some("Sales Distribution by Customer") // - title: optional custom title
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_pie, // reference to above variable
+    "billable_pie.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// plot_donut()
+let billable_donut = mix.plot_donut(
+    "customer_name", // - label_col: column name for slice labels
+    "total_billable", // - value_col: column name for slice values
+    Some("Sales Distribution by Customer"), // - title: optional custom title
+    Some(0.5) // - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
+).await?;
+
+CustomDataFrame::save_plot(
+    &billable_donut, // reference to above variable
+    "billable_donut.html", // file name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
+).await?;
+
+// Create report by Appening All Plots that you created
+let plots = [
+    (&billable_plot, "Sales by Customer"),
+    (&billable_line, "Sales Over Time"),
+    (&billable_pie, "Sales Distribution by Customer")
+];
+
+CustomDataFrame::create_report(
+    &plots,  
+    "Sales Analysis Report", // Report Title
+    "sales_report.html", // File name
+    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
+).await?;
+```
+### Example of single Plot
+![Bar](images/bar.PNG)
+### Example of Report with multiple Plots
+![Report](images/report.PNG)
+
+---
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
 However, since it builds upon [DataFusion](https://datafusion.apache.org/), which is distributed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), some parts of this project are subject to the terms of the Apache License 2.0.
@@ -1229,7 +1229,7 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
-,Appache Arrow, Arrow ODBC... for efficient query processing. Special thanks to the open-source community for making this project possible.
+, Appache Arrow, Arrow ODBC, Tokio Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 ## Where you can find me:
 
