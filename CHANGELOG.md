@@ -1,3 +1,7 @@
+## [1.7.1] - 2025-01-29
+### Added
+- Wriring Parquet to Azure Blob Storage
+
 ## [1.7.0] - 2025-01-28
 ### Removed
 - REST API (until I fix it)
