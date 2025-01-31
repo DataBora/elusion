@@ -94,8 +94,7 @@ use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
 // ======== From API
-// use reqwest::Client;
-// use std::fs::remove_file;
+use reqwest::Client;
 
 // use log::{info, debug};
 
@@ -121,14 +120,6 @@ pub enum AzureWriteMode {
     Append,
     ErrorIfExists,
 }
-
-// HTTPS validator
-// fn validate_https_url(url: &str) -> ElusionResult<()> {
-//     if !url.starts_with("https://") {
-//         return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
-//     }
-//     Ok(())
-// }
 
 // Optimized JSON processing function using streaming parser
 fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Value>>> {
@@ -3200,11 +3191,9 @@ pub async fn write_to_delta_table(
     // Match on the user-supplied string to set `overwrite` and `write_mode`.
     let (overwrite, write_mode) = match mode {
         "overwrite" => {
-            // Overwrite => remove existing data if it exists
             (true, WriteMode::Default)
         }
         "append" => {
-            // Don’t remove existing data, just keep writing
             (false, WriteMode::Default)
         }
         "merge" => {
@@ -3234,24 +3223,6 @@ pub async fn write_to_delta_table(
 
 // ========= AZURE WRITING
 fn setup_azure_client(&self, url: &str, sas_token: &str) -> ElusionResult<(ContainerClient, String)> {
-    // // Validate SAS token format and permissions
-    // let normalized_token = sas_token.trim_start_matches('?');
-
-    // // Parse and validate SAS token permissions
-    // let permissions = normalized_token
-    //     .split('&')
-    //     .find(|&param| param.starts_with("sp="))
-    //     .ok_or_else(|| ElusionError::Custom("Missing permissions (sp) in SAS token".to_string()))?;
-
-    // let has_write = permissions.contains('w');
-    // let has_create = permissions.contains('c');
-
-    // if !has_write || !has_create {
-    //     return Err(ElusionError::Custom(
-    //         "SAS token missing required permissions. Need both Write (w) and Create (c) permissions".to_string()
-    //     ));
-    // }
-
     // Validate URL format and parse components
     let url_parts: Vec<&str> = url.split('/').collect();
     if url_parts.len() < 5 {
@@ -3499,7 +3470,7 @@ pub async fn write_parquet_to_azure_with_sas(
     let content = Bytes::from(buffer);
     let content_length = content.len();
 
-    if content_length > 100_000_000 {  // 100MB threshold
+    if content_length > 1_073_741_824 {  // 1GB threshold
         let block_id = STANDARD.encode(format!("{:0>20}", 1));
 
         blob_client
@@ -3527,82 +3498,6 @@ pub async fn write_parquet_to_azure_with_sas(
     println!("Successfully wrote parquet data to Azure blob: {}", url);
     Ok(())
 }
-// / Write DataFrame to Azure Blob Storage as CSV
-
-
-/// Write DataFrame to Azure Blob Storage as Delta table
-// pub async fn write_delta_to_azure_with_sas(
-//     &self,
-//     mode: &str,
-//     url: &str,
-//     sas_token: &str,
-//     partition_columns: Option<Vec<String>>,
-// ) -> ElusionResult<()> {
-//     // Similar setup but handling directory structure for Delta
-//     validate_azure_url(url)?;
-    
-//     let url_parts: Vec<&str> = url.split('/').collect();
-//     let (account, endpoint_type) = url_parts[2]
-//         .split('.')
-//         .next()
-//         .map(|acc| {
-//             if url.contains(".dfs.") {
-//                 (acc, "dfs")
-//             } else {
-//                 (acc, "blob")
-//             }
-//         })
-//         .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?;
-
-//         let container = url_parts.last()
-//         .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?
-//         .to_string();
-
-//     let credentials = StorageCredentials::sas_token(sas_token.to_string())
-//         .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
-
-//     let client = if endpoint_type == "dfs" {
-//         let cloud_location = CloudLocation::Public {
-//             account: account.to_string(),
-//         };
-//         ClientBuilder::with_location(cloud_location, credentials)
-//             .blob_service_client()
-//             .container_client(container)
-//     } else {
-//         ClientBuilder::new(account.to_string(), credentials)
-//             .blob_service_client()
-//             .container_client(container)
-//     };
-
-//     // For Delta tables we need to handle multiple files
-//     let temp_dir = tempfile::tempdir()
-//         .map_err(|e| ElusionError::Custom(format!("Failed to create temp directory: {}", e)))?;
-//     let temp_path = temp_dir.path().to_str().unwrap();
-
-//     self.write_to_delta_table(mode, temp_path, partition_columns).await?;
-
-//     // Walk the temp directory and upload all files
-//     for entry in walkdir::WalkDir::new(temp_path) {
-//         let entry = entry.map_err(|e| ElusionError::Custom(format!("Failed to read directory: {}", e)))?;
-//         if entry.file_type().is_file() {
-//             let relative_path = entry.path().strip_prefix(temp_path)
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to get relative path: {}", e)))?;
-//             let blob_name = format!("{}/{}", url_parts[4..].join("/"), relative_path.display());
-            
-//             let content = std::fs::read(entry.path())
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to read file: {}", e)))?;
-
-//             let blob_client = client.blob_client(&blob_name);
-//             blob_client
-//                 .put_block_blob(content)
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to upload to Azure: {}", e)))?;
-//         }
-//     }
-
-//     println!("Successfully wrote Delta table to Azure: {}", url);
-//     Ok(())
-// }
 
 //=================== LOADERS ============================= //
 /// LOAD function for CSV file type
@@ -3904,7 +3799,6 @@ pub async fn load_db(
         let batch = batch_result.map_err(|e| DataFusionError::Execution(format!("Batch reading failed: {}", e)))?;
         all_batches.push(batch);
     }
-
     // Create DataFrame from batches
     let ctx = SessionContext::new();
     if let Some(first_batch) = all_batches.first() {
@@ -4043,8 +3937,8 @@ pub async fn from_azure_with_sas_token(
         
         for blob in response.blobs.blobs() {
             if (blob.name.ends_with(".json") || blob.name.ends_with(".csv")) && 
-               filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) &&
-               blob.properties.content_length > 2048 {
+               filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) // && blob.properties.content_length > 2048 
+               {
                 println!("Adding blob '{}' to the download list", blob.name);
                 total_size += blob.properties.content_length as usize;
                 blobs.push(blob.name.clone());
@@ -4144,246 +4038,6 @@ pub async fn from_azure_with_sas_token(
     })
 }
 
-// ================ FROM API
-
-// /// Create a DataFrame from a REST API endpoint that returns JSON
-// pub async fn from_api(url: &str, alias: &str) -> ElusionResult<CustomDataFrame> {
-//     validate_https_url(url)?;
-//     let client = Client::new();
-//     let response = client.get(url)
-//         .send()
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
-    
-//     let content = response.bytes()
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
-
-//     Self::process_json_response(content, alias).await
-// }
-
-// /// Create a DataFrame from a REST API endpoint with custom headers
-// pub async fn from_api_with_headers(
-//     url: &str, 
-//     headers: HashMap<String, String>,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     validate_https_url(url)?;
-//     let client = Client::new();
-//     let mut request = client.get(url);
-    
-//     for (key, value) in headers {
-//         request = request.header(&key, value);
-//     }
-    
-//     let response = request
-//         .send()
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
-
-//     let content = response.bytes()
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
-
-//     Self::process_json_response(content, alias).await
-// }
-
-// /// Create DataFrame from API with custom query parameters
-// pub async fn from_api_with_params(
-//     base_url: &str, 
-//     params: HashMap<&str, &str>,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     validate_https_url(base_url)?;
-
-//     if params.is_empty() {
-//         return Self::from_api(base_url, alias).await;
-//     }
-
-//     let query_string: String = params
-//         .iter()
-//         .map(|(k, v)| {
-//             // Only encode if the value contains a space
-//             if v.contains(' ') {
-//                 format!("{}={}", k, v)
-//             } else {
-//                 format!("{}={}", urlencoding::encode(k), urlencoding::encode(v))
-//             }
-//         })
-//         .collect::<Vec<String>>()
-//         .join("&");
-
-//     let url = format!("{}?{}", base_url, query_string);
-//     println!("Generated URL: {}", url);
-
-//     // Pass the alias to from_api
-//     Self::from_api(&url, alias).await
-// }
-
-
-// /// Create DataFrame from API with parameters and headers
-// pub async fn from_api_with_params_and_headers(
-//     base_url: &str,
-//     params: HashMap<&str, &str>,
-//     headers: HashMap<String, String>,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     if params.is_empty() {
-//         return Self::from_api_with_headers(base_url, headers, alias).await;
-//     }
-
-//     let query_string: String = params
-//         .iter()
-//         .map(|(k, v)| {
-//             // Only encode if the key or value contains no spaces
-//             if !k.contains(' ') && !v.contains(' ') {
-//                 format!("{}={}", 
-//                     urlencoding::encode(k), 
-//                     urlencoding::encode(v)
-//                 )
-//             } else {
-//                 format!("{}={}", k, v)
-//             }
-//         })
-//         .collect::<Vec<String>>()
-//         .join("&");
-
-//     let url = format!("{}?{}", base_url, query_string);
-//     // Pass the alias to from_api_with_headers
-//     Self::from_api_with_headers(&url, headers, alias).await
-// }
-
-// /// Create DataFrame from API with date range parameters
-// pub async fn from_api_with_dates(
-//     base_url: &str, 
-//     from_date: &str, 
-//     to_date: &str,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     let url = format!("{}?from={}&to={}", 
-//         base_url,
-//         // Only encode if the date contains a space
-//         if from_date.contains(' ') { from_date.to_string() } else { urlencoding::encode(from_date).to_string() },
-//         if to_date.contains(' ') { to_date.to_string() } else { urlencoding::encode(to_date).to_string() }
-//     );
-//     println!("Generated URL: {}", url);
-//     // Pass the alias to from_api
-//     Self::from_api(&url, alias).await
-// }
-
-// /// Create DataFrame from API with pagination
-// pub async fn from_api_with_pagination(
-//     base_url: &str,
-//     page: u32,
-//     per_page: u32,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
-//     println!("Generated URL: {}", url);
-//     // Pass the alias to from_api
-//     Self::from_api(&url, alias).await
-// }
-
-// /// Create DataFrame from API with sorting
-// pub async fn from_api_with_sort(
-//     base_url: &str,
-//     sort_field: &str,
-//     order: &str,
-//     alias: &str
-// ) -> ElusionResult<CustomDataFrame> {
-//     let url = format!("{}?sort={}&order={}", 
-//         base_url,
-//         if sort_field.contains(' ') { sort_field.to_string() } else { urlencoding::encode(sort_field).to_string() },
-//         if order.contains(' ') { order.to_string() } else { urlencoding::encode(order).to_string() }
-//     );
-//     println!("Generated URL: {}", url);
-//     // Pass the alias to from_api
-//     Self::from_api(&url, alias).await
-// }
-
-// /// Process JSON response into DataFrame
-// async fn process_json_response(content: Bytes, alias: &str) -> ElusionResult<CustomDataFrame> {
-//     // Create a BufReader from the content
-//     let reader = std::io::BufReader::new(content.as_ref());
-//     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
-    
-//     let mut all_data = Vec::new();
-    
-//     // Process the first value to determine if it's an array or object
-//     let mut stream = stream.peekable();
-//     match stream.peek() {
-//         Some(Ok(Value::Array(_))) => {
-//             // Handle array response
-//             for value in stream {
-//                 match value {
-//                     Ok(Value::Array(array)) => {
-//                         for item in array {
-//                             if let Value::Object(map) = item {
-//                                 all_data.push(map.into_iter().collect());
-//                             }
-//                         }
-//                     }
-//                     Ok(_) => continue,
-//                     Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
-//                 }
-//             }
-//         }
-//         Some(Ok(Value::Object(_))) => {
-//             // Handle single object response
-//             for value in stream {
-//                 if let Ok(Value::Object(map)) = value {
-//                     all_data.push(map.into_iter().collect());
-//                 }
-//             }
-//         }
-//         Some(Err(e)) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
-//         _ => return Err(ElusionError::Custom("Invalid JSON response".to_string())),
-//     }
-
-//     if all_data.is_empty() {
-//         return Err(ElusionError::Custom("No valid JSON data found".to_string()));
-//     }
-
-//     let schema = infer_schema_from_json(&all_data);
-//     let batch = build_record_batch(&all_data, schema.clone())
-//         .map_err(|e| ElusionError::Custom(format!("Failed to build RecordBatch: {}", e)))?;
-
-//     let ctx = SessionContext::new();
-//     let mem_table = MemTable::try_new(schema, vec![vec![batch]])
-//         .map_err(|e| ElusionError::Custom(format!("Failed to create MemTable: {}", e)))?;
-
-//     ctx.register_table(alias, Arc::new(mem_table))
-//         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
-
-//     let df = ctx.table(alias)
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
-
-//     Ok(CustomDataFrame {
-//         df,
-//         table_alias: alias.to_string(),
-//         from_table: alias.to_string(),
-//         selected_columns: Vec::new(),
-//         alias_map: Vec::new(),
-//         aggregations: Vec::new(),
-//         group_by_columns: Vec::new(),
-//         where_conditions: Vec::new(),
-//         having_conditions: Vec::new(),
-//         order_by_columns: Vec::new(),
-//         limit_count: None,
-//         joins: Vec::new(),
-//         window_functions: Vec::new(),
-//         ctes: Vec::new(),
-//         subquery_source: None,
-//         set_operations: Vec::new(),
-//         query: String::new(),
-//         aggregated_df: None,
-//         union_tables: None,
-//         original_expressions: Vec::new(),
-//     })
-// }
-
-
 /// Unified load function that determines the file type based on extension
 pub async fn load(
     file_path: &str,
@@ -4412,7 +4066,6 @@ pub async fn load(
         ))),
     }
 }
-
 
 // -------------------- PLOTING -------------------------- //
     ///Create line plot
@@ -4816,7 +4469,7 @@ pub async fn load(
         let file_path_str = file_path.to_str()
             .ok_or_else(|| ElusionError::Custom("Invalid path".to_string()))?;
 
-        // Write the plot directly since plotly's types aren't thread-safe
+        // Write the plot directly
         plot.write_html(file_path_str);
 
         Ok(())
@@ -5051,3 +4704,252 @@ impl PipelineScheduler {
             .map_err(|e| ElusionError::Custom(format!("Shutdown failed: {}", e)))
     }
 }
+
+
+// ================ ELUSION API
+#[derive(Clone)]
+pub struct ElusionApi;
+
+enum JsonType {
+    Array,
+    Object,
+}
+
+fn validate_https_url(url: &str) -> ElusionResult<()> {
+    if !url.starts_with("https://") {
+        return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
+    }
+    Ok(())
+}
+
+impl ElusionApi{
+
+    pub fn new () -> Self {
+        Self
+    }
+
+/// Create a JSON from a REST API endpoint that returns JSON
+pub async fn from_api(&self,  url: &str, alias: &str) -> ElusionResult<()> {
+    validate_https_url(url)?;
+    let client = Client::new();
+    let response = client.get(url)
+        .send()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+    
+    let content = response.bytes()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
+
+    println!("Generated URL: {}", url);
+
+    Self::save_json_to_file(content, alias).await
+}
+
+/// Create a JSON from a REST API endpoint with custom headers
+pub async fn from_api_with_headers(
+    &self,
+    url: &str, 
+    headers: HashMap<String, String>,
+    alias: &str
+) -> ElusionResult<()> {
+    validate_https_url(url)?;
+    let client = Client::new();
+    let mut request = client.get(url);
+    
+    for (key, value) in headers {
+        request = request.header(&key, value);
+    }
+    
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+
+    let content = response.bytes()
+        .await
+        .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
+    println!("Generated URL: {}", url);
+
+    Self::save_json_to_file(content, alias).await
+}
+
+/// Create JSON from API with custom query parameters
+pub async fn from_api_with_params(
+    &self,
+    base_url: &str, 
+    params: HashMap<&str, &str>,
+    alias: &str
+) -> ElusionResult<()> {
+    validate_https_url(base_url)?;
+
+    if params.is_empty() {
+        return Self::from_api( &self, base_url, alias).await;
+    }
+
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| {
+            // Only encode if the value contains a space
+            if v.contains(' ') {
+                format!("{}={}", k, v)
+            } else {
+                format!("{}={}", urlencoding::encode(k), urlencoding::encode(v))
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("&");
+
+    let url = format!("{}?{}", base_url, query_string);
+
+    Self::from_api( &self, &url, alias).await
+}
+
+/// Create JSON from API with parameters and headers
+pub async fn from_api_with_params_and_headers(
+    &self,
+    base_url: &str,
+    params: HashMap<&str, &str>,
+    headers: HashMap<String, String>,
+    alias: &str
+) -> ElusionResult<()> {
+    if params.is_empty() {
+        return Self::from_api_with_headers( &self, base_url, headers, alias).await;
+    }
+
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| {
+            // Only encode if the key or value contains no spaces
+            if !k.contains(' ') && !v.contains(' ') {
+                format!("{}={}", 
+                    urlencoding::encode(k), 
+                    urlencoding::encode(v)
+                )
+            } else {
+                format!("{}={}", k, v)
+            }
+        })
+        .collect::<Vec<String>>()
+        .join("&");
+
+    let url = format!("{}?{}", base_url, query_string);
+
+    Self::from_api_with_headers( &self, &url, headers, alias).await
+}
+
+/// Create JSON from API with date range parameters
+pub async fn from_api_with_dates(
+    &self,
+    base_url: &str, 
+    from_date: &str, 
+    to_date: &str,
+    alias: &str
+) -> ElusionResult<()> {
+    let url = format!("{}?from={}&to={}", 
+        base_url,
+        // Only encode if the date contains a space
+        if from_date.contains(' ') { from_date.to_string() } else { urlencoding::encode(from_date).to_string() },
+        if to_date.contains(' ') { to_date.to_string() } else { urlencoding::encode(to_date).to_string() }
+    );
+
+    Self::from_api( &self, &url, alias).await
+}
+
+/// Create JSON from API with pagination
+pub async fn from_api_with_pagination(
+    &self,
+    base_url: &str,
+    page: u32,
+    per_page: u32,
+    alias: &str
+) -> ElusionResult<()> {
+    let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
+ 
+    Self::from_api( &self, &url, alias).await
+}
+
+/// Create JSON from API with sorting
+pub async fn from_api_with_sort(
+    &self,
+    base_url: &str,
+    sort_field: &str,
+    order: &str,
+    alias: &str
+) -> ElusionResult<()> {
+    let url = format!("{}?sort={}&order={}", 
+        base_url,
+        if sort_field.contains(' ') { sort_field.to_string() } else { urlencoding::encode(sort_field).to_string() },
+        if order.contains(' ') { order.to_string() } else { urlencoding::encode(order).to_string() }
+    );
+
+    Self::from_api( &self, &url, alias).await
+}
+
+/// Process JSON response into JSON 
+async fn save_json_to_file(content: Bytes, file_name: &str) -> ElusionResult<()> {
+    let reader = std::io::BufReader::new(content.as_ref());
+    let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
+    let mut stream = stream.peekable();
+
+    let json_type = match stream.peek() {
+        Some(Ok(Value::Array(_))) => JsonType::Array,
+        Some(Ok(Value::Object(_))) => JsonType::Object,
+        Some(Err(e)) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+        _ => return Err(ElusionError::Custom("Invalid JSON response".to_string())),
+    };
+
+    let file_path = format!("{}.json", file_name);
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&file_path)
+        .map_err(|e| ElusionError::Custom(format!("Failed to open file: {}", e)))?;
+
+    let mut writer = std::io::BufWriter::new(file);
+    let mut first = true;
+
+    match json_type {
+        JsonType::Array => {
+            writeln!(writer, "[")?;
+            for value in stream {
+                match value {
+                    Ok(Value::Array(array)) => {
+                        for item in array {
+                            if !first {
+                                writeln!(writer, ",")?;
+                            }
+                            first = false;
+                            serde_json::to_writer_pretty(&mut writer, &item)
+                                .map_err(|e| ElusionError::Custom(format!("Failed to write JSON: {}", e)))?;
+                        }
+                    }
+                    Ok(_) => continue,
+                    Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+                }
+            }
+            writeln!(writer, "\n]")?;
+        }
+        JsonType::Object => {
+            for value in stream {
+                if let Ok(Value::Object(map)) = value {
+                    serde_json::to_writer_pretty(&mut writer, &Value::Object(map))
+                        .map_err(|e| ElusionError::Custom(format!("Failed to write JSON: {}", e)))?;
+                }
+            }
+        }
+    }
+
+    writer.flush()
+        .map_err(|e| ElusionError::Custom(format!("Failed to flush writer: {}", e)))?;
+    println!("Successfully created {}.json", file_name);
+    Ok(())
+}
+
+}
+
+
+
+
+

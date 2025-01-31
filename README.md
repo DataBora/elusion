@@ -3,11 +3,11 @@
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections.
+Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
 
@@ -33,6 +33,7 @@ Async Support: Built on tokio for non-blocking operations.
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
+- REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
@@ -71,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.7.2"
+elusion = "2.0.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -122,8 +123,20 @@ let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just 
 let df_sales = CustomDataFrame::new(csv_data, "sales").await?; 
 let df_customers = CustomDataFrame::new(parquet_path, "customers").await?;
 ```
+### LOADING data from Databases into CustomDataFrame (scroll down for full example)
+```rust
+let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
+```
+### LOADING data from Azure BLOB Storage into CustomDataFrame (scroll down for full example)
+```rust
+let df = CustomDataFrame::from_azure_with_sas_token(
+        blob_url, 
+        sas_token, 
+        Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
+        "data" // alias for registering table
+    ).await?;
+```
 ---
-
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
 let customers_alias = df_customers
@@ -945,12 +958,12 @@ Ok(())
 }
 ```
 ---
-## JSON files
+# JSON files
 ### Currently supported files can include: Fileds, Arrays, Objects. 
 #### Best performance with flat json ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
 ```rust
-// example json structure
+// example json structure with key:value pairs
 {
 "name": "Adeel Solangi",
 "language": "Sindhi",
@@ -967,7 +980,7 @@ let df = json_df.select(["*"]).limit(10);
 let result = df.elusion("df").await?;
 result.display().await?;
 
-// example json structure
+// example json structure with Fields and Arrays
 [
   {
     "id": "1",
@@ -1000,6 +1013,191 @@ result.display().await?;
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
 let json_df = CustomDataFrame::new(json_path, "test2").await?;
 ```
+---
+# REST API
+### Creating JSON files from REST API's
+#### Customizable Headers, Params, Pagination, Date Ranges...
+### FROM API
+```rust
+ // example 1
+let posts_df = ElusionApi::new();
+posts_df
+.from_api(
+    "https://jsonplaceholder.typicode.com/posts", // url
+    "posts_data" // save to json file name
+).await?;
+
+// example 2
+let users_df = ElusionApi::new();
+users_df.from_api(
+    "https://jsonplaceholder.typicode.com/users",
+    "users_data"
+).await?;
+
+// example 3
+let ceo = ElusionApi::new();
+ceo.from_api(
+    "https://dog.ceo/api/breeds/image/random/3",
+    "ceo_data"
+).await?;
+```
+### FROM API WITH HEADERS
+```rust
+ // example 1
+let mut headers = HashMap::new();
+headers.insert("Custom-Header".to_string(), "test-value".to_string());
+
+let bin_df = ElusionApi::new();
+bin_df.from_api_with_headers(
+    "https://httpbin.org/headers", // url
+    headers, // headers
+    "bin_data" // save to json file name
+).await?;
+    
+// example 2
+let mut headers = HashMap::new();
+// Specify the response format (JSON in this case)
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+// Identify your application to the API server
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let git_hub = ElusionApi::new();
+git_hub.from_api_with_headers(
+    "https://api.github.com/search/repositories?q=rust+language:rust&sort=stars&order=desc",
+    headers,
+    "git_hub_data"
+).await?;
+
+// example 3
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/json".to_string());
+headers.insert("X-Version".to_string(), "1".to_string());
+
+let pokemon_df = ElusionApi::new();
+pokemon_df.from_api_with_headers(
+    "https://pokeapi.co/api/v2/pokemon", 
+    headers,
+    "pokemon_data"
+).await?;
+```
+### FROM API WITH PARAMS
+```rust
+// Using OpenLibrary API with params
+let mut params = HashMap::new();
+params.insert("q", "rust programming");
+params.insert("limit", "10");
+
+let open_lib = ElusionApi::new();
+open_lib.from_api_with_params(
+    "https://openlibrary.org/search.json", // url
+    params, // params
+    "open_lib_data" // save to json file name
+).await?;
+
+// Random User Generator API with params
+let mut params = HashMap::new();
+params.insert("results", "10");
+params.insert("nat", "us,gb");
+
+let generator =ElusionApi::new(); 
+generator.from_api_with_params(
+    "https://randomuser.me/api",
+    params,
+    "generator_data"
+).await?;
+
+// JSON Placeholder with multiple endpoints
+let mut params = HashMap::new();
+params.insert("userId", "1");
+params.insert("_limit", "5");
+
+let multi = ElusionApi::new(); 
+multi.from_api_with_params(
+    "https://jsonplaceholder.typicode.com/posts",
+    params,
+    "multi_data"
+).await?;
+
+//NASA Astronomy Picture of the Day
+let mut params = HashMap::new();
+params.insert("count", "5");
+params.insert("thumbs", "true");
+
+let nasa = ElusionApi::new(); 
+nasa.from_api_with_params(
+    "https://api.nasa.gov/planetary/apod",
+    params,
+    "nasa_pics_data"
+).await?;
+
+// ecample 5
+let mut params = HashMap::new();
+params.insert("brand", "elusion");
+params.insert("password", "some_password");
+params.insert("siteid", "993");
+params.insert("Datefrom", "01 jan 2025 06:00");
+params.insert("Dateto", "31 jan 2025 06:00");
+params.insert("user", "borivoj");
+
+let api = ElusionApi::new();
+api.from_api_with_params(
+    "https://salesapi.net.co.rs/SSPAPI/api/data",
+    params,
+    "sales_jan_2025"
+).await?;
+```
+### FROM API WITH PARAMS AND HEADERS
+```rust
+let mut params = HashMap::new();
+params.insert("since", "2024-01-01T00:00:00Z");
+params.insert("until", "2024-01-07T23:59:59Z");
+
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let commits_df = ElusionApi::new();
+commits_df.from_api_with_params_and_headers(
+    "https://api.github.com/repos/rust-lang/rust/commits", // urls
+    params, // params
+    headers, // headers
+    "commits_data" // save to json file name
+).await?;
+```
+### FROM API WITH DATES
+```rust
+
+// example 1
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts", // url
+    "2024-01-01", // date from
+    "2024-01-07", // date to
+    "post_data" // save to json file name
+).await?;
+
+// Example 2: COVID-19 historical data
+let covid_df = ElusionApi::new();
+covid_df.from_api_with_dates(
+    "https://disease.sh/v3/covid-19/historical/all",
+    "2024-01-01",
+    "2024-01-07",
+    "covid_data"
+).await?;
+
+```
+### FROM API WITH PAGINATION
+```rust
+// example 1
+let reqres = ElusionApi::new();
+reqres.from_api_with_pagination(
+    "https://reqres.in/api/users",
+    1,  // page
+    10,  // per_page
+    "reqres_data"
+).await?;
+```
+---
 # WRITERS
 
 ## Writing to Parquet File
@@ -1086,9 +1284,10 @@ result_df
 ```
 
 ## Writing Parquet to Azure BLOB Storage 
-#### Writing is set to Default, Overwrite, Compresion SNAPPY and Parquet 2.0 
+#### Writing is set to Default, Overwrite, Compression: SNAPPY and Parquet 2.0 
 #### Threshold file size is 100mb
 ```rust
+
 let df = CustomDataFrame::new(csv_data, "sales").await?; 
 
 let query = df.select(["*"]);
@@ -1099,6 +1298,7 @@ let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your
 let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
 
 data.write_parquet_to_azure_with_sas(url_to_folder, sas_write_token).await?;
+
 ```
 ---
 # PLOTTING

@@ -1,3 +1,9 @@
+## [2.0.0] - 2025-01-31
+### Added
+- REST API to JSON files
+### BREAKING CHANGES
+- REST API is now detached from CustomDataFrame (check readme for examples)
+
 ## [1.7.2] - 2025-01-31
 ### Added
 - Improved Reading JSON files performance by 50%
