@@ -18,7 +18,7 @@ use arrow::csv::writer::WriterBuilder;
 
 // ========= CSV defects
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write, BufWriter};
+use std::io::{Write, BufWriter};
 
 //============ WRITERS
 use datafusion::prelude::SessionContext;
@@ -26,7 +26,7 @@ use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 use tokio::task;
 
 // ========= JSON   
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use arrow::error::Result as ArrowResult;    
@@ -75,6 +75,12 @@ use lazy_static::lazy_static;
 use azure_storage_blobs::prelude::*;
 use azure_storage::StorageCredentials;
 use azure_storage::CloudLocation;
+use futures::stream;
+use std::io::BufReader;
+use futures::pin_mut;
+use csv::ReaderBuilder;
+use csv::Trim::All;
+use serde_json::Deserializer;
 // ==== pisanje
 use azure_storage_blobs::blob::{BlockList, BlobBlockType};
 use bytes::Bytes;
@@ -116,7 +122,7 @@ pub enum AzureWriteMode {
     ErrorIfExists,
 }
 
-// // HTTPS validator
+// HTTPS validator
 // fn validate_https_url(url: &str) -> ElusionResult<()> {
 //     if !url.starts_with("https://") {
 //         return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
@@ -124,67 +130,161 @@ pub enum AzureWriteMode {
 //     Ok(())
 // }
 
-// Helper funciton for processing both json and csv files
-async fn process_blob_content(
-    blob_name: &str, 
-    content: Vec<u8>
-) -> ElusionResult<Vec<HashMap<String, serde_json::Value>>> {
-    let mut all_data = Vec::new();
+// Optimized JSON processing function using streaming parser
+fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Value>>> {
+    let reader = BufReader::new(content);
+    let stream = Deserializer::from_reader(reader).into_iter::<Value>();
     
-    if blob_name.ends_with(".json") {
-        let json_str = String::from_utf8(content)
-            .map_err(|e| ElusionError::Custom(format!("Invalid UTF-8: {}", e)))?;
+    let mut results = Vec::new();
+    let mut stream = stream.peekable();
 
-        let json_value: serde_json::Value = serde_json::from_str(&json_str)
-            .map_err(|e| ElusionError::Custom(format!("Invalid JSON in {}: {}", blob_name, e)))?;
-
-        match json_value {
-            serde_json::Value::Array(items) => {
-                for item in items {
-                    if let serde_json::Value::Object(map) = item {
-                        all_data.push(flatten_json_object(map));
+    match stream.peek() {
+        Some(Ok(Value::Array(_))) => {
+            for value in stream {
+                match value {
+                    Ok(Value::Array(array)) => {
+                        for item in array {
+                            if let Value::Object(map) = item {
+                                let mut base_map = map.clone();
+                                
+                                if let Some(Value::Array(fields)) = base_map.remove("fields") {
+                                    for field in fields {
+                                        let mut row = base_map.clone();
+                                        if let Value::Object(field_obj) = field {
+                                            for (key, val) in field_obj {
+                                                row.insert(format!("field_{}", key), val);
+                                            }
+                                        }
+                                        results.push(row.into_iter().collect());
+                                    }
+                                } else {
+                                    results.push(base_map.into_iter().collect());
+                                }
+                            }
+                        }
                     }
-                }
-            },
-            serde_json::Value::Object(map) => {
-                all_data.push(flatten_json_object(map));
-            },
-            _ => return Err(ElusionError::Custom(format!("Invalid JSON structure in {}", blob_name))),
-        }
-    } else if blob_name.ends_with(".csv") {
-        let content_str = String::from_utf8(content)
-            .map_err(|e| ElusionError::Custom(format!("Invalid UTF-8 in CSV: {}", e)))?;
-
-        let mut reader = csv::ReaderBuilder::new()
-            .flexible(true)
-            .trim(csv::Trim::All)
-            .from_reader(content_str.as_bytes());
-
-        let headers: Vec<String> = reader.headers()
-            .map_err(|e| ElusionError::Custom(format!("Failed to read CSV headers: {}", e)))?
-            .iter()
-            .map(|h| h.to_string())
-            .collect();
-
-        for record in reader.records() {
-            let record = record.map_err(|e| ElusionError::Custom(format!("Failed to read CSV record: {}", e)))?;
-            let mut row_data = HashMap::new();
-            
-            for (i, value) in record.iter().enumerate() {
-                if i < headers.len() {
-                    let header = &headers[i];
-                    // Try to parse as number first, fallback to string
-                    let json_value = value.parse::<f64>()
-                        .map(serde_json::Value::from)
-                        .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
-                    row_data.insert(header.clone(), json_value);
+                    Ok(_) => continue,
+                    Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
                 }
             }
-            all_data.push(row_data);
+        }
+        Some(Ok(Value::Object(_))) => {
+            for value in stream {
+                if let Ok(Value::Object(map)) = value {
+                    let mut base_map = map.clone();
+                    if let Some(Value::Array(fields)) = base_map.remove("fields") {
+                        for field in fields {
+                            let mut row = base_map.clone();
+                            if let Value::Object(field_obj) = field {
+                                for (key, val) in field_obj {
+                                    row.insert(format!("field_{}", key), val);
+                                }
+                            }
+                            results.push(row.into_iter().collect());
+                        }
+                    } else {
+                        results.push(base_map.into_iter().collect());
+                    }
+                }
+            }
+        }
+        Some(Ok(Value::Null)) | 
+        Some(Ok(Value::Bool(_))) |
+        Some(Ok(Value::Number(_))) |
+        Some(Ok(Value::String(_))) => {
+            return Err(ElusionError::Custom("JSON content must be an array or object".to_string()));
+        }
+        Some(Err(e)) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+        None => return Err(ElusionError::Custom("Empty JSON content".to_string())),
+    }
+
+    if results.is_empty() {
+        return Err(ElusionError::Custom("No valid JSON data found".to_string()));
+    }
+    
+    Ok(results)
+}
+
+// fn process_json_content(content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
+//     // Create a reader from the raw bytes
+//     let reader = BufReader::new(content.as_slice());
+//     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
+    
+//     let mut results = Vec::new();
+//     for value in stream {
+//         match value {
+//             Ok(Value::Array(array)) => {
+//                 // Handle array of objects
+//                 for item in array {
+//                     if let Value::Object(map) = item {
+//                         results.push(map.into_iter().collect());
+//                     }
+//                 }
+//             }
+//             Ok(Value::Object(map)) => {
+//                 // Handle single object
+//                 results.push(map.into_iter().collect());
+//             }
+//             Ok(_) => continue, // Skip non-object values
+//             Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+//         }
+//     }
+//     Ok(results)
+// }
+
+async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
+    // Create a CSV reader directly from the bytes
+    let mut reader = ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .trim(All)
+        .from_reader(content.as_slice());
+
+    // Get headers
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| ElusionError::Custom(format!("Failed to read CSV headers: {}", e)))?
+        .iter()
+        .map(|h| h.trim().to_string())
+        .collect();
+
+    let estimated_rows = content.len() / (headers.len() * 20);
+    let mut results = Vec::with_capacity(estimated_rows);
+
+    for record in reader.records() {
+        match record {
+            Ok(record) => {
+                let mut map = HashMap::with_capacity(headers.len());
+                for (header, field) in headers.iter().zip(record.iter()) {
+                    let value = if field.is_empty() {
+                        Value::Null
+                    } else if let Ok(num) = field.parse::<i64>() {
+                        Value::Number(num.into())
+                    } else if let Ok(num) = field.parse::<f64>() {
+                        match serde_json::Number::from_f64(num) {
+                            Some(n) => Value::Number(n),
+                            None => Value::String(field.to_string())
+                        }
+                    } else if field.eq_ignore_ascii_case("true") {
+                        Value::Bool(true)
+                    } else if field.eq_ignore_ascii_case("false") {
+                        Value::Bool(false)
+                    } else {
+                        Value::String(field.to_string())
+                    };
+
+                    map.insert(header.clone(), value);
+                }
+                results.push(map);
+            }
+            Err(e) => {
+                println!("Warning: Error reading CSV record: {}", e);
+                continue;
+            }
         }
     }
 
-    Ok(all_data)
+    Ok(results)
 }
 
 // ===== struct to manage ODBC DB connections
@@ -327,11 +427,11 @@ fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
     pairs.into_iter().unzip()
 }
 
-fn flatten_json_object(obj: Map<String, Value>) -> HashMap<String, Value> {
-    let mut map = HashMap::new();
-    flatten_json_value(&Value::Object(obj), "", &mut map);
-    map
-}
+// fn flatten_json_object(obj: Map<String, Value>) -> HashMap<String, Value> {
+//     let mut map = HashMap::new();
+//     flatten_json_value(&Value::Object(obj), "", &mut map);
+//     map
+// }
 // ======== Custom error type
 #[derive(Debug)]
 pub enum ElusionError {
@@ -404,16 +504,6 @@ struct GenericJson {
     #[serde(flatten)]
     fields: HashMap<String, Value>,
 }
-
-/// Flattens the GenericJson struct into a single-level HashMap.
-fn flatten_generic_json(data: GenericJson) -> HashMap<String, Value> {
-    let mut map = HashMap::new();
-    // Convert HashMap to serde_json::Map
-    let serde_map: Map<String, Value> = data.fields.clone().into_iter().collect();
-    flatten_json_value(&Value::Object(serde_map), "", &mut map);
-    map
-}
-
 /// Function to infer schema from rows
 fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
     let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
@@ -696,116 +786,6 @@ fn build_record_batch(
     let record_batch = RecordBatch::try_new(schema.clone(), arrays)?;
 
     Ok(record_batch)
-}
-
-fn read_file_to_string(file_path: &str) -> Result<String, io::Error> {
-    let mut file = File::open(file_path).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to open file '{}': {}", file_path, e),
-        )
-    })?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to read contents of file '{}': {}", file_path, e),
-        )
-    })?;
-    Ok(contents)
-}
-/// Creates a DataFusion DataFrame from JSON records.
-async fn create_dataframe_from_json(
-    json_str: &str, 
-    alias: &str
-) -> Result<DataFrame, DataFusionError> {
-  
-    let generic_json: GenericJson = serde_json::from_str(json_str)
-    .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;    
-
-    let flattened = flatten_generic_json(generic_json);
-
-    let rows = vec![flattened];
-
-    let schema = infer_schema_from_json(&rows);
-
-    let record_batch = build_record_batch(&rows, schema.clone())
-    .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
-
-    let partitions = vec![vec![record_batch]];
-    let mem_table = MemTable::try_new(schema.clone(), partitions)
-    .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
-
-    let ctx = SessionContext::new();
-
-    ctx.register_table(alias, Arc::new(mem_table))
-    .map_err(|e| DataFusionError::Execution(format!("Failed to register Table: {}", e)))?;
-
-    let df = ctx.table(alias).await?;
-
-    Ok(df)
-}
-
-/// Creates a DataFusion DataFrame from multiple JSON records.
-async fn create_dataframe_from_multiple_json(json_str: &str, alias: &str) -> Result<DataFrame, DataFusionError> {
-
-    let generic_jsons: Vec<GenericJson> = serde_json::from_str(json_str)
-        .map_err(|e| DataFusionError::Execution(format!("Failed to deserialize JSON: {}", e)))?;
-    
-    let mut rows = Vec::new();
-    for generic_json in generic_jsons {
-        let flattened = flatten_generic_json(generic_json);
-        rows.push(flattened);
-    }
-    
-    let schema = infer_schema_from_json(&rows);
-    
-    let record_batch = build_record_batch(&rows, schema.clone())
-        .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
-    
-    let partitions = vec![vec![record_batch]];
-    let mem_table = MemTable::try_new(schema.clone(), partitions)
-        .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
-    
-    let ctx = SessionContext::new();
-    
-    ctx.register_table(alias, Arc::new(mem_table))
-        .map_err(|e| DataFusionError::Execution(format!("Failed to register table '{}': {}", alias, e)))?;
-    
-    let df = ctx.table(alias).await
-        .map_err(|e| DataFusionError::Execution(format!("Failed to retrieve DataFrame for table '{}': {}", alias, e)))?;
-    
-    Ok(df)
-}
-
-/// Recursively flattens JSON values, serializing objects and arrays to strings.
-fn flatten_json_value(value: &Value, prefix: &str, out: &mut HashMap<String, Value>) {
-    match value {
-        Value::Object(map) => {
-            for (k, v) in map {
-                let new_key = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{}.{}", prefix, k)
-                };
-                flatten_json_value(v, &new_key, out);
-            }
-        },
-        Value::Array(arr) => {
-            for (i, v) in arr.iter().enumerate() {
-                let new_key = if prefix.is_empty() {
-                    i.to_string()
-                } else {
-                    format!("{}.{}", prefix, i)
-                };
-                flatten_json_value(v, &new_key, out);
-            }
-        },
-        // If it's a primitive (String, Number, Bool, or Null), store as is.
-        other => {
-            out.insert(prefix.to_owned(), other.clone());
-        },
-    }
 }
 
 // ================= Statistics
@@ -3734,26 +3714,93 @@ pub fn load_json<'a>(
     alias: &'a str,
 ) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
     Box::pin(async move {
+        // Open file with BufReader for efficient reading
+        let file = File::open(file_path)
+            .map_err(|e| DataFusionError::Execution(format!("Failed to open file '{}': {}", file_path, e)))?;
         
-        let file_contents = read_file_to_string(file_path)
-            .map_err(|e| DataFusionError::Execution(format!("Failed to read file '{}': {}", file_path, e)))?;
-        //println!("Raw JSON Content:\n{}", file_contents);
-        let is_array = match serde_json::from_str::<Value>(&file_contents) {
-            Ok(Value::Array(_)) => true,
-            Ok(Value::Object(_)) => false,
-            Ok(_) => false,
-            Err(e) => {
-                return Err(DataFusionError::Execution(format!("Invalid JSON structure: {}", e)));
-            }
-        };
-        
-        let df = if is_array {
-            create_dataframe_from_multiple_json(&file_contents, alias).await?
-        } else {
+        let file_size = file.metadata()
+            .map_err(|e| DataFusionError::Execution(format!("Failed to get file metadata: {}", e)))?
+            .len() as usize;
             
-            create_dataframe_from_json(&file_contents, alias).await?
-        };
+        let reader = BufReader::with_capacity(32 * 1024, file); // 32KB buffer
+        let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
         
+        let mut all_data = Vec::with_capacity(file_size / 3); // Pre-allocate with estimated size
+        
+        // Process the first value to determine if it's an array or object
+        let mut stream = stream.peekable();
+        match stream.peek() {
+            Some(Ok(Value::Array(_))) => {
+                for value in stream {
+                    match value {
+                        Ok(Value::Array(array)) => {
+                            for item in array {
+                                if let Value::Object(map) = item {
+                                    let mut base_map = map.clone();
+                                    
+                                    // If we have fields array, expand it
+                                    if let Some(Value::Array(fields)) = base_map.remove("fields") {
+                                        for field in fields {
+                                            let mut row = base_map.clone();
+                                            if let Value::Object(field_obj) = field {
+                                                for (key, val) in field_obj {
+                                                    row.insert(format!("field_{}", key), val);
+                                                }
+                                            }
+                                            all_data.push(row.into_iter().collect());
+                                        }
+                                    } else {
+                                        all_data.push(base_map.into_iter().collect());
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => continue,
+                        Err(e) => return Err(DataFusionError::Execution(format!("JSON parsing error: {}", e))),
+                    }
+                }
+            }
+            Some(Ok(Value::Object(_))) => {
+                for value in stream {
+                    if let Ok(Value::Object(map)) = value {
+                        let mut base_map = map.clone();
+                        if let Some(Value::Array(fields)) = base_map.remove("fields") {
+                            for field in fields {
+                                let mut row = base_map.clone();
+                                if let Value::Object(field_obj) = field {
+                                    for (key, val) in field_obj {
+                                        row.insert(format!("field_{}", key), val);
+                                    }
+                                }
+                                all_data.push(row.into_iter().collect());
+                            }
+                        } else {
+                            all_data.push(base_map.into_iter().collect());
+                        }
+                    }
+                }
+            }
+            Some(Err(e)) => return Err(DataFusionError::Execution(format!("JSON parsing error: {}", e))),
+            _ => return Err(DataFusionError::Execution("Invalid JSON file".to_string())),
+        }
+
+        if all_data.is_empty() {
+            return Err(DataFusionError::Execution("No valid JSON data found".to_string()));
+        }
+
+        let schema = infer_schema_from_json(&all_data);
+        let record_batch = build_record_batch(&all_data, schema.clone())
+            .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
+
+        let ctx = SessionContext::new();
+        let mem_table = MemTable::try_new(schema, vec![vec![record_batch]])
+            .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
+
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| DataFusionError::Execution(format!("Failed to register table: {}", e)))?;
+
+        let df = ctx.table(alias).await?;
+
         Ok(AliasedDataFrame {
             dataframe: df,
             alias: alias.to_string(),
@@ -3939,6 +3986,9 @@ pub async fn from_azure_with_sas_token(
     filter_keyword: Option<&str>, 
     alias: &str,
 ) -> ElusionResult<Self> {
+
+    // const MAX_MEMORY_BYTES: usize = 8 * 1024 * 1024 * 1024; 
+
     validate_azure_url(url)?;
     
     println!("Starting from_azure_with_sas_token with url={}, alias={}", url, alias);
@@ -3983,6 +4033,7 @@ pub async fn from_azure_with_sas_token(
     };
 
     let mut blobs = Vec::new();
+    let mut total_size = 0;
     let mut stream = client.list_blobs().into_stream();
     // info!("Listing blobs...");
     
@@ -3995,27 +4046,50 @@ pub async fn from_azure_with_sas_token(
                filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) &&
                blob.properties.content_length > 2048 {
                 println!("Adding blob '{}' to the download list", blob.name);
+                total_size += blob.properties.content_length as usize;
                 blobs.push(blob.name.clone());
             }
         }
     }
 
+    // // Check total data size against memory limit
+    // if total_size > MAX_MEMORY_BYTES {
+    //     return Err(ElusionError::Custom(format!(
+    //         "Total data size ({} bytes) exceeds maximum allowed memory of {} bytes. 
+    //         Please use a machine with more RAM or implement streaming processing.",
+    //         total_size, 
+    //         MAX_MEMORY_BYTES
+    //     )));
+    // }
+
     println!("Total number of blobs to process: {}", blobs.len());
+    println!("Total size of blobs: {} bytes", total_size);
 
-    let mut all_data = Vec::new();
+    let mut all_data = Vec::new(); 
 
-    for blob_name in &blobs {
-        // info!("Downloading blob: {}", blob_name);
+    let concurrency_limit = num_cpus::get() * 16; 
+    let client_ref = &client;
+    let results = stream::iter(blobs.iter())
+        .map(|blob_name| async move {
+            let blob_client = client_ref.blob_client(blob_name);
+            let content = blob_client
+                .get_content()
+                .await
+                .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
 
-        let blob_client = client.blob_client(blob_name);
-        let content = blob_client
-            .get_content()
-            .await
-            .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
+            println!("Got content for blob: {} ({} bytes)", blob_name, content.len());
+            
+            if blob_name.ends_with(".json") {
+                process_json_content(&content)
+            } else {
+                process_csv_content(blob_name, content).await
+            }
+        })
+        .buffer_unordered(concurrency_limit);
 
-        println!("Got content for blob: {} ({} bytes)", blob_name, content.len());
-        
-        let mut blob_data = process_blob_content(blob_name, content).await?;
+    pin_mut!(results);
+    while let Some(result) = results.next().await {
+        let mut blob_data = result?;
         all_data.append(&mut blob_data);
     }
 
@@ -4081,11 +4155,11 @@ pub async fn from_azure_with_sas_token(
 //         .await
 //         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
     
-//     let json_value: Value = response.json()
+//     let content = response.bytes()
 //         .await
-//         .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
+//         .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
 
-//     Self::process_json_response(json_value, alias).await
+//     Self::process_json_response(content, alias).await
 // }
 
 // /// Create a DataFrame from a REST API endpoint with custom headers
@@ -4106,12 +4180,12 @@ pub async fn from_azure_with_sas_token(
 //         .send()
 //         .await
 //         .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
-    
-//     let json_value: Value = response.json()
-//         .await
-//         .map_err(|e| ElusionError::Custom(format!("JSON parsing failed: {}", e)))?;
 
-//     Self::process_json_response(json_value, alias).await
+//     let content = response.bytes()
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
+
+//     Self::process_json_response(content, alias).await
 // }
 
 // /// Create DataFrame from API with custom query parameters
@@ -4228,58 +4302,67 @@ pub async fn from_azure_with_sas_token(
 // }
 
 // /// Process JSON response into DataFrame
-// async fn process_json_response(json_value: Value, table_name: &str) -> ElusionResult<CustomDataFrame> {
-//     // Save JSON to temporary file
-//     let file_path = format!("{}.json", table_name);
-//     let mut file = OpenOptions::new()
-//         .create(true)
-//         .write(true)
-//         .truncate(true)
-//         .open(&file_path)
-//         .map_err(|e| ElusionError::Custom(format!("Failed to open file for writing: {}", e)))?;
-
-//     // Write JSON to file
-//     let json_str = serde_json::to_string_pretty(&json_value)
-//         .map_err(|e| ElusionError::Custom(format!("Failed to serialize JSON: {}", e)))?;
+// async fn process_json_response(content: Bytes, alias: &str) -> ElusionResult<CustomDataFrame> {
+//     // Create a BufReader from the content
+//     let reader = std::io::BufReader::new(content.as_ref());
+//     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
     
-//     writeln!(file, "{}", json_str)
-//         .map_err(|e| ElusionError::Custom(format!("Failed to write JSON to file: {}", e)))?;
-
-//     // Drop the file handle
-//     drop(file);
-
-//     // Read the file contents
-//     let file_contents = read_file_to_string(&file_path)
-//         .map_err(|e| ElusionError::Custom(format!("Failed to read file: {}", e)))?;
-
-//     // Check if JSON is array or object
-//     let is_array = match serde_json::from_str::<Value>(&file_contents) {
-//         Ok(Value::Array(_)) => true,
-//         Ok(Value::Object(_)) => false,
-//         Ok(_) => false,
-//         Err(e) => {
-//             return Err(ElusionError::Custom(format!("Invalid JSON structure: {}", e)));
+//     let mut all_data = Vec::new();
+    
+//     // Process the first value to determine if it's an array or object
+//     let mut stream = stream.peekable();
+//     match stream.peek() {
+//         Some(Ok(Value::Array(_))) => {
+//             // Handle array response
+//             for value in stream {
+//                 match value {
+//                     Ok(Value::Array(array)) => {
+//                         for item in array {
+//                             if let Value::Object(map) = item {
+//                                 all_data.push(map.into_iter().collect());
+//                             }
+//                         }
+//                     }
+//                     Ok(_) => continue,
+//                     Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+//                 }
+//             }
 //         }
-//     };
-    
-//     // Create DataFrame based on JSON structure
-//     let df = if is_array {
-//         create_dataframe_from_multiple_json(&file_contents, table_name).await
-//             .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from array: {}", e)))?
-//     } else {
-//         create_dataframe_from_json(&file_contents, table_name).await
-//             .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from object: {}", e)))?
-//     };
-
-//     // Clean up temporary file
-//     if let Err(e) = remove_file(&file_path) {
-//         println!("Warning: Failed to remove temporary file {}: {}", file_path, e);
+//         Some(Ok(Value::Object(_))) => {
+//             // Handle single object response
+//             for value in stream {
+//                 if let Ok(Value::Object(map)) = value {
+//                     all_data.push(map.into_iter().collect());
+//                 }
+//             }
+//         }
+//         Some(Err(e)) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+//         _ => return Err(ElusionError::Custom("Invalid JSON response".to_string())),
 //     }
+
+//     if all_data.is_empty() {
+//         return Err(ElusionError::Custom("No valid JSON data found".to_string()));
+//     }
+
+//     let schema = infer_schema_from_json(&all_data);
+//     let batch = build_record_batch(&all_data, schema.clone())
+//         .map_err(|e| ElusionError::Custom(format!("Failed to build RecordBatch: {}", e)))?;
+
+//     let ctx = SessionContext::new();
+//     let mem_table = MemTable::try_new(schema, vec![vec![batch]])
+//         .map_err(|e| ElusionError::Custom(format!("Failed to create MemTable: {}", e)))?;
+
+//     ctx.register_table(alias, Arc::new(mem_table))
+//         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+
+//     let df = ctx.table(alias)
+//         .await
+//         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
 
 //     Ok(CustomDataFrame {
 //         df,
-//         table_alias: table_name.to_string(),
-//         from_table: table_name.to_string(),
+//         table_alias: alias.to_string(),
+//         from_table: alias.to_string(),
 //         selected_columns: Vec::new(),
 //         alias_map: Vec::new(),
 //         aggregations: Vec::new(),
@@ -4299,7 +4382,6 @@ pub async fn from_azure_with_sas_token(
 //         original_expressions: Vec::new(),
 //     })
 // }
-
 
 
 /// Unified load function that determines the file type based on extension
