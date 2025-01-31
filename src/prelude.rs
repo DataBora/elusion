@@ -2,7 +2,6 @@ pub use crate::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
-// pub use crate::{PostgresSource, MySqlSource, ODBCSource};
 
 pub use datafusion::logical_expr::col;
 pub use regex::Regex;
@@ -101,6 +100,6 @@ pub use std::future::Future;
 pub use tokio_cron_scheduler::{JobScheduler, Job};
 
 // ======== From API
-// pub use reqwest::Client;
-// pub use urlencoding::encode;
-// pub use std::fs::remove_file;
+pub use reqwest::Client;
+pub use urlencoding::encode;
+pub use crate::ElusionApi;
