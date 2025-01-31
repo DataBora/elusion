@@ -71,7 +71,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "1.7.1"
+elusion = "1.7.2"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -101,11 +101,10 @@ async fn main() -> ElusionResult<()> {
 ### - Loading data into CustomDataFrame can be from:
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
-#### - REST API endpoints
 #### - ODBC Connectors (databases)
 
 #### -> NEXT is example for reading data from local files, 
-#### down bellow are examples for Azure Blob Storage, REST APIs and ODBC
+#### down bellow are examples for Azure Blob Storage, ODBC
 ---
 ### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
@@ -947,7 +946,8 @@ Ok(())
 ```
 ---
 ## JSON files
-### Currently supported files can include: Arrays, Objects. Best usage if you can make it flat ("key":"value") 
+### Currently supported files can include: Fileds, Arrays, Objects. 
+#### Best performance with flat json ("key":"value") 
 #### for JSON, all field types are infered to VARCHAR/TEXT/STRING
 ```rust
 // example json structure
@@ -962,27 +962,40 @@ Ok(())
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test.json";
 let json_df = CustomDataFrame::new(json_path, "test").await?;
 
+let df = json_df.select(["*"]).limit(10);
+
+let result = df.elusion("df").await?;
+result.display().await?;
+
 // example json structure
-{
-"someGUID": "e0bsg4d-d81c-4db6-8ad8-bc92cbcfsds06",
-"someGUID2": "58asd1f6-c7ca-4c51-8ca0-37678csgd9c7",
-"someName": "Some Name Here",
-"someVersion": "Version 0232",
-"emptyValue": null,
-"verInd": {
-    "$numberLong": "0"
-    },
-"elInd": {
-    "$numberLong": "1"
-    },
-"qId": "question1",
-"opId": {
-    "$numberLong": "0"
-    },
-"label": "Some Label Here",
-"labelValue": "45557",
-"someGUID3": "5854ff6-c7ca-4c51-8ca0-3767sds4319c7|qId|7"
-}
+[
+  {
+    "id": "1",
+    "name": "Form 1",
+    "fields": [
+      {"key": "first_name", "type": "text", "required": true},
+      {"key": "age", "type": "number", "required": false},
+      {"key": "email", "type": "email", "required": true}
+    ]
+  },
+  {
+    "id": "2",
+    "name": "Form 2",
+    "fields": [
+      {"key": "address", "type": "text", "required": false},
+      {"key": "phone", "type": "tel", "required": true}
+    ]
+  },
+  {
+    "id": "3",
+    "name": "Form 3",
+    "fields": [
+      {"key": "notes", "type": "textarea", "required": false},
+      {"key": "date", "type": "date", "required": true},
+      {"key": "status", "type": "select", "required": true}
+    ]
+  }
+]
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
 let json_df = CustomDataFrame::new(json_path, "test2").await?;
@@ -1074,6 +1087,7 @@ result_df
 
 ## Writing Parquet to Azure BLOB Storage 
 #### Writing is set to Default, Overwrite, Compresion SNAPPY and Parquet 2.0 
+#### Threshold file size is 100mb
 ```rust
 let df = CustomDataFrame::new(csv_data, "sales").await?; 
 

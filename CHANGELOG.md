@@ -1,3 +1,7 @@
+## [1.7.2] - 2025-01-31
+### Added
+- Improved Reading JSON files performance by 50%
+
 ## [1.7.1] - 2025-01-29
 ### Added
 - Wriring Parquet to Azure Blob Storage
