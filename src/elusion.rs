@@ -1554,7 +1554,6 @@ impl CustomDataFrame {
         });
         self
     }
-
     /// Add multiple JOIN clauses using const generics.
     /// Accepts Array of (DataFrame, conditions, join_type)
     pub fn join_many<const N: usize, const M: usize>(
@@ -4729,7 +4728,11 @@ impl ElusionApi{
     }
 
 /// Create a JSON from a REST API endpoint that returns JSON
-pub async fn from_api(&self,  url: &str, alias: &str) -> ElusionResult<()> {
+pub async fn from_api(
+    &self,  
+    url: &str,
+    file_path: &str
+) -> ElusionResult<()> {
     validate_https_url(url)?;
     let client = Client::new();
     let response = client.get(url)
@@ -4743,7 +4746,7 @@ pub async fn from_api(&self,  url: &str, alias: &str) -> ElusionResult<()> {
 
     println!("Generated URL: {}", url);
 
-    Self::save_json_to_file(content, alias).await
+    Self::save_json_to_file(content, file_path).await
 }
 
 /// Create a JSON from a REST API endpoint with custom headers
@@ -4751,7 +4754,7 @@ pub async fn from_api_with_headers(
     &self,
     url: &str, 
     headers: HashMap<String, String>,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     validate_https_url(url)?;
     let client = Client::new();
@@ -4771,7 +4774,7 @@ pub async fn from_api_with_headers(
         .map_err(|e| ElusionError::Custom(format!("Failed to get response content: {}", e)))?;
     println!("Generated URL: {}", url);
 
-    Self::save_json_to_file(content, alias).await
+    Self::save_json_to_file(content, file_path).await
 }
 
 /// Create JSON from API with custom query parameters
@@ -4779,12 +4782,12 @@ pub async fn from_api_with_params(
     &self,
     base_url: &str, 
     params: HashMap<&str, &str>,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     validate_https_url(base_url)?;
 
     if params.is_empty() {
-        return Self::from_api( &self, base_url, alias).await;
+        return Self::from_api( &self, base_url, file_path).await;
     }
 
     let query_string: String = params
@@ -4802,7 +4805,7 @@ pub async fn from_api_with_params(
 
     let url = format!("{}?{}", base_url, query_string);
 
-    Self::from_api( &self, &url, alias).await
+    Self::from_api( &self, &url, file_path).await
 }
 
 /// Create JSON from API with parameters and headers
@@ -4811,10 +4814,10 @@ pub async fn from_api_with_params_and_headers(
     base_url: &str,
     params: HashMap<&str, &str>,
     headers: HashMap<String, String>,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     if params.is_empty() {
-        return Self::from_api_with_headers( &self, base_url, headers, alias).await;
+        return Self::from_api_with_headers( &self, base_url, headers, file_path).await;
     }
 
     let query_string: String = params
@@ -4835,7 +4838,7 @@ pub async fn from_api_with_params_and_headers(
 
     let url = format!("{}?{}", base_url, query_string);
 
-    Self::from_api_with_headers( &self, &url, headers, alias).await
+    Self::from_api_with_headers( &self, &url, headers, file_path).await
 }
 
 /// Create JSON from API with date range parameters
@@ -4844,7 +4847,7 @@ pub async fn from_api_with_dates(
     base_url: &str, 
     from_date: &str, 
     to_date: &str,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     let url = format!("{}?from={}&to={}", 
         base_url,
@@ -4853,7 +4856,7 @@ pub async fn from_api_with_dates(
         if to_date.contains(' ') { to_date.to_string() } else { urlencoding::encode(to_date).to_string() }
     );
 
-    Self::from_api( &self, &url, alias).await
+    Self::from_api( &self, &url, file_path).await
 }
 
 /// Create JSON from API with pagination
@@ -4862,11 +4865,11 @@ pub async fn from_api_with_pagination(
     base_url: &str,
     page: u32,
     per_page: u32,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     let url = format!("{}?page={}&per_page={}", base_url, page, per_page);
  
-    Self::from_api( &self, &url, alias).await
+    Self::from_api( &self, &url, file_path).await
 }
 
 /// Create JSON from API with sorting
@@ -4875,7 +4878,7 @@ pub async fn from_api_with_sort(
     base_url: &str,
     sort_field: &str,
     order: &str,
-    alias: &str
+    file_path: &str
 ) -> ElusionResult<()> {
     let url = format!("{}?sort={}&order={}", 
         base_url,
@@ -4883,11 +4886,31 @@ pub async fn from_api_with_sort(
         if order.contains(' ') { order.to_string() } else { urlencoding::encode(order).to_string() }
     );
 
-    Self::from_api( &self, &url, alias).await
+    Self::from_api( &self, &url, file_path).await
+}
+
+/// Create JSON from API with sorting and headers
+pub async fn from_api_with_headers_and_sort(
+    &self,
+    base_url: &str,
+    headers: HashMap<String, String>,
+    sort_field: &str,
+    order: &str,
+    file_path: &str
+) -> ElusionResult<()> {
+    validate_https_url(base_url)?;
+    
+    let url = format!("{}?sort={}&order={}", 
+        base_url,
+        if sort_field.contains(' ') { sort_field.to_string() } else { urlencoding::encode(sort_field).to_string() },
+        if order.contains(' ') { order.to_string() } else { urlencoding::encode(order).to_string() }
+    );
+
+    Self::from_api_with_headers(&self, &url, headers, file_path).await
 }
 
 /// Process JSON response into JSON 
-async fn save_json_to_file(content: Bytes, file_name: &str) -> ElusionResult<()> {
+async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()> {
     let reader = std::io::BufReader::new(content.as_ref());
     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
     let mut stream = stream.peekable();
@@ -4899,7 +4922,12 @@ async fn save_json_to_file(content: Bytes, file_name: &str) -> ElusionResult<()>
         _ => return Err(ElusionError::Custom("Invalid JSON response".to_string())),
     };
 
-    let file_path = format!("{}.json", file_name);
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = LocalPath::new(file_path).parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| ElusionError::Custom(format!("Failed to create directory: {}. Please make sure you have correct file path. Check github repo for examples.", e)))?;
+    }
+
     let file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -4943,7 +4971,7 @@ async fn save_json_to_file(content: Bytes, file_name: &str) -> ElusionResult<()>
 
     writer.flush()
         .map_err(|e| ElusionError::Custom(format!("Failed to flush writer: {}", e)))?;
-    println!("Successfully created {}.json", file_name);
+    println!("Successfully created {}", file_path);
     Ok(())
 }
 

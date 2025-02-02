@@ -610,7 +610,8 @@ fn benchmark_api_operations(c: &mut Criterion) {
             api.from_api_with_params(
                 "https://salesapi.dotnet.co.rs/SQLDATA/api/data_items",
                 params,
-                "sales_jan_2023"
+                "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2023.json"
+                
             ).await.unwrap()
         })
     }));
