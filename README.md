@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.0.0"
+elusion = "2.1.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -150,7 +150,7 @@ let customers_alias = df_customers
 ---
 ### Numerical Operators (supported +, -, * , / , %)
 ```rust
-let num_ops_sales = sales_order_df.clone()
+let num_ops_sales = sales_order_df
     .select([
         "customer_name",
         "order_date",
@@ -956,6 +956,7 @@ scheduler.shutdown().await?;
 
 Ok(())
 }
+
 ```
 ---
 # JSON files
@@ -1019,53 +1020,51 @@ let json_df = CustomDataFrame::new(json_path, "test2").await?;
 #### Customizable Headers, Params, Pagination, Date Ranges...
 ### FROM API
 ```rust
- // example 1
+// example 1
 let posts_df = ElusionApi::new();
 posts_df
-.from_api(
-    "https://jsonplaceholder.typicode.com/posts", // url
-    "posts_data" // save to json file name
-).await?;
+    .from_api(
+        "https://jsonplaceholder.typicode.com/posts", // url
+        "C:\\Borivoj\\RUST\\Elusion\\JSON\\posts_data.json" // path where json will be stored
+    ).await?;
 
 // example 2
 let users_df = ElusionApi::new();
 users_df.from_api(
     "https://jsonplaceholder.typicode.com/users",
-    "users_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\users_data.json",
 ).await?;
 
 // example 3
 let ceo = ElusionApi::new();
 ceo.from_api(
     "https://dog.ceo/api/breeds/image/random/3",
-    "ceo_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\ceo_data.json"
 ).await?;
 ```
 ### FROM API WITH HEADERS
 ```rust
- // example 1
+// example 1
 let mut headers = HashMap::new();
 headers.insert("Custom-Header".to_string(), "test-value".to_string());
 
 let bin_df = ElusionApi::new();
 bin_df.from_api_with_headers(
-    "https://httpbin.org/headers", // url
-    headers, // headers
-    "bin_data" // save to json file name
+    "https://httpbin.org/headers",  // url
+    headers,                        // headers
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\bin_data.json",  // path where json will be stored
 ).await?;
     
 // example 2
 let mut headers = HashMap::new();
-// Specify the response format (JSON in this case)
 headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
-// Identify your application to the API server
 headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
 
 let git_hub = ElusionApi::new();
 git_hub.from_api_with_headers(
     "https://api.github.com/search/repositories?q=rust+language:rust&sort=stars&order=desc",
     headers,
-    "git_hub_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\git_hub_data.json"
 ).await?;
 
 // example 3
@@ -1077,7 +1076,7 @@ let pokemon_df = ElusionApi::new();
 pokemon_df.from_api_with_headers(
     "https://pokeapi.co/api/v2/pokemon", 
     headers,
-    "pokemon_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\pokemon_data.json"
 ).await?;
 ```
 ### FROM API WITH PARAMS
@@ -1089,9 +1088,9 @@ params.insert("limit", "10");
 
 let open_lib = ElusionApi::new();
 open_lib.from_api_with_params(
-    "https://openlibrary.org/search.json", // url
-    params, // params
-    "open_lib_data" // save to json file name
+    "https://openlibrary.org/search.json",           // url
+    params,                                          // params
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\open_lib_data.json",  // path where json will be stored
 ).await?;
 
 // Random User Generator API with params
@@ -1099,11 +1098,11 @@ let mut params = HashMap::new();
 params.insert("results", "10");
 params.insert("nat", "us,gb");
 
-let generator =ElusionApi::new(); 
+let generator = ElusionApi::new(); 
 generator.from_api_with_params(
     "https://randomuser.me/api",
     params,
-    "generator_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\generator_data.json"
 ).await?;
 
 // JSON Placeholder with multiple endpoints
@@ -1115,10 +1114,10 @@ let multi = ElusionApi::new();
 multi.from_api_with_params(
     "https://jsonplaceholder.typicode.com/posts",
     params,
-    "multi_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\multi_data.json"
 ).await?;
 
-//NASA Astronomy Picture of the Day
+// NASA Astronomy Picture of the Day
 let mut params = HashMap::new();
 params.insert("count", "5");
 params.insert("thumbs", "true");
@@ -1127,10 +1126,10 @@ let nasa = ElusionApi::new();
 nasa.from_api_with_params(
     "https://api.nasa.gov/planetary/apod",
     params,
-    "nasa_pics_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\nasa_pics_data.json"
 ).await?;
 
-// ecample 5
+// example 5
 let mut params = HashMap::new();
 params.insert("brand", "elusion");
 params.insert("password", "some_password");
@@ -1143,7 +1142,7 @@ let api = ElusionApi::new();
 api.from_api_with_params(
     "https://salesapi.net.co.rs/SSPAPI/api/data",
     params,
-    "sales_jan_2025"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2025.json"
 ).await?;
 ```
 ### FROM API WITH PARAMS AND HEADERS
@@ -1158,22 +1157,21 @@ headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
 
 let commits_df = ElusionApi::new();
 commits_df.from_api_with_params_and_headers(
-    "https://api.github.com/repos/rust-lang/rust/commits", // urls
-    params, // params
-    headers, // headers
-    "commits_data" // save to json file name
+    "https://api.github.com/repos/rust-lang/rust/commits",    // url
+    params,                                                   // params
+    headers,                                                 // headers
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\commits_data.json",  // path where json will be stored
 ).await?;
 ```
 ### FROM API WITH DATES
 ```rust
-
 // example 1
 let post_df = ElusionApi::new();
 post_df.from_api_with_dates(
-    "https://jsonplaceholder.typicode.com/posts", // url
-    "2024-01-01", // date from
-    "2024-01-07", // date to
-    "post_data" // save to json file name
+    "https://jsonplaceholder.typicode.com/posts",            // url
+    "2024-01-01",                                           // date from
+    "2024-01-07",                                           // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\post_data.json",  // path where json will be stored
 ).await?;
 
 // Example 2: COVID-19 historical data
@@ -1182,9 +1180,8 @@ covid_df.from_api_with_dates(
     "https://disease.sh/v3/covid-19/historical/all",
     "2024-01-01",
     "2024-01-07",
-    "covid_data"
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\covid_data.json"
 ).await?;
-
 ```
 ### FROM API WITH PAGINATION
 ```rust
@@ -1192,9 +1189,34 @@ covid_df.from_api_with_dates(
 let reqres = ElusionApi::new();
 reqres.from_api_with_pagination(
     "https://reqres.in/api/users",
-    1,  // page
-    10,  // per_page
-    "reqres_data"
+    1,                                              // page
+    10,                                            // per_page
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\reqres_data.json",  // path where json will be stored
+).await?;
+```
+### FROM API WITH SORT
+```rust
+let movie_db = ElusionApi::new();
+movie_db.from_api_with_sort(
+    "https://api.themoviedb.org/3/discover/movie",  // base url
+    "popularity",                                    // sort field
+    "desc",                                         // order
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies.json",  // path where json will be stored
+).await?;
+```
+### FROM API WITH HEADERS AND SORT
+```rust
+let mut headers = HashMap::new();
+headers.insert("Authorization".to_string(), "Bearer YOUR_TMDB_API_KEY".to_string());
+headers.insert("accept".to_string(), "application/json".to_string());
+
+let movie_db = ElusionApi::new();
+movie_db.from_api_with_headers_and_sort(
+    "https://api.themoviedb.org/3/discover/movie",  // base url
+    headers,                                        // headers
+    "popularity",                                   // sort field
+    "desc",                                        // order
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies1.json",   // path where json will be stored
 ).await?;
 ```
 ---

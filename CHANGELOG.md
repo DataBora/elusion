@@ -1,3 +1,7 @@
+## [2.1.0] - 2025-02-02
+### BREAKING CHANGE
+- REST API now must use file path + json file name as argument. ex: "C:\\Borivoj\\RUST\\Elusion\\sales_jan_2025.json"
+
 ## [2.0.0] - 2025-01-31
 ### Added
 - REST API to JSON files
