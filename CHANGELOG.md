@@ -1,3 +1,7 @@
+## [2.2.0] - 2025-02-03
+### Fixed
+- Improved parsing for single dataframes, for all functions, to avoid using aliases on single dataframes
+
 ## [2.1.0] - 2025-02-02
 ### BREAKING CHANGE
 - REST API now must use file path + json file name as argument. ex: "C:\\Borivoj\\RUST\\Elusion\\sales_jan_2025.json"

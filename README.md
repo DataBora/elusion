@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.1.0"
+elusion = "2.2.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -379,7 +379,7 @@ let result_join_many = order_join_df
         WHEN 'East Coast' THEN 'Eastern'
         WHEN 'West Coast' THEN 'Western'
         ELSE 'Other'
-    END AS region_category"
+    END AS region_category",
 
     "CASE
         WHEN EXTRACT(DOW FROM o.OrderDate) IN (0, 6) THEN 'Weekend'
@@ -569,7 +569,7 @@ let window_query = df_sales
     .window("LAST_VALUE(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS last_qty")
     .window("LAG(s.OrderQuantity, 1, 0) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS prev_qty")
     .window("LEAD(s.OrderQuantity, 1, 0) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS next_qty")
-    .window("NTH_VALUE(s.OrderQuantity, 3) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS third_qty")
+    .window("NTH_VALUE(s.OrderQuantity, 3) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS third_qty");
 
 let window_df = window_query.elusion("result_window").await?;
 window_df.display().await?;

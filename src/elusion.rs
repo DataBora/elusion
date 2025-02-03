@@ -928,60 +928,90 @@ fn normalize_condition(condition: &str) -> String {
 /// Example:
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
 /// Normalizes an expression by properly quoting table aliases and column names.
-fn normalize_expression(expression: &str) -> String {
+fn normalize_expression(expression: &str, table_alias: &str) -> String {
     let parts: Vec<&str> = expression.splitn(2, " AS ").collect();
     
     if parts.len() == 2 {
         let expr_part = parts[0].trim();
         let alias_part = parts[1].trim();
         
-        // Normalize the expression part
         let normalized_expr = if is_aggregate_expression(expr_part) {
-            normalize_aggregate_expression(expr_part)
+            normalize_aggregate_expression(expr_part, table_alias)
         } else {
-            normalize_simple_expression(expr_part)
+            normalize_simple_expression(expr_part, table_alias)
         };
 
-        format!("{} AS \"{}\"", 
-            normalized_expr,
-            alias_part.replace(" ", "_").to_lowercase()
-        )
+        format!("{} AS \"{}\"", normalized_expr, alias_part.replace(" ", "_"))
     } else {
-        // No alias part
         if is_aggregate_expression(expression) {
-            normalize_aggregate_expression(expression)
+            normalize_aggregate_expression(expression, table_alias)
         } else {
-            normalize_simple_expression(expression)
+            normalize_simple_expression(expression, table_alias)
         }
     }
 }
 
-fn normalize_aggregate_expression(expr: &str) -> String {
-    // Handle nested expressions in aggregate functions
+fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
     let re = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)$").unwrap();
     if let Some(caps) = re.captures(expr.trim()) {
         let func_name = &caps[1];
         let args = &caps[2];
-        
-        // Normalize arguments recursively
-        let normalized_args = normalize_simple_expression(args);
-        format!("{}({})", func_name, normalized_args)
+        let normalized_args = args.split(',')
+            .map(|arg| normalize_simple_expression(arg.trim(), table_alias))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{}({})", func_name, normalized_args) 
     } else {
         expr.to_string()
     }
 }
 
-fn normalize_simple_expression(expr: &str) -> String {
-    // Handle column references and operators
+ fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
     let col_re = Regex::new(r"(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)").unwrap();
-    
-    let mut normalized = expr.to_string();
-    // Normalize column references
-    normalized = col_re.replace_all(&normalized, "\"$1\".\"$2\"").to_string();
-    
-    // Handle arithmetic expressions - keep operators and parentheses as is
-    normalized
-}
+    let func_re = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)$").unwrap();
+    let operator_re = Regex::new(r"([\+\-\*\/])").unwrap();
+ 
+    if let Some(caps) = func_re.captures(expr) {
+        let func_name = &caps[1];
+        let args = &caps[2];
+        
+        let normalized_args = args.split(',')
+            .map(|arg| normalize_simple_expression(arg.trim(), table_alias))
+            .collect::<Vec<_>>()
+            .join(", ");
+            
+        format!("{}({})", func_name, normalized_args)
+    } else if operator_re.is_match(expr) {
+        let mut result = String::new();
+        let mut parts = operator_re.split(expr).peekable();
+        
+        while let Some(part) = parts.next() {
+            let trimmed = part.trim();
+            // Add normalized part
+            if col_re.is_match(trimmed) {
+                result.push_str(&trimmed.to_string());
+            } else if is_simple_column(trimmed) {
+                result.push_str(&format!("\"{}\".\"{}\"", table_alias, trimmed));
+            } else {
+                result.push_str(trimmed);
+            }
+            
+            // Add operator if there's more parts
+            if parts.peek().is_some() {
+                if let Some(op) = expr.chars().skip_while(|c| !"+-*/%".contains(*c)).next() {
+                    result.push_str(&format!(" {} ", op));
+                }
+            }
+        }
+        result
+    } else if col_re.is_match(expr) {
+        col_re.replace_all(expr, "\"$1\".\"$2\"").to_string()
+    } else if is_simple_column(expr) {
+        format!("\"{}\".\"{}\"", table_alias, expr.trim().replace(" ", "_"))
+    } else {
+        expr.to_string()
+    }
+ }
 
 /// Helper function to determine if a string is an expression.
 fn is_expression(s: &str) -> bool {
@@ -1597,10 +1627,10 @@ impl CustomDataFrame {
                     let expr_part = s.split(" AS ")
                         .next()
                         .unwrap_or(s);
-                    normalize_expression(expr_part)
+                    normalize_expression(expr_part, &self.table_alias)
                 } else {
                     // Handle expressions without aliases
-                    normalize_expression(s)
+                    normalize_expression(s,  &self.table_alias)
                 }
             })
             .collect();
@@ -1757,7 +1787,7 @@ impl CustomDataFrame {
     pub fn string_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
         for expr in expressions.iter() {
             // Add to SELECT clause
-            self.selected_columns.push(normalize_expression(expr));
+            self.selected_columns.push(normalize_expression(expr, &self.table_alias));
     
             // If GROUP BY is used, extract the expression part (before AS)
             // and add it to GROUP BY columns
@@ -1765,7 +1795,7 @@ impl CustomDataFrame {
                 let expr_part = expr.split(" AS ")
                     .next()
                     .unwrap_or(expr);
-                self.group_by_columns.push(normalize_expression(expr_part));
+                self.group_by_columns.push(normalize_expression(expr_part, &self.table_alias));
             }
         }
         self
@@ -1774,10 +1804,10 @@ impl CustomDataFrame {
     /// Adding aggregations to the SELECT clause using const generics.
     /// Ensures that only valid aggregate expressions are included.
     pub fn agg<const N: usize>(self, aggregations: [&str; N]) -> Self {
-        self.agg_vec(
+        self.clone().agg_vec(
             aggregations.iter()
                 .filter(|&expr| is_aggregate_expression(expr))
-                .map(|s| normalize_expression(s))
+                .map(|s| normalize_expression(s, &self.table_alias))
                 .collect()
         )
     }
@@ -2409,11 +2439,11 @@ impl CustomDataFrame {
             for col in columns {
                 if is_expression(col) {
                     if is_aggregate_expression(col) {
-                        valid_selects.push(normalize_expression(col));
+                        valid_selects.push(normalize_expression(col, &self.table_alias));
                     } else {
                         // Expression is not an aggregate; include it in GROUP BY
                         self.group_by_columns.push(col.to_string());
-                        valid_selects.push(normalize_expression(col));
+                        valid_selects.push(normalize_expression(col, &self.table_alias));
                     }
                 } else {
                     // Simple column
@@ -2446,7 +2476,7 @@ impl CustomDataFrame {
                 .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
                 .map(|s| {
                     if is_expression(s) {
-                        normalize_expression(s)
+                        normalize_expression(s, &self.table_alias)
                     } else {
                         normalize_column_name(s)
                     }
@@ -4976,8 +5006,3 @@ async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()>
 }
 
 }
-
-
-
-
-
