@@ -508,9 +508,9 @@ fn benchmark_database_queries(c: &mut Criterion) {
             let mysql_conn = "Driver={MySQL ODBC 9.1 Unicode Driver};\
                 Server=127.0.0.1;\
                 Port=3306;\
-                Database=brewery;\
-                User=databora;\
-                Password=!Djavolak1"
+                Database=dbdata;\
+                User=user;\
+                Password=pass"
             ;
 
             let sql_query = "
@@ -552,9 +552,9 @@ fn benchmark_database_queries(c: &mut Criterion) {
             Driver={PostgreSQL UNICODE};\
             Servername=127.0.0.1;\
             Port=5433;\
-            Database=elusiontest;\
+            Database=test;\
             UID=postgres;\
-            PWD=!Djavolak1;\
+            PWD=pass;\
         ";
 
             let sql_query = "
