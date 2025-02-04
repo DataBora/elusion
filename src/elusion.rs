@@ -2707,6 +2707,16 @@ impl CustomDataFrame {
     // }
 
     // ================== STATISTICS FUNCS =================== //
+
+    // helper functions for union
+    fn find_actual_column_name(&self, column: &str) -> Option<String> {
+        self.df
+            .schema()
+            .fields()
+            .iter()
+            .find(|f| f.name().to_lowercase() == column.to_lowercase())
+            .map(|f| f.name().to_string())
+    }
     /// Compute basic statistics for specified columns
     async fn compute_column_stats(&self, columns: &[&str]) -> ElusionResult<ColumnStats> {
         let mut stats = ColumnStats::default();
@@ -2716,6 +2726,19 @@ impl CustomDataFrame {
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
         for &column in columns {
+            // Find the actual column name from schema
+            let actual_column = self.find_actual_column_name(column)
+                .ok_or_else(|| ElusionError::Custom(
+                    format!("Column '{}' not found in schema", column)
+                ))?;
+            
+            // Use the found column name in the normalized form
+            let normalized_col = if actual_column.contains('.') {
+                normalize_column_name(&actual_column)
+            } else {
+                normalize_column_name(&format!("{}.{}", self.table_alias, actual_column))
+            };
+    
             let sql = format!(
                 "SELECT 
                     COUNT(*) as total_count,
@@ -2725,8 +2748,8 @@ impl CustomDataFrame {
                     MAX({col}) as max_value,
                     STDDEV({col}::float) as std_dev
                 FROM {}",
-                self.table_alias,
-                col = column
+                normalize_alias(&self.table_alias),
+                col = normalized_col
             );
 
             let result_df = ctx.sql(&sql).await.map_err(|e| {
@@ -2793,6 +2816,19 @@ impl CustomDataFrame {
 
         let mut null_counts = Vec::new();
         for column in columns {
+            // Find the actual column name from schema
+            let actual_column = self.find_actual_column_name(column)
+                .ok_or_else(|| ElusionError::Custom(
+                    format!("Column '{}' not found in schema", column)
+                ))?;
+                
+            // Use the found column name in the normalized form
+            let normalized_col = if actual_column.contains('.') {
+                normalize_column_name(&actual_column)
+            } else {
+                normalize_column_name(&format!("{}.{}", self.table_alias, actual_column))
+            };
+    
             let sql = format!(
                 "SELECT 
                     '{}' as column_name,
@@ -2800,7 +2836,7 @@ impl CustomDataFrame {
                     COUNT(*) - COUNT({}) as null_count,
                     (COUNT(*) - COUNT({})) * 100.0 / COUNT(*) as null_percentage
                 FROM {}",
-                column, column, column, self.table_alias
+                column, normalized_col, normalized_col, normalize_alias(&self.table_alias)
             );
 
             let result_df = ctx.sql(&sql).await.map_err(|e| {
@@ -2846,10 +2882,33 @@ impl CustomDataFrame {
         let ctx = Arc::new(SessionContext::new());
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
+        let actual_col1 = self.find_actual_column_name(col1)
+        .ok_or_else(|| ElusionError::Custom(
+            format!("Column '{}' not found in schema", col1)
+        ))?;
+
+        let actual_col2 = self.find_actual_column_name(col2)
+            .ok_or_else(|| ElusionError::Custom(
+                format!("Column '{}' not found in schema", col2)
+            ))?;
+        
+        // Use the found column names in normalized form
+        let normalized_col1 = if actual_col1.contains('.') {
+            normalize_column_name(&actual_col1)
+        } else {
+            normalize_column_name(&format!("{}.{}", self.table_alias, actual_col1))
+        };
+        
+        let normalized_col2 = if actual_col2.contains('.') {
+            normalize_column_name(&actual_col2)
+        } else {
+            normalize_column_name(&format!("{}.{}", self.table_alias, actual_col2))
+        };
+        
         let sql = format!(
             "SELECT corr({}::float, {}::float) as correlation 
-             FROM {}",
-            col1, col2, self.table_alias
+            FROM {}",
+            normalized_col1, normalized_col2, normalize_alias(&self.table_alias)
         );
 
         let result_df = ctx.sql(&sql).await.map_err(|e| {
@@ -2950,37 +3009,36 @@ impl CustomDataFrame {
     /// Display correlation matrix for multiple columns
     pub async fn display_correlation_matrix(&self, columns: &[&str]) -> ElusionResult<()> {
         println!("\n=== Correlation Matrix ===");
-        let col_width = 15;
+        let col_width = 20;
         let total_width = (columns.len() + 1) * (col_width + 3) + 1;
         println!("{:-<width$}", "", width = total_width);
         
-        // Print header
+        // Print header with better column name handling
         print!("| {:<width$} |", "", width = col_width);
         for col in columns {
-            print!(" {:<width$} |", 
-                if col.len() > col_width {
-                    &col[..col_width]
-                } else {
-                    col
-                }, 
-                width = col_width);
+            let display_name = if col.len() > col_width {
+                // Take first 12 chars and add "..." 
+                format!("{}...", &col[..12])
+            } else {
+                col.to_string()
+            };
+            print!(" {:<width$} |", display_name, width = col_width);
         }
         println!();
         println!("{:-<width$}", "", width = total_width);
         
-        // Calculate and print correlations
+        // Calculate and print correlations with more decimal places
         for &col1 in columns {
-            print!("| {:<width$} |", 
-                if col1.len() > col_width {
-                    &col1[..col_width]
-                } else {
-                    col1
-                }, 
-                width = col_width);
-                
+            let display_name = if col1.len() > col_width {
+                format!("{}...", &col1[..12])
+            } else {
+                col1.to_string()
+            };
+            print!("| {:<width$} |", display_name, width = col_width);
+                    
             for &col2 in columns {
                 let correlation = self.compute_correlation(col1, col2).await?;
-                print!(" {:>width$.2} |", correlation, width = col_width);
+                print!(" {:>width$.4} |", correlation, width = col_width);  // Changed to 4 decimal places
             }
             println!();
         }

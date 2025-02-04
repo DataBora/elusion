@@ -1,3 +1,7 @@
+## [2.3.0] - 2025-02-04
+### Fixed
+- Fixed case sensitivity within statistical functions
+
 ## [2.2.0] - 2025-02-03
 ### Fixed
 - Improved parsing for single dataframes, for all functions, to avoid using aliases on single dataframes
