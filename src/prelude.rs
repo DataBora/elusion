@@ -12,7 +12,7 @@ pub use datafusion::datasource::MemTable;
 pub use std::sync::Arc;
 pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use chrono::NaiveDate;
-pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder};
+pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder};
 
 pub use arrow::record_batch::RecordBatch;
 pub use ArrowDataType::*;
@@ -55,11 +55,9 @@ pub use std::fmt::{self, Debug};
 pub use std::error::Error;
 
 // ================ DATABASE
-
 pub use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
 pub use arrow_odbc::OdbcReaderBuilder;
 pub use lazy_static::lazy_static;
-
 // PIVOT
 pub use arrow::compute;
 pub use arrow::array::StringArray;
