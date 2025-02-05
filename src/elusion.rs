@@ -10,7 +10,8 @@ use datafusion::datasource::MemTable;
 use std::sync::Arc;
 use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 use chrono::NaiveDate;
-use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder,Float32Builder, Int64Builder, Int32Builder, UInt64Builder, UInt32Builder, BooleanBuilder, Date32Builder, BinaryBuilder};
+use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder};
+ 
 
 use arrow::record_batch::RecordBatch;
 use ArrowDataType::*;
@@ -70,6 +71,8 @@ use datafusion::common::ScalarValue;
 use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
 use arrow_odbc::OdbcReaderBuilder;
 use lazy_static::lazy_static;
+// use arrow_odbc::arrow::record_batch::RecordBatch as OdbcReaderBatch;
+// use std::str::FromStr;
 
 // ========== AZURE
 use azure_storage_blobs::prelude::*;
@@ -524,57 +527,292 @@ fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
 
 fn infer_arrow_type(value: &Value) -> ArrowDataType {
     match value {
-        Value::Null => ArrowDataType::Utf8, 
-        Value::Bool(_) => ArrowDataType::Boolean,
+        Value::Null => ArrowDataType::Utf8,  // Always default null to Utf8
+        Value::Bool(_) => ArrowDataType::Utf8,  // Changed to Utf8 for consistency
         Value::Number(n) => {
             if n.is_i64() {
                 ArrowDataType::Int64
             } else if n.is_u64() {
                 ArrowDataType::UInt64
+            } else if let Some(f) = n.as_f64() {
+                if f.is_finite() {
+                    ArrowDataType::Float64
+                } else {
+                    ArrowDataType::Utf8  // Handle Infinity and NaN as strings
+                }
             } else {
-                ArrowDataType::Float64
+                ArrowDataType::Utf8  // Default for any other numeric types
             }
         },
         Value::String(_) => ArrowDataType::Utf8,
-        Value::Array(_) => ArrowDataType::Utf8, 
-        Value::Object(_) => ArrowDataType::Utf8, 
+        Value::Array(_) => ArrowDataType::Utf8,  // Always serialize arrays to strings
+        Value::Object(_) => ArrowDataType::Utf8,  // Always serialize objects to strings
     }
 }
 
-fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
+// fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
    
+//     match (a, b) {
+//         (Utf8, _) | (_, Utf8) => Utf8,
+//         (Boolean, Boolean) => Boolean,
+//         (Int64, Int64) => Int64,
+//         (UInt64, UInt64) => UInt64,
+//         (Float64, Float64) => Float64,
+//         _ => Utf8, // Default promotion to Utf8 for incompatible types
+//     }
+// }
+fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
     match (a, b) {
+        // If either type is Utf8, result is Utf8
         (Utf8, _) | (_, Utf8) => Utf8,
-        (Boolean, Boolean) => Boolean,
+        
+        // Only keep numeric types if they're the same
         (Int64, Int64) => Int64,
         (UInt64, UInt64) => UInt64,
         (Float64, Float64) => Float64,
-        _ => Utf8, // Default promotion to Utf8 for incompatible types
+        
+        // Any other combination defaults to Utf8
+        _ => Utf8,
     }
 }
 
 
+// fn build_record_batch(
+//     rows: &[HashMap<String, Value>],
+//     schema: Arc<Schema>
+// ) -> ArrowResult<RecordBatch> {
+//     let mut builders: Vec<Box<dyn ArrayBuilder>> = Vec::new();
 
+//     for field in schema.fields() {
+//         let builder: Box<dyn ArrayBuilder> = match field.data_type() {
+//             ArrowDataType::Utf8 => Box::new(StringBuilder::new()),
+//             ArrowDataType::Binary => Box::new(BinaryBuilder::new()),
+//             ArrowDataType::Boolean => Box::new(BooleanBuilder::new()),
+//             ArrowDataType::Int32 => Box::new(Int32Builder::new()),
+//             ArrowDataType::Int64 => Box::new(Int64Builder::new()),
+//             ArrowDataType::UInt32 => Box::new(UInt32Builder::new()),
+//             ArrowDataType::UInt64 => Box::new(UInt64Builder::new()),
+//             ArrowDataType::Float32 => Box::new(Float32Builder::new()),
+//             ArrowDataType::Float64 => Box::new(Float64Builder::new()),
+//             ArrowDataType::Date32 => Box::new(Date32Builder::new()),
+           
+//             _ => Box::new(StringBuilder::new()), // Default to Utf8 for unsupported types
+//         };
+//         builders.push(builder);
+//     }
+
+//     for row in rows {
+//         for (i, field) in schema.fields().iter().enumerate() {
+//             let key = field.name();
+//             let value = row.get(key);
+
+//             match field.data_type() {
+//                 ArrowDataType::Utf8 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<StringBuilder>()
+//                         .expect("Expected StringBuilder for Utf8 field");
+//                     if let Some(Value::String(s)) = value {
+//                         builder.append_value(s);
+//                     } else if let Some(Value::Number(n)) = value {
+//                         // Handle numbers as strings
+//                         builder.append_value(&n.to_string());
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Binary => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<BinaryBuilder>()
+//                         .expect("Expected BinaryBuilder for Binary field");
+//                     if let Some(Value::String(s)) = value {
+//                         // Assuming the binary data is base64 encoded or similar
+//                         // Here, we'll convert the string to bytes directly
+//                         builder.append_value(s.as_bytes());
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Boolean => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<BooleanBuilder>()
+//                         .expect("Expected BooleanBuilder for Boolean field");
+//                     if let Some(Value::Bool(b)) = value {
+//                         builder.append_value(*b);
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Int32 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<Int32Builder>()
+//                         .expect("Expected Int32Builder for Int32 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(i) = n.as_i64() {
+//                             if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+//                                 builder.append_value(i as i32);
+//                             } else {
+//                                 builder.append_null();
+//                             }
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Int64 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<Int64Builder>()
+//                         .expect("Expected Int64Builder for Int64 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(i) = n.as_i64() {
+//                             builder.append_value(i);
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::UInt32 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<UInt32Builder>()
+//                         .expect("Expected UInt32Builder for UInt32 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(u) = n.as_u64() {
+//                             if u <= u32::MAX as u64 {
+//                                 builder.append_value(u as u32);
+//                             } else {
+//                                 builder.append_null();
+//                             }
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::UInt64 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<UInt64Builder>()
+//                         .expect("Expected UInt64Builder for UInt64 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(u) = n.as_u64() {
+//                             builder.append_value(u);
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+                
+//                 ArrowDataType::Float32 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<Float32Builder>()
+//                         .expect("Expected Float32Builder for Float32 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(f) = n.as_f64() {
+//                             builder.append_value(f as f32);
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Float64 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<Float64Builder>()
+//                         .expect("Expected Float64Builder for Float64 field");
+//                     if let Some(Value::Number(n)) = value {
+//                         if let Some(f) = n.as_f64() {
+//                             builder.append_value(f);
+//                         } else {
+//                             builder.append_null();
+//                         }
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//                 ArrowDataType::Date32 => {
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<Date32Builder>()
+//                         .expect("Expected Date32Builder for Date32 field");
+//                     if let Some(Value::String(s)) = value {
+//                         //  date string into days since UNIX epoch
+//                         // Here, we assume the date is in "YYYY-MM-DD" format
+//                         match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+//                             Ok(date) => {
+//                                 // UNIX epoch
+//                                 let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
+//                                     .expect("Failed to create epoch date");
+
+//                                 let days_since_epoch = (date - epoch).num_days() as i32;
+                               
+//                                 builder.append_value(days_since_epoch);
+//                             }
+//                             Err(_) => {
+                             
+//                                 builder.append_null();
+//                             }
+//                         }
+//                     } else {
+                      
+//                         builder.append_null();
+//                     }
+//                 },
+//                 _ => {
+                    
+//                     let builder = builders[i]
+//                         .as_any_mut()
+//                         .downcast_mut::<StringBuilder>()
+//                         .expect("Expected StringBuilder for default field type");
+//                     if let Some(Value::String(s)) = value {
+//                         builder.append_value(s);
+//                     } else if let Some(v) = value {
+                    
+//                         builder.append_value(&v.to_string());
+//                     } else {
+//                         builder.append_null();
+//                     }
+//                 },
+//             }
+//         }
+//     }
+
+//     let mut arrays: Vec<ArrayRef> = Vec::new();
+//     for mut builder in builders {
+//         arrays.push(builder.finish());
+//     }
+
+//     let record_batch = RecordBatch::try_new(schema.clone(), arrays)?;
+
+//     Ok(record_batch)
+// }
 fn build_record_batch(
     rows: &[HashMap<String, Value>],
     schema: Arc<Schema>
 ) -> ArrowResult<RecordBatch> {
     let mut builders: Vec<Box<dyn ArrayBuilder>> = Vec::new();
 
+    // Simplified builder creation - only use Int64, UInt64, Float64, or StringBuilder
     for field in schema.fields() {
         let builder: Box<dyn ArrayBuilder> = match field.data_type() {
-            ArrowDataType::Utf8 => Box::new(StringBuilder::new()),
-            ArrowDataType::Binary => Box::new(BinaryBuilder::new()),
-            ArrowDataType::Boolean => Box::new(BooleanBuilder::new()),
-            ArrowDataType::Int32 => Box::new(Int32Builder::new()),
             ArrowDataType::Int64 => Box::new(Int64Builder::new()),
-            ArrowDataType::UInt32 => Box::new(UInt32Builder::new()),
             ArrowDataType::UInt64 => Box::new(UInt64Builder::new()),
-            ArrowDataType::Float32 => Box::new(Float32Builder::new()),
             ArrowDataType::Float64 => Box::new(Float64Builder::new()),
-            ArrowDataType::Date32 => Box::new(Date32Builder::new()),
-           
-            _ => Box::new(StringBuilder::new()), // Default to Utf8 for unsupported types
+            _ => Box::new(StringBuilder::new()), // Everything else becomes string
         };
         builders.push(builder);
     }
@@ -585,198 +823,129 @@ fn build_record_batch(
             let value = row.get(key);
 
             match field.data_type() {
-                ArrowDataType::Utf8 => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<StringBuilder>()
-                        .expect("Expected StringBuilder for Utf8 field");
-                    if let Some(Value::String(s)) = value {
-                        builder.append_value(s);
-                    } else if let Some(Value::Number(n)) = value {
-                        // Handle numbers as strings
-                        builder.append_value(&n.to_string());
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                ArrowDataType::Binary => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<BinaryBuilder>()
-                        .expect("Expected BinaryBuilder for Binary field");
-                    if let Some(Value::String(s)) = value {
-                        // Assuming the binary data is base64 encoded or similar
-                        // Here, we'll convert the string to bytes directly
-                        builder.append_value(s.as_bytes());
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                ArrowDataType::Boolean => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<BooleanBuilder>()
-                        .expect("Expected BooleanBuilder for Boolean field");
-                    if let Some(Value::Bool(b)) = value {
-                        builder.append_value(*b);
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                ArrowDataType::Int32 => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<Int32Builder>()
-                        .expect("Expected Int32Builder for Int32 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(i) = n.as_i64() {
-                            if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
-                                builder.append_value(i as i32);
-                            } else {
-                                builder.append_null();
-                            }
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
-                    }
-                },
                 ArrowDataType::Int64 => {
                     let builder = builders[i]
                         .as_any_mut()
                         .downcast_mut::<Int64Builder>()
-                        .expect("Expected Int64Builder for Int64 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(i) = n.as_i64() {
-                            builder.append_value(i);
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                ArrowDataType::UInt32 => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<UInt32Builder>()
-                        .expect("Expected UInt32Builder for UInt32 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(u) = n.as_u64() {
-                            if u <= u32::MAX as u64 {
-                                builder.append_value(u as u32);
+                        .expect("Expected Int64Builder");
+
+                    match value {
+                        Some(Value::Number(n)) => {
+                            // Handle all possible number scenarios
+                            if let Some(i) = n.as_i64() {
+                                builder.append_value(i);
                             } else {
                                 builder.append_null();
                             }
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                        },
+                        // Everything non-number becomes null
+                        _ => builder.append_null(),
                     }
                 },
                 ArrowDataType::UInt64 => {
                     let builder = builders[i]
                         .as_any_mut()
                         .downcast_mut::<UInt64Builder>()
-                        .expect("Expected UInt64Builder for UInt64 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(u) = n.as_u64() {
-                            builder.append_value(u);
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                
-                ArrowDataType::Float32 => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<Float32Builder>()
-                        .expect("Expected Float32Builder for Float32 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(f) = n.as_f64() {
-                            builder.append_value(f as f32);
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
+                        .expect("Expected UInt64Builder");
+
+                    match value {
+                        Some(Value::Number(n)) => {
+                            // Only accept valid unsigned integers
+                            if let Some(u) = n.as_u64() {
+                                builder.append_value(u);
+                            } else {
+                                builder.append_null();
+                            }
+                        },
+                        _ => builder.append_null(),
                     }
                 },
                 ArrowDataType::Float64 => {
                     let builder = builders[i]
                         .as_any_mut()
                         .downcast_mut::<Float64Builder>()
-                        .expect("Expected Float64Builder for Float64 field");
-                    if let Some(Value::Number(n)) = value {
-                        if let Some(f) = n.as_f64() {
-                            builder.append_value(f);
-                        } else {
-                            builder.append_null();
-                        }
-                    } else {
-                        builder.append_null();
-                    }
-                },
-                ArrowDataType::Date32 => {
-                    let builder = builders[i]
-                        .as_any_mut()
-                        .downcast_mut::<Date32Builder>()
-                        .expect("Expected Date32Builder for Date32 field");
-                    if let Some(Value::String(s)) = value {
-                        //  date string into days since UNIX epoch
-                        // Here, we assume the date is in "YYYY-MM-DD" format
-                        match NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-                            Ok(date) => {
-                                // UNIX epoch
-                                let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
-                                    .expect("Failed to create epoch date");
+                        .expect("Expected Float64Builder");
 
-                                let days_since_epoch = (date - epoch).num_days() as i32;
-                               
-                                builder.append_value(days_since_epoch);
-                            }
-                            Err(_) => {
-                             
+                    match value {
+                        Some(Value::Number(n)) => {
+                            // Handle all possible float scenarios
+                            if let Some(f) = n.as_f64() {
+                                builder.append_value(f);
+                            } else {
                                 builder.append_null();
                             }
-                        }
-                    } else {
-                      
-                        builder.append_null();
+                        },
+                        _ => builder.append_null(),
                     }
                 },
                 _ => {
-                    
+                    // Default string handling - handles ALL other cases
                     let builder = builders[i]
                         .as_any_mut()
                         .downcast_mut::<StringBuilder>()
-                        .expect("Expected StringBuilder for default field type");
-                    if let Some(Value::String(s)) = value {
-                        builder.append_value(s);
-                    } else if let Some(v) = value {
-                    
-                        builder.append_value(&v.to_string());
-                    } else {
-                        builder.append_null();
+                        .expect("Expected StringBuilder");
+
+                    match value {
+                        Some(v) => {
+                            // Comprehensive string conversion for ANY JSON value
+                            let string_val = match v {
+                                Value::Null => "null".to_string(),
+                                Value::Bool(b) => b.to_string(),
+                                Value::Number(n) => {
+                                    if n.is_f64() {
+                                        // Handle special float values
+                                        if let Some(f) = n.as_f64() {
+                                            if f.is_nan() {
+                                                "NaN".to_string()
+                                            } else if f.is_infinite() {
+                                                if f.is_sign_positive() {
+                                                    "Infinity".to_string()
+                                                } else {
+                                                    "-Infinity".to_string()
+                                                }
+                                            } else {
+                                                f.to_string()
+                                            }
+                                        } else {
+                                            n.to_string()
+                                        }
+                                    } else {
+                                        n.to_string()
+                                    }
+                                },
+                                Value::String(s) => {
+                                    // Handle potentially invalid UTF-8 or special characters
+                                    s.chars()
+                                        .map(|c| if c.is_control() { 
+                                            format!("\\u{:04x}", c as u32) 
+                                        } else { 
+                                            c.to_string() 
+                                        })
+                                        .collect()
+                                },
+                                Value::Array(arr) => {
+                                    // Safely handle nested arrays
+                                    serde_json::to_string(arr)
+                                        .unwrap_or_else(|_| "[]".to_string())
+                                },
+                                Value::Object(obj) => {
+                                    // Safely handle nested objects
+                                    serde_json::to_string(obj)
+                                        .unwrap_or_else(|_| "{}".to_string())
+                                },
+                            };
+                            // Ensure the string is valid UTF-8
+                            builder.append_value(&string_val);
+                        },
+                        None => builder.append_null(),
                     }
                 },
             }
         }
     }
 
-    let mut arrays: Vec<ArrayRef> = Vec::new();
-    for mut builder in builders {
-        arrays.push(builder.finish());
-    }
-
-    let record_batch = RecordBatch::try_new(schema.clone(), arrays)?;
-
-    Ok(record_batch)
+    let arrays: Vec<ArrayRef> = builders.into_iter().map(|mut b| b.finish()).collect();
+    RecordBatch::try_new(schema.clone(), arrays)
 }
 
 // ================= Statistics
