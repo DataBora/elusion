@@ -1992,31 +1992,25 @@ impl CustomDataFrame {
         self
     }
 
-     /// Perform a APPEND with another DataFrame
+     /// Performs a APPEND with another DataFrame
      pub async fn append(self, other: CustomDataFrame) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Collect batches from both DataFrames
         let mut batches_self = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
         let batches_other = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
-        
-        // Append other batches
+
         batches_self.extend(batches_other);
     
-        // Create MemTable from combined batches
         let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![batches_self])
             .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
     
-        // Register the new table
         let alias = "union_result";
         ctx.register_table(alias, Arc::new(mem_table))
             .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
     
-        // Get the new DataFrame
         let df = ctx.table(alias).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
     
-        // Create new CustomDataFrame with combined state
         Ok(CustomDataFrame {
             df,
             table_alias: alias.to_string(),
@@ -2040,33 +2034,27 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    /// Performas APPEND on multiple dataframes
+    /// Performs APPEND on multiple dataframes
     pub async fn append_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Collect batches from base DataFrame
         let mut all_batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
         
-        // Collect and append batches from all other DataFrames
         for other in others.iter() {
             let other_batches = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
             all_batches.extend(other_batches);
         }
     
-        // Create MemTable from all combined batches
         let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![all_batches])
             .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
     
-        // Register the new table
         let alias = "union_many_result";
         ctx.register_table(alias, Arc::new(mem_table))
             .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
     
-        // Get the new DataFrame
         let df = ctx.table(alias).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
     
-        // Create new CustomDataFrame with combined state
         Ok(CustomDataFrame {
             df,
             table_alias: alias.to_string(),
@@ -2090,26 +2078,22 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-     
+    /// Performs UNION on two dataframes
     pub async fn union(self, other: CustomDataFrame) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register both dataframes
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
         
-        // Construct UNION query to remove duplicates
         let sql = format!(
             "SELECT DISTINCT * FROM {} UNION SELECT DISTINCT * FROM {}",
             normalize_alias(&self.table_alias),
             normalize_alias(&other.table_alias)
         );
-    
-        // Execute query
+
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
     
-        // Return new CustomDataFrame
         Ok(CustomDataFrame {
             df,
             table_alias: "union_result".to_string(),
@@ -2133,27 +2117,23 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    
+    /// Performs UNION on multiple dataframes
     pub async fn union_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register base DataFrame
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         
-        // Register all other DataFrames
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_source_{}", i);
             Self::register_df_as_table(&ctx, &alias, &other.df).await?;
         }
         
-        // Construct UNION query
         let mut sql = format!("SELECT DISTINCT * FROM {}", normalize_alias(&self.table_alias));
         for i in 0..N {
             sql.push_str(&format!(" UNION SELECT DISTINCT * FROM {}", 
                 normalize_alias(&format!("union_source_{}", i))));
         }
     
-        // Execute query
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
     
@@ -2180,22 +2160,20 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    
+
+    /// Performs UNION_ALL  on two dataframes
     pub async fn union_all(self, other: CustomDataFrame) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register both dataframes
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
         
-        // Construct UNION ALL query to keep duplicates
         let sql = format!(
             "SELECT * FROM {} UNION ALL SELECT * FROM {}",
             normalize_alias(&self.table_alias),
             normalize_alias(&other.table_alias)
         );
     
-        // Execute query
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
     
@@ -2222,27 +2200,23 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    
+    /// Performs UNIONA_ALL on multiple dataframes
     pub async fn union_all_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register base DataFrame
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         
-        // Register all other DataFrames
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_all_source_{}", i);
             Self::register_df_as_table(&ctx, &alias, &other.df).await?;
         }
         
-        // Construct UNION ALL query
         let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
         for i in 0..N {
             sql.push_str(&format!(" UNION ALL SELECT * FROM {}", 
                 normalize_alias(&format!("union_all_source_{}", i))));
         }
     
-        // Execute query
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
     
@@ -2269,22 +2243,19 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    
+    /// Performs EXCEPT on two dataframes
     pub async fn except(self, other: CustomDataFrame) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register both dataframes
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
         
-        // Construct EXCEPT query (rows in self but not in other)
         let sql = format!(
             "SELECT * FROM {} EXCEPT SELECT * FROM {}",
             normalize_alias(&self.table_alias),
             normalize_alias(&other.table_alias)
         );
     
-        // Execute query
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create except DataFrame: {}", e)))?;
     
@@ -2358,22 +2329,19 @@ impl CustomDataFrame {
     //         original_expressions: self.original_expressions.clone(),
     //     })
     // }
-    
+    /// Performs INTERSECT on two dataframes
     pub async fn intersect(self, other: CustomDataFrame) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
         
-        // Register both dataframes
         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
         
-        // Construct INTERSECT query (rows present in both dataframes)
         let sql = format!(
             "SELECT * FROM {} INTERSECT SELECT * FROM {}",
             normalize_alias(&self.table_alias),
             normalize_alias(&other.table_alias)
         );
     
-        // Execute query
         let df = ctx.sql(&sql).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create intersect DataFrame: {}", e)))?;
     
