@@ -634,9 +634,9 @@ let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'df5' AS Si
 let resuld_df5 = res_df5.elusion("el5").await?;
 
 //APPEND
-let union_all_df = result_df1.append(result_df2).await?;
+let append_df = result_df1.append(result_df2).await?;
 //APPEND_MANY
-let union_all_df = df1.append_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+let append_many_df = df1.append_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
 ```
 ---
 ## UNION, UNION ALL, EXCEPT, INTERSECT
@@ -714,9 +714,8 @@ let resuld_df5 = res_df5.elusion("el5").await?;
 
 //UNION_MANY
 let union_all_df = result_df1.union_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
-
 //UNION_ALL_MANY
-let union_all_df = df1.union_all_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+let union_all_many_df = df1.union_all_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
 ```
 ---
 ## PIVOT and UNPIVOT
