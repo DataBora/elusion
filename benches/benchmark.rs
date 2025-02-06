@@ -354,110 +354,166 @@ fn benchmark_string_functions(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_union_intersect(c: &mut Criterion) {
+pub fn benchmark_appending(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let (sales_df, customers_df, _,order_df) = rt.block_on(setup_test_dataframes()).unwrap();
+    let (sales_df, customers_df, _, _) = rt.block_on(setup_test_dataframes()).unwrap();
 
-    let mut group = c.benchmark_group("Union_Intersect");
+    let mut group = c.benchmark_group("Union_Intersect_Operations");
+    group.sample_size(10);
 
-    // Benchmark for Intersect Operation
-    group.bench_function("intersect_operation", |b| b.iter(|| {
+    // Benchmark Union with String Functions
+    group.bench_function("union_string_functions", |b| b.iter(|| {
         rt.block_on(async {
-            let df1 = order_df.clone()
-                .select([
-                    "customer_name",
-                    "order_date",
-                    "billable_value",
-                    "billable_value * 2 AS double_billable_value",
-                    "billable_value / 100 AS percentage_billable"
-                ])
-                .filter("billable_value > 100.0")
-                .order_by(["order_date"], [true])
-                .limit(10);
-
-            let df2 = order_df.clone()
-                .select([
-                    "customer_name",
-                    "order_date",
-                    "billable_value",
-                    "billable_value * 2 AS double_billable_value", 
-                    "billable_value / 100 AS percentage_billable"  
-                ])
-                .filter("billable_value > 100.0")
-                .order_by(["order_date"], [true])
-                .limit(10);
-
-            df1.clone()
-                .intersect(df2.clone())
-                .elusion("bench_intersect")
-                .await
-                .unwrap();
-        })
-    }));
-
-    // Benchmark for Aggregation Intersect
-    group.bench_function("agg_intersect", |b| b.iter(|| {
-        rt.block_on(async {
-            let agg_df1 = order_df.clone()
-                .select(["customer_name"])
-                .agg([
-                    "SUM(billable_value) AS total_billable",
-                    "COUNT(*) AS order_count"
-                ])
-                .group_by_all()
-                .limit(5);
-
-            let agg_df2 = order_df.clone()
-                .select(["customer_name"])
-                .agg([
-                    "SUM(billable_value) AS total_billable",
-                    "COUNT(*) AS order_count"
-                ])
-                .group_by_all()
-                .limit(5);
-
-            agg_df1.clone()
-                .intersect(agg_df2.clone())
-                .elusion("bench_agg_intersect")
-                .await
-                .unwrap();
-        })
-    }));
-
-    // Benchmark for String Functions Intersect
-    group.bench_function("string_functions_intersect", |b| b.iter(|| {
-        rt.block_on(async {
-            let string_df1 = sales_df.clone()
+            // First DataFrame
+            let df1 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["se.CustomerKey = c.CustomerKey"],
+                    ["s.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
                 .string_functions([
                     "TRIM(c.EmailAddress) AS trimmed_email",
                     "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-                ])
-                .limit(5);
-    
-            let string_df2 = sales_df.clone()
+                ]);
+
+            // Second DataFrame
+            let df2 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["se.CustomerKey = c.CustomerKey"],
+                    ["s.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
                 .string_functions([
                     "TRIM(c.EmailAddress) AS trimmed_email",
                     "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+                ]);
+
+            // Execute transformations and union
+            let result_df1 = df1.elusion("df1").await.unwrap();
+            let result_df2 = df2.elusion("df2").await.unwrap();
+            
+            let union_df = result_df1.union(result_df2).await.unwrap();
+            let _ = union_df.limit(100).elusion("union_result").await.unwrap();
+        })
+    }));
+
+    // Benchmark Intersect with String Functions
+    group.bench_function("intersect_string_functions", |b| b.iter(|| {
+        rt.block_on(async {
+            // First DataFrame
+            let df1 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .string_functions([
+                    "TRIM(c.EmailAddress) AS trimmed_email",
+                    "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+                ]);
+
+            // Second DataFrame - same structure for intersection
+            let df2 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .string_functions([
+                    "TRIM(c.EmailAddress) AS trimmed_email",
+                    "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+                ]);
+
+            // Execute transformations and intersect
+            let result_df1 = df1.elusion("df1_intersect").await.unwrap();
+            let result_df2 = df2.elusion("df2_intersect").await.unwrap();
+            
+            let intersect_df = result_df1.intersect(result_df2).await.unwrap();
+            let _ = intersect_df.limit(100).elusion("intersect_result").await.unwrap();
+        })
+    }));
+
+    // Benchmark Union with Aggregations
+    group.bench_function("union_with_aggregations", |b| b.iter(|| {
+        rt.block_on(async {
+            // First DataFrame with aggregations
+            let df1 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .agg([
+                    "SUM(s.SalesAmount) as total_sales",
+                    "COUNT(*) as transaction_count"
                 ])
-                .limit(5);
-    
-            string_df1
-                .intersect(string_df2)
-                .elusion("bench_string_intersect")
-                .await
-                .unwrap()
+                .group_by_all();
+
+            // Second DataFrame with aggregations
+            let df2 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .agg([
+                    "SUM(s.SalesAmount) as total_sales",
+                    "COUNT(*) as transaction_count"
+                ])
+                .group_by_all();
+
+            // Execute transformations and union
+            let result_df1 = df1.elusion("df1_agg").await.unwrap();
+            let result_df2 = df2.elusion("df2_agg").await.unwrap();
+            
+            let union_df = result_df1.union(result_df2).await.unwrap();
+            let _ = union_df.limit(100).elusion("union_agg_result").await.unwrap();
+        })
+    }));
+
+    // Benchmark Intersect with Aggregations
+    group.bench_function("intersect_with_aggregations", |b| b.iter(|| {
+        rt.block_on(async {
+            // First DataFrame with aggregations
+            let df1 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .agg([
+                    "SUM(s.SalesAmount) as total_sales",
+                    "COUNT(*) as transaction_count"
+                ])
+                .group_by_all();
+
+            // Second DataFrame with aggregations
+            let df2 = sales_df.clone()
+                .join(
+                    customers_df.clone(),
+                    ["s.CustomerKey = c.CustomerKey"],
+                    "INNER"
+                )
+                .select(["c.FirstName", "c.LastName"])
+                .agg([
+                    "SUM(s.SalesAmount) as total_sales",
+                    "COUNT(*) as transaction_count"
+                ])
+                .group_by_all();
+
+            // Execute transformations and intersect
+            let result_df1 = df1.elusion("df1_agg_intersect").await.unwrap();
+            let result_df2 = df2.elusion("df2_agg_intersect").await.unwrap();
+            
+            let intersect_df = result_df1.intersect(result_df2).await.unwrap();
+            let _ = intersect_df.limit(100).elusion("intersect_agg_result").await.unwrap();
         })
     }));
 
@@ -630,7 +686,7 @@ criterion_group!(
     benchmark_pivot,
     benchmark_unpivot,
     benchmark_string_functions,
-    benchmark_union_intersect,
+    benchmark_appending,
     benchmark_database_queries,
     benchmark_api_operations
 );

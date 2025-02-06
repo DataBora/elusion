@@ -1,3 +1,11 @@
+## [2.4.0] - 2025-02-06
+### Fixed
+- Fixed UNION, UNION_ALL, EXCEPT, INTESECT now they return proper results
+### BREAKING CHANGE
+- UNION, UNION_ALL, EXCEPT, INTESECT are now async and also need to be evaluated with elusion() - check readme.md for examples
+### Added
+- Fixed APPEND, APPEND_ALL
+
 ## [2.3.0] - 2025-02-04
 ### Fixed
 - Fixed case sensitivity within statistical functions

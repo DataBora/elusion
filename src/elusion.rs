@@ -1992,315 +1992,463 @@ impl CustomDataFrame {
         self
     }
 
+     /// Perform a APPEND with another DataFrame
+     pub async fn append(self, other: CustomDataFrame) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Collect batches from both DataFrames
+        let mut batches_self = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batches_other = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        
+        // Append other batches
+        batches_self.extend(batches_other);
+    
+        // Create MemTable from combined batches
+        let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![batches_self])
+            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+    
+        // Register the new table
+        let alias = "union_result";
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+    
+        // Get the new DataFrame
+        let df = ctx.table(alias).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+    
+        // Create new CustomDataFrame with combined state
+        Ok(CustomDataFrame {
+            df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
+    /// Performas APPEND on multiple dataframes
+    pub async fn append_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Collect batches from base DataFrame
+        let mut all_batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        
+        // Collect and append batches from all other DataFrames
+        for other in others.iter() {
+            let other_batches = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+            all_batches.extend(other_batches);
+        }
+    
+        // Create MemTable from all combined batches
+        let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![all_batches])
+            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+    
+        // Register the new table
+        let alias = "union_many_result";
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+    
+        // Get the new DataFrame
+        let df = ctx.table(alias).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+    
+        // Create new CustomDataFrame with combined state
+        Ok(CustomDataFrame {
+            df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
      
-     /// Perform a UNION with another DataFrame
-     pub fn union(mut self, other: CustomDataFrame) -> Self {
-        // Check if number of columns match
-        if self.selected_columns.len() != other.selected_columns.len() {
-            panic!(
-                "Number of columns must match for UNION. First DataFrame has {} columns, second has {} columns",
-                self.selected_columns.len(),
-                other.selected_columns.len()
-            );
-        }
-
-        // Check if column names match
-        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
-            if normalize_column_name(self_col) != normalize_column_name(other_col) {
-                panic!(
-                    "Column names must match for UNION: {} vs {}",
-                    self_col, other_col
-                );
-            }
-        }
-
-         // Storing joined tables and their relationships for registration
-        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
-        .chain(other.joins.iter())
-        .map(|join| (
-            join.dataframe.table_alias.clone(), 
-            join.dataframe.df.clone(),
-            join.dataframe.from_table.clone()
-        ))
-        .collect();
-
-        // Removing existing alias from the constructed SQL
-        let self_query = self.construct_sql()
-            .trim_end_matches(&format!(" AS {}", self.table_alias))
-            .to_string();
-        let other_query = other.construct_sql()
-            .trim_end_matches(&format!(" AS {}", other.table_alias))
-            .to_string();
-
-        // Wraping each SELECT in its own parentheses
-        let wrapped_self_query = format!("({})", self_query);
-        let wrapped_other_query = format!("({})", other_query);
-
-        // Construct the UNION subquery
-        let union_query = format!(
-            "{} UNION {}",
-            wrapped_self_query,
-            wrapped_other_query
+    pub async fn union(self, other: CustomDataFrame) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register both dataframes
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        
+        // Construct UNION query to remove duplicates
+        let sql = format!(
+            "SELECT DISTINCT * FROM {} UNION SELECT DISTINCT * FROM {}",
+            normalize_alias(&self.table_alias),
+            normalize_alias(&other.table_alias)
         );
-
-        // Wraping the entire UNION in parentheses
-        let union_subquery = format!("({})", union_query);
-
-        // Updating the current DataFrame
-        self.from_table = union_subquery;
-
-        // Storing tables and joins state
-        self.union_tables = Some(joined_tables);
-        self.joins = self.joins;  // Keeping original joins
-
-                
-        // reset clauses
-        self.selected_columns = Vec::new();
-        self.aggregations = Vec::new();
-        self.group_by_columns = Vec::new();
-        self.where_conditions = Vec::new();
-        self.having_conditions = Vec::new();
-        self.order_by_columns = Vec::new();
-        self.limit_count = None;
-        self.joins = Vec::new();
-        self.window_functions = Vec::new();
-        self.ctes = Vec::new();
-        self.set_operations = Vec::new();
-        self.subquery_source = Some(union_query.clone());
-
-        self
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+    
+        // Return new CustomDataFrame
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "union_result".to_string(),
+            from_table: "union_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
     }
-
-    /// Perform a UNION ALL between two CustomDataFrames.
-    /// Unlike `UNION`, `UNION ALL` does not remove duplicates.
-    pub fn union_all(mut self, other: CustomDataFrame) -> Self {
-        // Ensuring both DataFrames have the same number of columns
-        if self.selected_columns.len() != other.selected_columns.len() {
-            panic!(
-                "Number of columns must match for UNION ALL. First DataFrame has {} columns, second has {} columns",
-                self.selected_columns.len(),
-                other.selected_columns.len()
-            );
+    
+    pub async fn union_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register base DataFrame
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        // Register all other DataFrames
+        for (i, other) in others.iter().enumerate() {
+            let alias = format!("union_source_{}", i);
+            Self::register_df_as_table(&ctx, &alias, &other.df).await?;
         }
-
-        // Ensuring both DataFrames have the same *column names*
-        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
-            if normalize_column_name(self_col) != normalize_column_name(other_col) {
-                panic!(
-                    "Column names must match for UNION ALL: {} vs {}",
-                    self_col, other_col
-                );
-            }
+        
+        // Construct UNION query
+        let mut sql = format!("SELECT DISTINCT * FROM {}", normalize_alias(&self.table_alias));
+        for i in 0..N {
+            sql.push_str(&format!(" UNION SELECT DISTINCT * FROM {}", 
+                normalize_alias(&format!("union_source_{}", i))));
         }
-
-        // Merging the joined tables from both DataFrames
-        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
-            .chain(other.joins.iter())
-            .map(|join| (
-                join.dataframe.table_alias.clone(), 
-                join.dataframe.df.clone(),
-                join.dataframe.from_table.clone()
-            ))
-            .collect();
-
-        // Construct the sub-queries without the final alias
-        let self_query = self.construct_sql()
-            .trim_end_matches(&format!(" AS {}", self.table_alias))
-            .to_string();
-        let other_query = other.construct_sql()
-            .trim_end_matches(&format!(" AS {}", other.table_alias))
-            .to_string();
-
-        // Wrap each SELECT query in parentheses
-        let wrapped_self_query = format!("({})", self_query);
-        let wrapped_other_query = format!("({})", other_query);
-
-        // Replace `UNION` with `UNION ALL`
-        let union_all_query = format!(
-            "{} UNION ALL {}",
-            wrapped_self_query,
-            wrapped_other_query
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+    
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "union_many_result".to_string(),
+            from_table: "union_many_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
+    
+    pub async fn union_all(self, other: CustomDataFrame) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register both dataframes
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        
+        // Construct UNION ALL query to keep duplicates
+        let sql = format!(
+            "SELECT * FROM {} UNION ALL SELECT * FROM {}",
+            normalize_alias(&self.table_alias),
+            normalize_alias(&other.table_alias)
         );
-
-        // Wrap the entire UNION ALL statement in parentheses
-        let union_subquery = format!("({})", union_all_query);
-
-        // Update self to point to this new sub-query
-        self.from_table = union_subquery;
-
-        // Store the merged join state for registration in `elusion()`
-        self.union_tables = Some(joined_tables);
-
-        // field reset
-        self.selected_columns.clear();
-        self.aggregations.clear();
-        self.group_by_columns.clear();
-        self.where_conditions.clear();
-        self.having_conditions.clear();
-        self.order_by_columns.clear();
-        self.limit_count = None;
-        self.joins.clear();
-        self.window_functions.clear();
-        self.ctes.clear();
-        self.set_operations.clear();
-        self.subquery_source = Some(union_all_query.clone());
-
-        self
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
+    
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "union_all_result".to_string(),
+            from_table: "union_all_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
     }
-
-
-    /// Perform an INTERSECT between two CustomDataFrames.
-    /// This returns rows common to *both* dataframes (removes duplicates).
-    pub fn intersect(mut self, other: CustomDataFrame) -> Self {
-        // Ensure both DataFrames have the same number of columns
-        if self.selected_columns.len() != other.selected_columns.len() {
-            panic!(
-                "Number of columns must match for INTERSECT. \
-                First DataFrame has {} columns, second has {} columns",
-                self.selected_columns.len(),
-                other.selected_columns.len()
-            );
+    
+    pub async fn union_all_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register base DataFrame
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        // Register all other DataFrames
+        for (i, other) in others.iter().enumerate() {
+            let alias = format!("union_all_source_{}", i);
+            Self::register_df_as_table(&ctx, &alias, &other.df).await?;
         }
-
-        // Ensure both DataFrames have the same *column names*
-        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
-            if normalize_column_name(self_col) != normalize_column_name(other_col) {
-                panic!(
-                    "Column names must match for INTERSECT: {} vs {}",
-                    self_col, other_col
-                );
-            }
+        
+        // Construct UNION ALL query
+        let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
+        for i in 0..N {
+            sql.push_str(&format!(" UNION ALL SELECT * FROM {}", 
+                normalize_alias(&format!("union_all_source_{}", i))));
         }
-
-        // Merge the joined tables from both DataFrames
-        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
-            .chain(other.joins.iter())
-            .map(|join| (
-                join.dataframe.table_alias.clone(),
-                join.dataframe.df.clone(),
-                join.dataframe.from_table.clone()
-            ))
-            .collect();
-
-        // Construct sub-queries without the final alias
-        let self_query = self.construct_sql()
-            .trim_end_matches(&format!(" AS {}", self.table_alias))
-            .to_string();
-        let other_query = other.construct_sql()
-            .trim_end_matches(&format!(" AS {}", other.table_alias))
-            .to_string();
-
-        // Wrap each SELECT query in parentheses
-        let wrapped_self_query = format!("({})", self_query);
-        let wrapped_other_query = format!("({})", other_query);
-
-        // Use INTERSECT instead of UNION
-        let intersect_query = format!(
-            "{} INTERSECT {}",
-            wrapped_self_query,
-            wrapped_other_query
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
+    
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "union_all_many_result".to_string(),
+            from_table: "union_all_many_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
+    
+    pub async fn except(self, other: CustomDataFrame) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register both dataframes
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        
+        // Construct EXCEPT query (rows in self but not in other)
+        let sql = format!(
+            "SELECT * FROM {} EXCEPT SELECT * FROM {}",
+            normalize_alias(&self.table_alias),
+            normalize_alias(&other.table_alias)
         );
-
-        // Wrap the entire INTERSECT statement in parentheses
-        let intersect_subquery = format!("({})", intersect_query);
-
-        // Update self to point to this new sub-query
-        self.from_table = intersect_subquery;
-        self.union_tables = Some(joined_tables);
-
-        // field reset, because they are now part of the sub-query
-        self.selected_columns.clear();
-        self.aggregations.clear();
-        self.group_by_columns.clear();
-        self.where_conditions.clear();
-        self.having_conditions.clear();
-        self.order_by_columns.clear();
-        self.limit_count = None;
-        self.joins.clear();
-        self.window_functions.clear();
-        self.ctes.clear();
-        self.set_operations.clear();
-        self.subquery_source = Some(intersect_query.clone());
-
-        self
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create except DataFrame: {}", e)))?;
+    
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "except_result".to_string(),
+            from_table: "except_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
     }
-
-    /// Perform an EXCEPT between two CustomDataFrames.
-    /// This returns rows in the *left* DataFrame that are *not* in the right DataFrame.
-    pub fn except(mut self, other: CustomDataFrame) -> Self {
-        // Ensure both DataFrames have the same number of columns
-        if self.selected_columns.len() != other.selected_columns.len() {
-            panic!(
-                "Number of columns must match for EXCEPT. \
-                First DataFrame has {} columns, second has {} columns",
-                self.selected_columns.len(),
-                other.selected_columns.len()
-            );
-        }
-
-        // Ensure both DataFrames have the same *column names*
-        for (self_col, other_col) in self.selected_columns.iter().zip(other.selected_columns.iter()) {
-            if normalize_column_name(self_col) != normalize_column_name(other_col) {
-                panic!(
-                    "Column names must match for EXCEPT: {} vs {}",
-                    self_col, other_col
-                );
-            }
-        }
-
-        // Merge the joined tables from both DataFrames
-        let joined_tables: Vec<(String, DataFrame, String)> = self.joins.iter()
-            .chain(other.joins.iter())
-            .map(|join| (
-                join.dataframe.table_alias.clone(),
-                join.dataframe.df.clone(),
-                join.dataframe.from_table.clone()
-            ))
-            .collect();
-
-        // Construct sub-queries without the final alias
-        let self_query = self.construct_sql()
-            .trim_end_matches(&format!(" AS {}", self.table_alias))
-            .to_string();
-        let other_query = other.construct_sql()
-            .trim_end_matches(&format!(" AS {}", other.table_alias))
-            .to_string();
-
-        // Wrap each SELECT query in parentheses
-        let wrapped_self_query = format!("({})", self_query);
-        let wrapped_other_query = format!("({})", other_query);
-
-        // Use EXCEPT
-        let except_query = format!(
-            "{} EXCEPT {}",
-            wrapped_self_query,
-            wrapped_other_query
+    
+    // pub async fn except_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+    //     let ctx = Arc::new(SessionContext::new());
+        
+    //     // Register base DataFrame
+    //     Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+    //     // Register all other DataFrames
+    //     for (i, other) in others.iter().enumerate() {
+    //         let alias = format!("except_source_{}", i);
+    //         Self::register_df_as_table(&ctx, &alias, &other.df).await?;
+    //     }
+        
+    //     // Construct EXCEPT query
+    //     let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
+    //     for i in 0..N {
+    //         sql.push_str(&format!(" EXCEPT SELECT * FROM {}", 
+    //             normalize_alias(&format!("except_source_{}", i))));
+    //     }
+    
+    //     // Execute query
+    //     let df = ctx.sql(&sql).await
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to create except DataFrame: {}", e)))?;
+    
+    //     Ok(CustomDataFrame {
+    //         df,
+    //         table_alias: "except_many_result".to_string(),
+    //         from_table: "except_many_result".to_string(),
+    //         selected_columns: self.selected_columns.clone(),
+    //         alias_map: self.alias_map.clone(),
+    //         aggregations: Vec::new(),
+    //         group_by_columns: Vec::new(),
+    //         where_conditions: Vec::new(),
+    //         having_conditions: Vec::new(),
+    //         order_by_columns: Vec::new(),
+    //         limit_count: None,
+    //         joins: Vec::new(),
+    //         window_functions: Vec::new(),
+    //         ctes: Vec::new(),
+    //         subquery_source: None,
+    //         set_operations: Vec::new(),
+    //         query: String::new(),
+    //         aggregated_df: None,
+    //         union_tables: None,
+    //         original_expressions: self.original_expressions.clone(),
+    //     })
+    // }
+    
+    pub async fn intersect(self, other: CustomDataFrame) -> ElusionResult<Self> {
+        let ctx = Arc::new(SessionContext::new());
+        
+        // Register both dataframes
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        
+        // Construct INTERSECT query (rows present in both dataframes)
+        let sql = format!(
+            "SELECT * FROM {} INTERSECT SELECT * FROM {}",
+            normalize_alias(&self.table_alias),
+            normalize_alias(&other.table_alias)
         );
-
-        // Wrap the entire EXCEPT statement in parentheses
-        let except_subquery = format!("({})", except_query);
-
-        // Update self to point to this new sub-query
-        self.from_table = except_subquery;
-        self.union_tables = Some(joined_tables);
-
-        // field reset
-        self.selected_columns.clear();
-        self.aggregations.clear();
-        self.group_by_columns.clear();
-        self.where_conditions.clear();
-        self.having_conditions.clear();
-        self.order_by_columns.clear();
-        self.limit_count = None;
-        self.joins.clear();
-        self.window_functions.clear();
-        self.ctes.clear();
-        self.set_operations.clear();
-        self.subquery_source = Some(except_query.clone());
-
-        self
+    
+        // Execute query
+        let df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create intersect DataFrame: {}", e)))?;
+    
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "intersect_result".to_string(),
+            from_table: "intersect_result".to_string(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
     }
+    
+    // pub async fn intersect_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+    //     let ctx = Arc::new(SessionContext::new());
+        
+    //     // Register base DataFrame
+    //     Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+    //     // Register all other DataFrames
+    //     for (i, other) in others.iter().enumerate() {
+    //         let alias = format!("intersect_source_{}", i);
+    //         Self::register_df_as_table(&ctx, &alias, &other.df).await?;
+    //     }
+        
+    //     // Construct INTERSECT query
+    //     let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
+    //     for i in 0..N {
+    //         sql.push_str(&format!(" INTERSECT SELECT * FROM {}", 
+    //             normalize_alias(&format!("intersect_source_{}", i))));
+    //     }
+    
+    //     // Execute query
+    //     let df = ctx.sql(&sql).await
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to create intersect DataFrame: {}", e)))?;
+    
+    //     Ok(CustomDataFrame {
+    //         df,
+    //         table_alias: "intersect_many_result".to_string(),
+    //         from_table: "intersect_many_result".to_string(),
+    //         selected_columns: self.selected_columns.clone(),
+    //         alias_map: self.alias_map.clone(),
+    //         aggregations: Vec::new(),
+    //         group_by_columns: Vec::new(),
+    //         where_conditions: Vec::new(),
+    //         having_conditions: Vec::new(),
+    //         order_by_columns: Vec::new(),
+    //         limit_count: None,
+    //         joins: Vec::new(),
+    //         window_functions: Vec::new(),
+    //         ctes: Vec::new(),
+    //         subquery_source: None,
+    //         set_operations: Vec::new(),
+    //         query: String::new(),
+    //         aggregated_df: None,
+    //         union_tables: None,
+    //         original_expressions: self.original_expressions.clone(),
+    //     })
+    // }
 
+    
     /// Pivot the DataFrame
     pub async fn pivot<const N: usize>(
         mut self,
@@ -2764,6 +2912,94 @@ impl CustomDataFrame {
 
         query
     }
+    // fn construct_sql(&self) -> String {
+    //     let mut query = String::new();
+    
+    //     // WITH clause for CTEs
+    //     if !self.ctes.is_empty() {
+    //         query.push_str("WITH ");
+    //         query.push_str(&self.ctes.join(", "));
+    //         query.push_str(" ");
+    //     }
+    
+    //     // Handle subqueries differently
+    //     let is_subquery = self.from_table.starts_with('(') && self.from_table.ends_with(')');
+        
+    //     // Build SELECT clause
+    //     if !is_subquery || !self.selected_columns.is_empty() {
+    //         query.push_str("SELECT ");
+            
+    //         // Collect all parts of the SELECT clause
+    //         let mut select_parts = Vec::new();
+            
+    //         if !self.selected_columns.is_empty() {
+    //             select_parts.extend(self.selected_columns.clone());
+    //         }
+    //         select_parts.extend(self.aggregations.clone());
+    //         select_parts.extend(self.window_functions.clone());
+            
+    //         // If we have no explicit columns but have expressions, use them
+    //         if select_parts.is_empty() {
+    //             query.push_str("*");
+    //         } else {
+    //             query.push_str(&select_parts.join(", "));
+    //         }
+            
+    //         query.push_str(" FROM ");
+    //     }
+    
+    //     // Add FROM clause
+    //     if is_subquery {
+    //         query.push_str(&self.from_table);
+    //     } else {
+    //         query.push_str(&format!("\"{}\" AS {}", self.from_table.trim(), self.table_alias));
+    //     }
+    
+    //     // Add joins
+    //     for join in &self.joins {
+    //         query.push_str(&format!(
+    //             " {} JOIN \"{}\" AS {} ON {}",
+    //             join.join_type,
+    //             join.dataframe.from_table,
+    //             join.dataframe.table_alias,
+    //             join.condition
+    //         ));
+    //     }
+    
+    //     // Add WHERE clause
+    //     if !self.where_conditions.is_empty() {
+    //         query.push_str(" WHERE ");
+    //         query.push_str(&self.where_conditions.join(" AND "));
+    //     }
+    
+    //     // Add GROUP BY clause
+    //     if !self.group_by_columns.is_empty() {
+    //         query.push_str(" GROUP BY ");
+    //         query.push_str(&self.group_by_columns.join(", "));
+    //     }
+    
+    //     // Add HAVING clause
+    //     if !self.having_conditions.is_empty() {
+    //         query.push_str(" HAVING ");
+    //         query.push_str(&self.having_conditions.join(" AND "));
+    //     }
+    
+    //     // Add ORDER BY clause
+    //     if !self.order_by_columns.is_empty() {
+    //         query.push_str(" ORDER BY ");
+    //         let orderings: Vec<String> = self.order_by_columns.iter()
+    //             .map(|(col, asc)| format!("{} {}", col, if *asc { "ASC" } else { "DESC" }))
+    //             .collect();
+    //         query.push_str(&orderings.join(", "));
+    //     }
+    
+    //     // Add LIMIT clause
+    //     if let Some(limit) = self.limit_count {
+    //         query.push_str(&format!(" LIMIT {}", limit));
+    //     }
+    
+    //     query
+    // }
 
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
