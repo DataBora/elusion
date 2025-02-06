@@ -618,25 +618,25 @@ let df3 = CustomDataFrame::new(df3, "msales").await?;
 let df4 = CustomDataFrame::new(df4, "msales").await?; 
 let df5 = CustomDataFrame::new(df5, "msales").await?; 
 
-let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'df1' AS Sitename"]);
+let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'site1' AS Restaurant"]);
 let result_df1 = res_df1.elusion("el1").await?;
 
-let red_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'df2' AS Sitename"]);
-let result_df2 = red_df2.elusion("el2").await?;
+let res_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'site2' AS Restaurant"]);
+let result_df2 = res_df2.elusion("el2").await?;
 
-let ers_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'df3' AS Sitename"]);
-let result_df3 = ers_df3.elusion("el3").await?;
+let res_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'site3' AS Restaurant"]);
+let result_df3 = res_df3.elusion("el3").await?;
 
-let res_df4 = df4.select(["Month", "TotalSales"]).string_functions(["'df4' AS Sitename"]);
+let res_df4 = df4.select(["Month", "TotalSales"]).string_functions(["'site4' AS Restaurant"]);
 let result_df4 = res_df4.elusion("el4").await?;
 
-let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'df5' AS Sitename"]);
+let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'site5' AS Restaurant"]);
 let resuld_df5 = res_df5.elusion("el5").await?;
 
 //APPEND
 let append_df = result_df1.append(result_df2).await?;
 //APPEND_MANY
-let append_many_df = df1.append_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+let append_many_df = result_df1.append_many([result_df2, result_df3, result_df4, resuld_df5]).await?;
 ```
 ---
 ## UNION, UNION ALL, EXCEPT, INTERSECT
@@ -700,11 +700,11 @@ let df5 = CustomDataFrame::new(df5, "msales").await?;
 let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'df1' AS Sitename"]);
 let result_df1 = res_df1.elusion("el1").await?;
 
-let red_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'df2' AS Sitename"]);
-let result_df2 = red_df2.elusion("el2").await?;
+let res_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'df2' AS Sitename"]);
+let result_df2 = res_df2.elusion("el2").await?;
 
-let ers_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'df3' AS Sitename"]);
-let result_df3 = ers_df3.elusion("el3").await?;
+let res_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'df3' AS Sitename"]);
+let result_df3 = res_df3.elusion("el3").await?;
 
 let res_df4 = df4.select(["Month", "TotalSales"]).string_functions(["'df4' AS Sitename"]);
 let result_df4 = res_df4.elusion("el4").await?;
@@ -713,9 +713,9 @@ let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'df5' AS Si
 let resuld_df5 = res_df5.elusion("el5").await?;
 
 //UNION_MANY
-let union_all_df = result_df1.union_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+let union_all_df = result_df1.union_many([result_df2, result_df3, result_df4, resuld_df5]).await?;
 //UNION_ALL_MANY
-let union_all_many_df = df1.union_all_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+let union_all_many_df = result_df1.union_all_many([result_df2, result_df3, result_df4, resuld_df5]).await?;
 ```
 ---
 ## PIVOT and UNPIVOT
