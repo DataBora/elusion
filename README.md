@@ -58,7 +58,7 @@ You can create individual HTML files with single Plot, OR you can create HTML re
 
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
-Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as UNION, UNION ALL, INTERSECT, and EXCEPT.
+Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: UNION_MANY, UNION_ALL_MANY, INTERSECT_MANY, and EXCEPT_MANY.
 
 ### 🛠️ Easy-to-Use API
 Chainable Interface: Build queries using a chainable and intuitive API for streamlined development.
@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.3.1"
+elusion = "2.4.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -212,6 +212,19 @@ let scalar_df = sales_order_df
 
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
+```
+### STRING functions
+```rust
+let df = sales_df
+    .select(["FirstName", "LastName"])
+    .string_functions([
+        "'New' AS new_old_customer",
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+    ]);
+
+let result_df = df.elusion("df").await?;
+result_df.display().await?;
 ```
 ### Numerical Operators, Scalar Functions, Aggregated Functions...
 ```rust
@@ -589,6 +602,43 @@ let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
 ```
 ---
+## APPEND, APPEND_MANY
+#### APPEND: Combines rows from two dataframes, keeping all rows
+#### APPEND_MANY: Combines rows from many dataframes, keeping all rows
+```rust
+let df1 = "C:\\Borivoj\\RUST\\Elusion\\API\\df1.json";
+let df2 = "C:\\Borivoj\\RUST\\Elusion\\API\\df2.json";
+let df3 = "C:\\Borivoj\\RUST\\Elusion\\API\\df3.json";
+let df4 = "C:\\Borivoj\\RUST\\Elusion\\API\\df4.json";
+let df5 = "C:\\Borivoj\\RUST\\Elusion\\API\\df5.json";
+
+let df1 = CustomDataFrame::new(df1, "msales").await?; 
+let df2 = CustomDataFrame::new(df2, "msales").await?; 
+let df3 = CustomDataFrame::new(df3, "msales").await?; 
+let df4 = CustomDataFrame::new(df4, "msales").await?; 
+let df5 = CustomDataFrame::new(df5, "msales").await?; 
+
+let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'df1' AS Sitename"]);
+let result_df1 = res_df1.elusion("el1").await?;
+
+let red_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'df2' AS Sitename"]);
+let result_df2 = red_df2.elusion("el2").await?;
+
+let ers_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'df3' AS Sitename"]);
+let result_df3 = ers_df3.elusion("el3").await?;
+
+let res_df4 = df4.select(["Month", "TotalSales"]).string_functions(["'df4' AS Sitename"]);
+let result_df4 = res_df4.elusion("el4").await?;
+
+let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'df5' AS Sitename"]);
+let resuld_df5 = res_df5.elusion("el5").await?;
+
+//APPEND
+let union_all_df = result_df1.append(result_df2).await?;
+//APPEND_MANY
+let union_all_df = df1.append_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+```
+---
 ## UNION, UNION ALL, EXCEPT, INTERSECT
 #### UNION: Combines rows from both, removing duplicates
 #### UNION ALL: Combines rows from both, keeping duplicates
@@ -596,37 +646,77 @@ rollin_df.display().await?;
 #### INTERSECT: Intersection of two sets (only rows in both).
 ```rust
 //UNION
-let df1 = df_sales
-    .join(
-        df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER",
-    )
-    .select(["c.FirstName", "c.LastName"])
-    .string_functions([
-        "TRIM(c.EmailAddress) AS trimmed_email",
-        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-    ]);
+let df1 = sales_df.clone()
+.join(
+    customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER",
+)
+.select(["c.FirstName", "c.LastName"])
+.string_functions([
+    "TRIM(c.EmailAddress) AS trimmed_email",
+    "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+]);
 
-let df2 = df_sales
-    .join(
-        df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER",
-    )
-    .select(["c.FirstName", "c.LastName"])
-    .string_functions([
-        "TRIM(c.EmailAddress) AS trimmed_email",
-        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-    ]);
+let df2 = sales_df.clone()
+.join(
+    customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER",
+)
+.select(["c.FirstName", "c.LastName"])
+.string_functions([
+    "TRIM(c.EmailAddress) AS trimmed_email",
+    "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+]);
 
-let union_df = df1.union(df2);
+let result_df1 = df1.elusion("df1").await?;
+let result_df2 = df2.elusion("df2").await?;
 
-let union_df_final = union_df.elusion("union_df").await?;
+let union_df = result_df1.union(result_df2).await?;
+
+let union_df_final = union_df.limit(100).elusion("union_df").await?;
 union_df_final.display().await?;
 
 //UNION ALL
-let union_all_df = df1.union_all(df2);
+let union_all_df = result_df1.union_all(result_df2).await?;
 //EXCEPT
-let except_df = df1.except(df2);
+let except_df = result_df1.except(result_df2).await?;
 //INTERSECT
-let intersect_df = df1.intersect(df2);
+let intersect_df = result_df1.intersect(result_df2).await?;
+```
+## UNION_MANY, UNION_ALL_MANY
+#### UNION_MANY: Combines rows from many dataframes, removing duplicates
+#### UNION_ALL_MANY: Combines rows from many dataframes, keeping duplicates
+```rust
+let df1 = "C:\\Borivoj\\RUST\\Elusion\\API\\df1.json";
+let df2 = "C:\\Borivoj\\RUST\\Elusion\\API\\df2.json";
+let df3 = "C:\\Borivoj\\RUST\\Elusion\\API\\df3.json";
+let df4 = "C:\\Borivoj\\RUST\\Elusion\\API\\df4.json";
+let df5 = "C:\\Borivoj\\RUST\\Elusion\\API\\df5.json";
+
+let df1 = CustomDataFrame::new(df1, "msales").await?; 
+let df2 = CustomDataFrame::new(df2, "msales").await?; 
+let df3 = CustomDataFrame::new(df3, "msales").await?; 
+let df4 = CustomDataFrame::new(df4, "msales").await?; 
+let df5 = CustomDataFrame::new(df5, "msales").await?; 
+
+let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'df1' AS Sitename"]);
+let result_df1 = res_df1.elusion("el1").await?;
+
+let red_df2 = df2.select(["Month", "TotalSales"]).string_functions(["'df2' AS Sitename"]);
+let result_df2 = red_df2.elusion("el2").await?;
+
+let ers_df3 = df3.select(["Month", "TotalSales"]).string_functions(["'df3' AS Sitename"]);
+let result_df3 = ers_df3.elusion("el3").await?;
+
+let res_df4 = df4.select(["Month", "TotalSales"]).string_functions(["'df4' AS Sitename"]);
+let result_df4 = res_df4.elusion("el4").await?;
+
+let res_df5 = df5.select(["Month", "TotalSales"]).string_functions(["'df5' AS Sitename"]);
+let resuld_df5 = res_df5.elusion("el5").await?;
+
+//UNION_MANY
+let union_all_df = result_df1.union_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
+
+//UNION_ALL_MANY
+let union_all_df = df1.union_all_many([result_df2,result_df3,result_df4,resuld_df5]).await?;
 ```
 ---
 ## PIVOT and UNPIVOT
@@ -634,7 +724,6 @@ let intersect_df = df1.intersect(df2);
 #### They should be used separately from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
 #### Future needs to be in final state so .await? must be used
 ```rust
-
 // PIVOT
 // directly on initial CustomDataFrame
 let sales_p = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
