@@ -58,7 +58,7 @@ You can create individual HTML files with single Plot, OR you can create HTML re
 
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
-Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: UNION_MANY, UNION_ALL_MANY, INTERSECT_MANY, and EXCEPT_MANY.
+Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
 
 ### 🛠️ Easy-to-Use API
 Chainable Interface: Build queries using a chainable and intuitive API for streamlined development.
