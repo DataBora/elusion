@@ -199,33 +199,6 @@ fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Val
     Ok(results)
 }
 
-// fn process_json_content(content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
-//     // Create a reader from the raw bytes
-//     let reader = BufReader::new(content.as_slice());
-//     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
-    
-//     let mut results = Vec::new();
-//     for value in stream {
-//         match value {
-//             Ok(Value::Array(array)) => {
-//                 // Handle array of objects
-//                 for item in array {
-//                     if let Value::Object(map) = item {
-//                         results.push(map.into_iter().collect());
-//                     }
-//                 }
-//             }
-//             Ok(Value::Object(map)) => {
-//                 // Handle single object
-//                 results.push(map.into_iter().collect());
-//             }
-//             Ok(_) => continue, // Skip non-object values
-//             Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
-//         }
-//     }
-//     Ok(results)
-// }
-
 async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
     // Create a CSV reader directly from the bytes
     let mut reader = ReaderBuilder::new()
@@ -421,14 +394,81 @@ fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
     pairs.into_iter().unzip()
 }
 
-// fn flatten_json_object(obj: Map<String, Value>) -> HashMap<String, Value> {
-//     let mut map = HashMap::new();
-//     flatten_json_value(&Value::Object(obj), "", &mut map);
-//     map
-// }
 // ======== Custom error type
 #[derive(Debug)]
 pub enum ElusionError {
+    MissingColumn {
+        column: String,
+        available_columns: Vec<String>,
+    },
+    InvalidDataType {
+        column: String,
+        expected: String,
+        found: String,
+    },
+    DuplicateColumn {
+        column: String,
+        locations: Vec<String>,
+    },
+    InvalidOperation {
+        operation: String,
+        reason: String,
+        suggestion: String,
+    },
+    SchemaError {
+        message: String,
+        schema: Option<String>,
+        suggestion: String,
+    },
+    JoinError {
+        message: String,
+        left_table: String,
+        right_table: String,
+        suggestion: String,
+    },
+    GroupByError {
+        message: String,
+        invalid_columns: Vec<String>,
+        suggestion: String,
+    },
+    WriteError {
+        path: String,
+        operation: String,
+        reason: String,
+        suggestion: String,
+    },
+    PartitionError {
+        message: String,
+        partition_columns: Vec<String>,
+        suggestion: String,
+    },
+    AggregationError {
+        message: String,
+        function: String,
+        column: String,
+        suggestion: String,
+    },
+    OrderByError {
+        message: String,
+        columns: Vec<String>,
+        suggestion: String,
+    },
+    WindowFunctionError {
+        message: String,
+        function: String,
+        details: String,
+        suggestion: String,
+    },
+    LimitError {
+        message: String,
+        value: u64,
+        suggestion: String,
+    },
+    SetOperationError {
+        operation: String,
+        reason: String,
+        suggestion: String,
+    },
     DataFusion(DataFusionError),
     Io(std::io::Error),
     Custom(String),
@@ -437,20 +477,394 @@ pub enum ElusionError {
 impl fmt::Display for ElusionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ElusionError::DataFusion(err) => write!(f, "DataFusion Error: {}", err),
-            ElusionError::Io(err) => write!(f, "IO Error: {}", err),
-            ElusionError::Custom(err) => write!(f, "{}", err),
+            ElusionError::MissingColumn { column, available_columns } => {
+                let suggestion = suggest_similar_column(column, available_columns);
+                write!(
+                    f,
+                    "🔍 Column Not Found: '{}'\n\
+                     📋 Available columns are: {}\n\
+                     💡 Did you mean '{}'?\n\
+                     🔧 Check for typos or use .display_schema() to see all available columns.",
+                    column,
+                    available_columns.join(", "),
+                    suggestion
+                )
+            },
+            ElusionError::InvalidDataType { column, expected, found } => write!(
+                f,
+                "📊 Type Mismatch in column '{}'\n\
+                 ❌ Found: {}\n\
+                 ✅ Expected: {}\n\
+                 💡 Try: .with_column(\"{}\", cast(\"{}\", {}));",
+                column, found, expected, column, column, expected
+            ),
+            ElusionError::DuplicateColumn { column, locations } => write!(
+                f,
+                "🔄 Duplicate Column: '{}'\n\
+                 📍 Found in: {}\n\
+                 💡 Try using table aliases or renaming columns:\n\
+                 .select([\"table1.{} as table1_{}\", \"table2.{} as table2_{}\"])",
+                column,
+                locations.join(", "),
+                column, column, column, column
+            ),
+            ElusionError::InvalidOperation { operation, reason, suggestion } => write!(
+                f,
+                "⚠️ Invalid Operation: {}\n\
+                 ❌ Problem: {}\n\
+                 💡 Suggestion: {}",
+                operation, reason, suggestion
+            ),
+            ElusionError::SchemaError { message, schema, suggestion } => {
+                let schema_info = schema.as_ref().map_or(
+                    String::new(),
+                    |s| format!("\n📋 Current Schema:\n{}", s)
+                );
+                write!(
+                    f,
+                    "🏗️ Schema Error: {}{}\n\
+                     💡 Suggestion: {}",
+                    message, schema_info, suggestion
+                )
+            },
+            ElusionError::JoinError { message, left_table, right_table, suggestion } => write!(
+                f,
+                "🤝 Join Error:\n\
+                 ❌ {}\n\
+                 📌 Left Table: {}\n\
+                 📌 Right Table: {}\n\
+                 💡 Suggestion: {}",
+                message, left_table, right_table, suggestion
+            ),
+            ElusionError::GroupByError { message, invalid_columns, suggestion } => write!(
+                f,
+                "📊 Group By Error: {}\n\
+                 ❌ Invalid columns: {}\n\
+                 💡 Suggestion: {}",
+                message,
+                invalid_columns.join(", "),
+                suggestion
+            ),
+            ElusionError::WriteError { path, operation, reason, suggestion } => write!(
+                f,
+                "💾 Write Error during {} operation\n\
+                 📍 Path: {}\n\
+                 ❌ Problem: {}\n\
+                 💡 Suggestion: {}",
+                operation, path, reason, suggestion
+            ),
+            ElusionError::DataFusion(err) => write!(
+                f,
+                "⚡ DataFusion Error: {}\n\
+                 💡 Don't worry! Here's what you can try:\n\
+                 1. Check your column names and types\n\
+                 2. Verify your SQL syntax\n\
+                 3. Use .display_schema() to see available columns\n\
+                 4. Try breaking down complex operations into smaller steps",
+                err
+            ),
+            ElusionError::Io(err) => write!(
+                f,
+                "📁 I/O Error: {}\n\
+                 💡 Quick fixes to try:\n\
+                 1. Check if the file/directory exists\n\
+                 2. Verify your permissions\n\
+                 3. Ensure the path is correct\n\
+                 4. Close any programs using the file",
+                err
+            ),
+            ElusionError::PartitionError { message, partition_columns, suggestion } => write!(
+                f,
+                "📦 Partition Error: {}\n\
+                 ❌ Affected partition columns: {}\n\
+                 💡 Suggestion: {}",
+                message,
+                partition_columns.join(", "),
+                suggestion
+            ),
+            ElusionError::AggregationError { message, function, column, suggestion } => write!(
+                f,
+                "📊 Aggregation Error in function '{}'\n\
+                 ❌ Problem with column '{}': {}\n\
+                 💡 Suggestion: {}",
+                function, column, message, suggestion
+            ),
+            ElusionError::OrderByError { message, columns, suggestion } => write!(
+                f,
+                "🔄 Order By Error: {}\n\
+                 ❌ Problem with columns: {}\n\
+                 💡 Suggestion: {}",
+                message,
+                columns.join(", "),
+                suggestion
+            ),
+            ElusionError::WindowFunctionError { message, function, details, suggestion } => write!(
+                f,
+                "🪟 Window Function Error in '{}'\n\
+                 ❌ Problem: {}\n\
+                 📝 Details: {}\n\
+                 💡 Suggestion: {}",
+                function, message, details, suggestion
+            ),
+            ElusionError::LimitError { message, value, suggestion } => write!(
+                f,
+                "🔢 Limit Error: {}\n\
+                 ❌ Invalid limit value: {}\n\
+                 💡 Suggestion: {}",
+                message, value, suggestion
+            ),
+            ElusionError::SetOperationError { operation, reason, suggestion } => write!(
+                f,
+                "🔄 Set Operation Error in '{}'\n\
+                 ❌ Problem: {}\n\
+                 💡 Suggestion: {}",
+                operation, reason, suggestion
+            ),
+            ElusionError::Custom(err) => write!(f, "💫 {}", err),
         }
     }
-}   
-
-impl Error for ElusionError {}
+}
 
 impl From<DataFusionError> for ElusionError {
     fn from(err: DataFusionError) -> Self {
-        ElusionError::DataFusion(err)
+        match &err {
+            DataFusionError::SchemaError(schema_err, _context) => {
+                let error_msg = schema_err.to_string();
+                
+                if error_msg.contains("Column") && error_msg.contains("not found") {
+                    if let Some(col_name) = extract_column_name_from_error(&error_msg) {
+                        return ElusionError::MissingColumn {
+                            column: col_name,
+                            available_columns: extract_available_columns_from_error(&error_msg),
+                        };
+                    }
+                }
+                
+                if error_msg.contains("Cannot cast") {
+                    if let Some((col, expected, found)) = extract_type_info_from_error(&error_msg) {
+                        return ElusionError::InvalidDataType {
+                            column: col,
+                            expected,
+                            found,
+                        };
+                    }
+                }
+
+                if error_msg.contains("Schema") {
+                    return ElusionError::SchemaError {
+                        message: error_msg,
+                        schema: None,
+                        suggestion: "💡 Check column names and data types in your schema".to_string(),
+                    };
+                }
+
+                ElusionError::DataFusion(err)
+            },
+            DataFusionError::Plan(plan_err) => {
+                let error_msg = plan_err.to_string();
+                
+                if error_msg.contains("Duplicate column") {
+                    if let Some((col, locs)) = extract_duplicate_column_info(&error_msg) {
+                        return ElusionError::DuplicateColumn {
+                            column: col,
+                            locations: locs,
+                        };
+                    }
+                }
+
+                if error_msg.contains("JOIN") {
+                    return ElusionError::JoinError {
+                        message: error_msg.clone(),
+                        left_table: "unknown".to_string(),
+                        right_table: "unknown".to_string(),
+                        suggestion: "💡 Check join conditions and table names".to_string(),
+                    };
+                }
+
+                ElusionError::DataFusion(err)
+            },
+            DataFusionError::Execution(exec_err) => {
+                let error_msg = exec_err.to_string();
+
+                if error_msg.contains("aggregate") || error_msg.contains("SUM") || 
+                error_msg.contains("AVG") || error_msg.contains("COUNT") {
+                 if let Some((func, col)) = extract_aggregation_error(&error_msg) {
+                     return ElusionError::AggregationError {
+                         message: error_msg.clone(),
+                         function: func,
+                         column: col,
+                         suggestion: "💡 Verify aggregation function syntax and column data types".to_string(),
+                     };
+                 }
+             }
+                if error_msg.contains("GROUP BY") {
+                    return ElusionError::GroupByError {
+                        message: error_msg.clone(),
+                        invalid_columns: Vec::new(),
+                        suggestion: "💡 Ensure all non-aggregated columns are included in GROUP BY".to_string(),
+                    };
+                }
+
+                if error_msg.contains("PARTITION BY") {
+                    return ElusionError::PartitionError {
+                        message: error_msg.clone(),
+                        partition_columns: Vec::new(),
+                        suggestion: "💡 Check partition column names and data types".to_string(),
+                    };
+                }
+
+                if error_msg.contains("ORDER BY") {
+                    return ElusionError::OrderByError {
+                        message: error_msg.clone(),
+                        columns: Vec::new(),
+                        suggestion: "💡 Verify column names and sort directions".to_string(),
+                    };
+                }
+
+                if error_msg.contains("OVER") || error_msg.contains("window") {
+                    if let Some((func, details)) = extract_window_function_error(&error_msg) {
+                        return ElusionError::WindowFunctionError {
+                            message: error_msg.clone(),
+                            function: func,
+                            details,
+                            suggestion: "💡 Check window function syntax and parameters".to_string(),
+                        };
+                    }
+                }
+
+                if error_msg.contains("LIMIT") {
+                    return ElusionError::LimitError {
+                        message: error_msg.clone(),
+                        value: 0,
+                        suggestion: "💡 Ensure limit value is a positive integer".to_string(),
+                    };
+                }
+
+                if error_msg.contains("UNION") || error_msg.contains("INTERSECT") || error_msg.contains("EXCEPT") {
+                    return ElusionError::SetOperationError {
+                        operation: "Set Operation".to_string(),
+                        reason: error_msg.clone(),
+                        suggestion: "💡 Ensure both sides of the operation have compatible schemas".to_string(),
+                    };
+                }
+
+                ElusionError::DataFusion(err)
+            },
+            DataFusionError::NotImplemented(msg) => {
+                ElusionError::InvalidOperation {
+                    operation: "Operation not supported".to_string(),
+                    reason: msg.clone(),
+                    suggestion: "💡 Try using an alternative approach or check documentation for supported features".to_string(),
+                }
+            },
+            DataFusionError::Internal(msg) => {
+                ElusionError::Custom(format!("Internal error: {}. Please report this issue.", msg))
+            },
+            _ => ElusionError::DataFusion(err)
+        }
     }
 }
+
+fn extract_window_function_error(err: &str) -> Option<(String, String)> {
+    let re = Regex::new(r"Window function '([^']+)' error: (.+)").ok()?;
+    let caps = re.captures(err)?;
+    Some((
+        caps.get(1)?.as_str().to_string(),
+        caps.get(2)?.as_str().to_string(),
+    ))
+}
+
+fn extract_aggregation_error(err: &str) -> Option<(String, String)> {
+    let re = Regex::new(r"Aggregate function '([^']+)' error on column '([^']+)'").ok()?;
+    let caps = re.captures(err)?;
+    Some((
+        caps.get(1)?.as_str().to_string(),
+        caps.get(2)?.as_str().to_string(),
+    ))
+}
+// Helper functions for error parsing
+fn extract_column_name_from_error(err: &str) -> Option<String> {
+    let re = Regex::new(r"Column '([^']+)'").ok()?;
+    re.captures(err)?.get(1).map(|m| m.as_str().to_string())
+}
+
+fn extract_available_columns_from_error(err: &str) -> Vec<String> {
+    if let Some(re) = Regex::new(r"Available fields are: \[(.*?)\]").ok() {
+        if let Some(caps) = re.captures(err) {
+            if let Some(fields) = caps.get(1) {
+                return fields.as_str()
+                    .split(',')
+                    .map(|s| s.trim().trim_matches('\'').to_string())
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn extract_type_info_from_error(err: &str) -> Option<(String, String, String)> {
+    let re = Regex::new(r"Cannot cast column '([^']+)' from ([^ ]+) to ([^ ]+)").ok()?;
+    let caps = re.captures(err)?;
+    Some((
+        caps.get(1)?.as_str().to_string(),
+        caps.get(3)?.as_str().to_string(),
+        caps.get(2)?.as_str().to_string(),
+    ))
+}
+
+fn extract_duplicate_column_info(err: &str) -> Option<(String, Vec<String>)> {
+    let re = Regex::new(r"Duplicate column '([^']+)' in schema: \[(.*?)\]").ok()?;
+    let caps = re.captures(err)?;
+    Some((
+        caps.get(1)?.as_str().to_string(),
+        caps.get(2)?
+            .as_str()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect()
+    ))
+}
+
+// Helper function to suggest similar column names using basic string similarity
+fn suggest_similar_column(target: &str, available: &[String]) -> String {
+    available
+        .iter()
+        .map(|col| (col, string_similarity(target, col)))
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .map(|(col, _)| col.clone())
+        .unwrap_or_else(|| "".to_string())
+}
+
+// Simple string similarity function (you might want to use a proper crate like 'strsim' in production)
+fn string_similarity(s1: &str, s2: &str) -> f64 {
+    let s1_lower = s1.to_lowercase();
+    let s2_lower = s2.to_lowercase();
+    
+    // Check for exact prefix match
+    if s1_lower.starts_with(&s2_lower) || s2_lower.starts_with(&s1_lower) {
+        return 0.9;
+    }
+    
+    // Check for common substring
+    let common_len = s1_lower.chars()
+        .zip(s2_lower.chars())
+        .take_while(|(c1, c2)| c1 == c2)
+        .count() as f64;
+    
+    if common_len > 0.0 {
+        return common_len / s1_lower.len().max(s2_lower.len()) as f64;
+    }
+    
+    // Fall back to character frequency similarity
+    let max_len = s1_lower.len().max(s2_lower.len()) as f64;
+    let common_chars = s1_lower.chars()
+        .filter(|c| s2_lower.contains(*c))
+        .count() as f64;
+    
+    common_chars / max_len
+}
+
+impl Error for ElusionError {}
 
 impl From<std::io::Error> for ElusionError {
     fn from(err: std::io::Error) -> Self {
@@ -1014,10 +1428,12 @@ impl CsvWriteOptions {
 
         // Validate delimiter
         if !self.delimiter.is_ascii() {
-            return Err(ElusionError::Custom(format!(
-                "Delimiter '{}' is not a valid ASCII character.",
-                self.delimiter as char
-            )));
+            return Err(ElusionError::InvalidOperation {
+                operation: "CSV Write".to_string(),
+                reason: format!("Delimiter '{}' is not a valid ASCII character", 
+                    self.delimiter as char),
+                suggestion: "💡 Use an ASCII character for delimiter".to_string()
+            });
         }
         
         // Validate escape character
@@ -1290,11 +1706,21 @@ fn normalize_function_arg(arg: &str) -> String {
 /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
 /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
 /// or an error
-async fn glean_arrow_schema(df: &DataFrame) -> Result<SchemaRef, DataFusionError> {
+async fn glean_arrow_schema(df: &DataFrame) -> ElusionResult<SchemaRef> {
 
-    let limited_df = df.clone().limit(0, Some(1))?;
+    let limited_df = df.clone().limit(0, Some(1))
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Schema Inference".to_string(),
+            reason: format!("Failed to limit DataFrame: {}", e),
+            suggestion: "💡 Check if the DataFrame is valid".to_string()
+        })?;
     
-    let batches = limited_df.collect().await?;
+        let batches = limited_df.collect().await
+        .map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to collect sample batch: {}", e),
+            schema: None,
+            suggestion: "💡 Verify DataFrame contains valid data".to_string()
+        })?;
 
     if let Some(first_batch) = batches.get(0) {
         Ok(first_batch.schema())
@@ -1689,14 +2115,28 @@ impl CustomDataFrame {
         table_name: &str,
         df: &DataFrame,
     ) -> ElusionResult<()> {
-        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batches = df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Data Collection".to_string(),
+            reason: format!("Failed to collect DataFrame: {}", e),
+            suggestion: "💡 Check if DataFrame contains valid data".to_string()
+        })?;
+
         let schema = df.schema();
 
         let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to create in-memory table: {}", e),
+            schema: Some(schema.to_string()),
+            suggestion: "💡 Verify schema compatibility and data types".to_string()
+        })?;
 
         ctx.register_table(table_name, Arc::new(mem_table))
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Table Registration".to_string(),
+            reason: format!("Failed to register table '{}': {}", table_name, e),
+            suggestion: "💡 Check if table name is unique and valid".to_string()
+        })?;
 
         Ok(())
     }
@@ -2880,119 +3320,45 @@ impl CustomDataFrame {
 
         query
     }
-    // fn construct_sql(&self) -> String {
-    //     let mut query = String::new();
-    
-    //     // WITH clause for CTEs
-    //     if !self.ctes.is_empty() {
-    //         query.push_str("WITH ");
-    //         query.push_str(&self.ctes.join(", "));
-    //         query.push_str(" ");
-    //     }
-    
-    //     // Handle subqueries differently
-    //     let is_subquery = self.from_table.starts_with('(') && self.from_table.ends_with(')');
-        
-    //     // Build SELECT clause
-    //     if !is_subquery || !self.selected_columns.is_empty() {
-    //         query.push_str("SELECT ");
-            
-    //         // Collect all parts of the SELECT clause
-    //         let mut select_parts = Vec::new();
-            
-    //         if !self.selected_columns.is_empty() {
-    //             select_parts.extend(self.selected_columns.clone());
-    //         }
-    //         select_parts.extend(self.aggregations.clone());
-    //         select_parts.extend(self.window_functions.clone());
-            
-    //         // If we have no explicit columns but have expressions, use them
-    //         if select_parts.is_empty() {
-    //             query.push_str("*");
-    //         } else {
-    //             query.push_str(&select_parts.join(", "));
-    //         }
-            
-    //         query.push_str(" FROM ");
-    //     }
-    
-    //     // Add FROM clause
-    //     if is_subquery {
-    //         query.push_str(&self.from_table);
-    //     } else {
-    //         query.push_str(&format!("\"{}\" AS {}", self.from_table.trim(), self.table_alias));
-    //     }
-    
-    //     // Add joins
-    //     for join in &self.joins {
-    //         query.push_str(&format!(
-    //             " {} JOIN \"{}\" AS {} ON {}",
-    //             join.join_type,
-    //             join.dataframe.from_table,
-    //             join.dataframe.table_alias,
-    //             join.condition
-    //         ));
-    //     }
-    
-    //     // Add WHERE clause
-    //     if !self.where_conditions.is_empty() {
-    //         query.push_str(" WHERE ");
-    //         query.push_str(&self.where_conditions.join(" AND "));
-    //     }
-    
-    //     // Add GROUP BY clause
-    //     if !self.group_by_columns.is_empty() {
-    //         query.push_str(" GROUP BY ");
-    //         query.push_str(&self.group_by_columns.join(", "));
-    //     }
-    
-    //     // Add HAVING clause
-    //     if !self.having_conditions.is_empty() {
-    //         query.push_str(" HAVING ");
-    //         query.push_str(&self.having_conditions.join(" AND "));
-    //     }
-    
-    //     // Add ORDER BY clause
-    //     if !self.order_by_columns.is_empty() {
-    //         query.push_str(" ORDER BY ");
-    //         let orderings: Vec<String> = self.order_by_columns.iter()
-    //             .map(|(col, asc)| format!("{} {}", col, if *asc { "ASC" } else { "DESC" }))
-    //             .collect();
-    //         query.push_str(&orderings.join(", "));
-    //     }
-    
-    //     // Add LIMIT clause
-    //     if let Some(limit) = self.limit_count {
-    //         query.push_str(&format!(" LIMIT {}", limit));
-    //     }
-    
-    //     query
-    // }
+
 
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
         let ctx = Arc::new(SessionContext::new());
 
         // Always register the base table first
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to register base table: {}", e),
+            schema: Some(self.df.schema().to_string()),
+            suggestion: "💡 Check table schema compatibility".to_string()
+        })?;
 
         // For non-UNION queries, also register joined tables
         if self.union_tables.is_none() {
             for join in &self.joins {
-                Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
+                Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await
+                    .map_err(|e| ElusionError::JoinError {
+                        message: format!("Failed to register joined table: {}", e),
+                        left_table: self.table_alias.clone(),
+                        right_table: join.dataframe.table_alias.clone(),
+                        suggestion: "💡 Verify join table schemas are compatible".to_string()
+                    })?;
             }
         }
 
         // For UNION queries with joins
         if let Some(tables) = &self.union_tables {
             for (table_alias, df, _) in tables {
-                // 1) If table_alias is already registered, skip
                 if ctx.table(table_alias).await.is_ok() {
-                    // Already registered, so just skip
                     continue;
                 }
-                // 2) Otherwise, register the table
-                Self::register_df_as_table(&ctx, table_alias, df).await?;
+                Self::register_df_as_table(&ctx, table_alias, df).await
+                    .map_err(|e| ElusionError::InvalidOperation {
+                        operation: "Union Table Registration".to_string(),
+                        reason: format!("Failed to register union table '{}': {}", table_alias, e),
+                        suggestion: "💡 Check union table schema compatibility".to_string()
+                    })?;
             }
         }
 
@@ -3005,30 +3371,43 @@ impl CustomDataFrame {
         // println!("Constructed SQL:\n{}", sql);
         
         // Execute the SQL query
-        let df = ctx.sql(&sql).await.map_err(|e| {
-            ElusionError::Custom(format!(
-                "Failed to execute SQL '{}': {}",
-                sql, e
-            ))
+        let df = ctx.sql(&sql).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "SQL Execution".to_string(),
+            reason: format!("Failed to execute SQL: {}", e),
+            suggestion: "💡 Verify SQL syntax and table/column references".to_string()
         })?;
 
         // Collect the results into batches
-        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batches = df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Data Collection".to_string(),
+            reason: format!("Failed to collect results: {}", e),
+            suggestion: "💡 Check if query returns valid data".to_string()
+        })?;
 
         // Create a MemTable from the result batches
         let result_mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to create result table: {}", e),
+            schema: Some(df.schema().to_string()),
+            suggestion: "💡 Verify result schema compatibility".to_string()
+        })?;
 
         // Register the result as a new table with the provided alias
         ctx.register_table(alias, Arc::new(result_mem_table))
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Result Registration".to_string(),
+            reason: format!("Failed to register result table: {}", e),
+            suggestion: "💡 Try using a different alias name".to_string()
+        })?;
 
         // Retrieve the newly registered table
-        let result_df = ctx.table(alias).await.map_err(|e| {
-            ElusionError::Custom(format!(
-                "Failed to retrieve table '{}': {}",
-                alias, e
-            ))
+        let result_df = ctx.table(alias).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Result Retrieval".to_string(),
+            reason: format!("Failed to retrieve final result: {}", e),
+            suggestion: "💡 Check if result table was properly registered".to_string()
         })?;
         // Return a new CustomDataFrame with the new alias
         Ok(CustomDataFrame {
@@ -3056,10 +3435,10 @@ impl CustomDataFrame {
     }
 
     /// Display functions that display results to terminal
-    pub async fn display(&self) -> Result<(), DataFusionError> {
-        self.df.clone().show().await.map_err(|e| {
-            DataFusionError::Execution(format!("Failed to display DataFrame: {}", e))
-        })
+    pub async fn display(&self) -> ElusionResult<()> {
+        self.df.clone().show().await.map_err(|e| 
+            ElusionError::Custom(format!("Failed to display DataFrame: {}", e))
+        )
     }
     /// DISPLAY Query Plan
     // pub fn display_query_plan(&self) {
@@ -3432,39 +3811,45 @@ pub async fn write_to_parquet(
 
     match mode {
         "overwrite" => {
-            // file or directory removal, if it exists
             if fs::metadata(path).is_ok() {
                 fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
-                    DataFusionError::Execution(format!(
-                        "Failed to delete existing file or directory at '{}': {}",
-                        path, e
-                    ))
+                    ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "overwrite".to_string(),
+                        reason: format!("❌ Failed to delete existing file/directory: {}", e),
+                        suggestion: "💡 Check file permissions and ensure no other process is using the file".to_string()
+                    }
                 })?;
             }
         }
         "append" => {
-            // if the file exists
             if !fs::metadata(path).is_ok() {
-                return Err(ElusionError::Custom(format!(
-                    "Append mode requires an existing file at '{}'",
-                    path
-                )));
-            }   
+                return Err(ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "append".to_string(),
+                    reason: "❌ Target file does not exist".to_string(),
+                    suggestion: "💡 Create the file first or use 'overwrite' mode".to_string()
+                });
+            }
         }
-        _ => {
-            return Err(ElusionError::Custom(format!(
-                "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
-                mode
-            )));
-        }
+        _ => return Err(ElusionError::InvalidOperation {
+            operation: mode.to_string(),
+            reason: "Invalid write mode".to_string(),
+            suggestion: "💡 Use 'overwrite' or 'append'".to_string()
+        })
     }
-
-    
-    self.df.clone().write_parquet(path, write_options, None).await?;
+        
+    self.df.clone().write_parquet(path, write_options, None).await
+        .map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: mode.to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check file permissions and path validity".to_string()
+        })?;
 
     match mode {
-        "overwrite" => println!("Data successfully overwritten to '{}'.", path),
-        "append" => println!("Data successfully appended to '{}'.", path),
+        "overwrite" => println!("✅ Data successfully overwritten to '{}'", path),
+        "append" => println!("✅ Data successfully appended to '{}'", path),
         _ => unreachable!(),
     }
     
@@ -3520,45 +3905,63 @@ pub async fn write_to_csv(
         df = df.with_column(&name, cast_expr)?;
     }
 
-    match mode {
-        "overwrite" => {
-            // Remove existing file or directory if it exists
-            if fs::metadata(path).is_ok() {
-                fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| {
-                    DataFusionError::Execution(format!(
-                        "Failed to delete existing file or directory at '{}': {}",
-                        path, e
-                    ))
-                })?;
-            }
-        }
-        "append" => {
-            // Ensure the file exists for append mode
-            if !fs::metadata(path).is_ok() {
-                return Err(ElusionError::Custom(format!(
-                    "Append mode requires an existing file at '{}'",
-                    path
-                )));
-            }
-        }
-        _ => {
-            return Err(ElusionError::Custom(format!(
-                "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
-                mode
-            )));
+    if let Some(parent) = LocalPath::new(path).parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
+                path: parent.display().to_string(),
+                operation: "create_directory".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check if you have permissions to create directories".to_string(),
+            })?;
         }
     }
 
+    match mode {
+        "overwrite" => {
+            if fs::metadata(path).is_ok() {
+                fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| 
+                    ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "overwrite".to_string(),
+                        reason: format!("Failed to delete existing file: {}", e),
+                        suggestion: "💡 Check file permissions and ensure no other process is using the file".to_string(),
+                    }
+                )?;
+            }
+        }
+        "append" => {
+            if !fs::metadata(path).is_ok() {
+                return Err(ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "append".to_string(),
+                    reason: "Target file does not exist".to_string(),
+                    suggestion: "💡 Create the file first or use 'overwrite' mode".to_string(),
+                });
+            }
+        }
+        _ => return Err(ElusionError::InvalidOperation {
+            operation: mode.to_string(),
+            reason: "Invalid write mode".to_string(),
+            suggestion: "💡 Use 'overwrite' or 'append'".to_string()
+        })
+    
+    }
+
     // RecordBatches from the DataFrame
-    let batches = self.df.clone().collect().await.map_err(|e| {
-        ElusionError::DataFusion(DataFusionError::Execution(format!(
-            "Failed to collect RecordBatches from DataFrame: {}",
-            e
-        )))
-    })?;
+    let batches = self.df.clone().collect().await.map_err(|e| 
+        ElusionError::InvalidOperation {
+            operation: "Data Collection".to_string(),
+            reason: format!("Failed to collect DataFrame: {}", e),
+            suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+        }
+    )?;
 
     if batches.is_empty() {
-        return Err(ElusionError::Custom("No data to write.".to_string()));
+        return Err(ElusionError::InvalidOperation {
+            operation: "CSV Writing".to_string(),
+            reason: "No data to write".to_string(),
+            suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
+        });
     }
 
     // clone data for the blocking task
@@ -3576,12 +3979,22 @@ pub async fn write_to_csv(
                 .create(true)
                 .truncate(true)
                 .open(&path_clone)
-                .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+                .map_err(|e| ElusionError::WriteError {
+                    path: path_clone.clone(),
+                    operation: "file_open".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check file permissions and path validity".to_string(),
+                })?,
             "append" => OpenOptions::new()
                 .write(true)
                 .append(true)
                 .open(&path_clone)
-                .map_err(|e| ElusionError::Custom(format!("Failed to open file '{}': {}", path_clone, e)))?,
+                .map_err(|e| ElusionError::WriteError {
+                    path: path_clone.clone(),
+                    operation: "file_open".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check file permissions and path validity".to_string(),
+                })?,
             _ => unreachable!(), // Mode already validated
         };
 
@@ -3618,23 +4031,33 @@ pub async fn write_to_csv(
 
             
             // Write each batch 
-            for batch in batches_clone {
-                csv_writer.write(&batch).map_err(|e| {
-                    ElusionError::Custom(format!("Failed to write RecordBatch to CSV: {}", e))
+            for (idx, batch) in batches_clone.iter().enumerate() {
+                csv_writer.write(batch).map_err(|e| ElusionError::WriteError {
+                    path: path_clone.clone(),
+                    operation: format!("write_batch_{}", idx),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if batch data contains invalid characters or formatting".to_string(),
                 })?;
             }
         
-        
-            csv_writer.into_inner().flush().map_err(|e| {
-                ElusionError::Custom(format!("Failed to flush buffer: {}", e))
+            csv_writer.into_inner().flush().map_err(|e| ElusionError::WriteError {
+                path: path_clone,
+                operation: "flush".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check disk space and write permissions".to_string(),
             })?;
             
         Ok(())
-    }).await.map_err(|e| ElusionError::Custom(format!("Failed to write to CSV: {}", e)))??;
+    }).await.map_err(|e| ElusionError::WriteError {
+        path: path.to_string(),
+        operation: "async_write".to_string(),
+        reason: e.to_string(),
+        suggestion: "💡 Internal error during async operation".to_string(),
+    })??;
 
     match mode {
-        "overwrite" => println!("Data successfully overwritten to '{}'.", path),
-        "append" => println!("Data successfully appended to '{}'.", path),
+        "overwrite" => println!("✅ Data successfully overwritten to '{}'", path),
+        "append" => println!("✅ Data successfully appended to '{}'", path),
         _ => unreachable!(),
     }
 
@@ -3955,43 +4378,42 @@ pub async fn write_parquet_to_azure_with_sas(
             .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
     }
 
-    println!("Successfully wrote parquet data to Azure blob: {}", url);
+    println!("✅ Successfully wrote parquet data to Azure blob: {}", url);
+   
     Ok(())
 }
 
 //=================== LOADERS ============================= //
 /// LOAD function for CSV file type
-pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, DataFusionError> {
+pub async fn load_csv(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
     let ctx = SessionContext::new();
-    let file_extension = file_path
-        .split('.')
-        .last()
-        .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
-        .to_lowercase();
 
-    let df = match file_extension.as_str() {
-        "csv" => {
-            let result = ctx
-                .read_csv(
-                    file_path,
-                    CsvReadOptions::new()
-                        .has_header(true) // Detect headers
-                        .schema_infer_max_records(1000), // Optional: how many records to scan for inference
-                )
-                .await;
+    if !LocalPath::new(file_path).exists() {
+        return Err(ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "read".to_string(),
+            reason: "File not found".to_string(),
+            suggestion: "💡 Check if the file path is correct".to_string()
+        });
+    }
 
-            match result {
-                Ok(df) => df,
-                Err(err) => {
-                    eprintln!(
-                        "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                        file_path, err
-                    );
-                    return Err(err);
-                }
-            }
+    let df = match ctx
+        .read_csv(
+            file_path,
+            CsvReadOptions::new()
+                .has_header(true)
+                .schema_infer_max_records(1000),
+        )
+        .await
+    {
+        Ok(df) => df,
+        Err(err) => {
+            eprintln!(
+                "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
+                file_path, err
+            );
+            return Err(ElusionError::DataFusion(err));
         }
-        _ => panic!("Unsupported file type: {}", file_extension),
     };
 
     Ok(AliasedDataFrame {
@@ -4004,57 +4426,52 @@ pub async fn load_csv(file_path: &str, alias: &str) -> Result<AliasedDataFrame, 
 pub fn load_parquet<'a>(
     file_path: &'a str,
     alias: &'a str,
-) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
     Box::pin(async move {
         let ctx = SessionContext::new();
-        let file_extension = file_path
-            .split('.')
-            .last()
-            .unwrap_or_else(|| panic!("Unable to determine file type for path: {}", file_path))
-            .to_lowercase();
-        // Normalize alias
-        let normalized_alias = normalize_alias_write(alias);
 
-        let df = match file_extension.as_str() {
-            "parquet" => {
-                let result = ctx.read_parquet(file_path, ParquetReadOptions::default()).await;
-                match result {
-                    Ok(df) => {
-                        println!("Successfully read Parquet file '{}'", file_path);
-                        df
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "Error reading Parquet file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                            file_path, err
-                        );
-                        return Err(err);
-                    }
-                }
+        if !LocalPath::new(file_path).exists() {
+            return Err(ElusionError::WriteError {
+                path: file_path.to_string(),
+                operation: "read".to_string(),
+                reason: "File not found".to_string(),
+                suggestion: "💡 Check if the file path is correct".to_string(),
+            });
+        }
+
+         let df = match ctx.read_parquet(file_path, ParquetReadOptions::default()).await {
+            Ok(df) => {
+                df
             }
-            _ => {
-                eprintln!(
-                    "File type '{}' is not explicitly supported. Skipping file '{}'.",
-                    file_extension, file_path
-                );
-                return Err(DataFusionError::Plan(format!(
-                    "Unsupported file type: {}",
-                    file_extension
-                )));
+            Err(err) => {
+                return Err(ElusionError::DataFusion(err));
             }
         };
 
         
-        let batches = df.clone().collect().await?;
+        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
         let schema = df.schema().clone();
-        let mem_table = MemTable::try_new(schema.into(), vec![batches])?;
+        let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: e.to_string(),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 Check if the parquet file schema is valid".to_string(),
+            })?;
 
-        ctx.register_table(normalized_alias, Arc::new(mem_table))?;
+        let normalized_alias = normalize_alias_write(alias);
+        ctx.register_table(&normalized_alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Table Registration".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Try using a different alias name".to_string(),
+            })?;
 
-        let aliased_df = ctx
-            .table(alias)
-            .await
-            .map_err(|_| DataFusionError::Plan(format!("Failed to retrieve aliased table '{}'", alias)))?;
+        let aliased_df = ctx.table(alias).await
+            .map_err(|_| ElusionError::InvalidOperation {
+                operation: "Table Creation".to_string(),
+                reason: format!("Failed to create table with alias '{}'", alias),
+                suggestion: "💡 Check if the alias is valid and unique".to_string(),
+            })?;
 
         Ok(AliasedDataFrame {
             dataframe: aliased_df,
@@ -4067,15 +4484,22 @@ pub fn load_parquet<'a>(
 pub fn load_json<'a>(
     file_path: &'a str,
     alias: &'a str,
-) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
     Box::pin(async move {
         // Open file with BufReader for efficient reading
-        let file = File::open(file_path)
-            .map_err(|e| DataFusionError::Execution(format!("Failed to open file '{}': {}", file_path, e)))?;
+        let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "read".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 heck if the file exists and you have proper permissions".to_string(),
+        })?;
         
-        let file_size = file.metadata()
-            .map_err(|e| DataFusionError::Execution(format!("Failed to get file metadata: {}", e)))?
-            .len() as usize;
+        let file_size = file.metadata().map_err(|e| ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "metadata reading".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check file permissions and disk status".to_string(),
+        })?.len() as usize;
             
         let reader = BufReader::with_capacity(32 * 1024, file); // 32KB buffer
         let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
@@ -4093,7 +4517,6 @@ pub fn load_json<'a>(
                                 if let Value::Object(map) = item {
                                     let mut base_map = map.clone();
                                     
-                                    // If we have fields array, expand it
                                     if let Some(Value::Array(fields)) = base_map.remove("fields") {
                                         for field in fields {
                                             let mut row = base_map.clone();
@@ -4111,7 +4534,11 @@ pub fn load_json<'a>(
                             }
                         }
                         Ok(_) => continue,
-                        Err(e) => return Err(DataFusionError::Execution(format!("JSON parsing error: {}", e))),
+                        Err(e) => return Err(ElusionError::InvalidOperation {
+                            operation: "JSON parsing".to_string(),
+                            reason: format!("Failed to parse JSON array: {}", e),
+                            suggestion: "💡 Ensure the JSON file is properly formatted and contains valid data".to_string(),
+                        }),
                     }
                 }
             }
@@ -4135,26 +4562,54 @@ pub fn load_json<'a>(
                     }
                 }
             }
-            Some(Err(e)) => return Err(DataFusionError::Execution(format!("JSON parsing error: {}", e))),
-            _ => return Err(DataFusionError::Execution("Invalid JSON file".to_string())),
+            Some(Err(e)) => return Err(ElusionError::InvalidOperation {
+                operation: "JSON parsing".to_string(),
+                reason: format!("Invalid JSON format: {}", e),
+                suggestion: "💡 Check if the JSON file is well-formed and valid".to_string(),
+            }),
+            _ => return Err(ElusionError::InvalidOperation {
+                operation: "JSON reading".to_string(),
+                reason: "Empty or invalid JSON file".to_string(),
+                suggestion: "💡 Ensure the JSON file contains valid data in either array or object format".to_string(),
+            }),
         }
 
         if all_data.is_empty() {
-            return Err(DataFusionError::Execution("No valid JSON data found".to_string()));
+            return Err(ElusionError::InvalidOperation {
+                operation: "JSON processing".to_string(),
+                reason: "No valid JSON data found".to_string(),
+                suggestion: "💡 Check if the JSON file contains the expected data structure".to_string(),
+            });
         }
 
         let schema = infer_schema_from_json(&all_data);
         let record_batch = build_record_batch(&all_data, schema.clone())
-            .map_err(|e| DataFusionError::Execution(format!("Failed to build RecordBatch: {}", e)))?;
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to build RecordBatch: {}", e),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 Check if the JSON data structure is consistent".to_string(),
+            })?;
 
         let ctx = SessionContext::new();
-        let mem_table = MemTable::try_new(schema, vec![vec![record_batch]])
-            .map_err(|e| DataFusionError::Execution(format!("Failed to create MemTable: {}", e)))?;
+        let mem_table = MemTable::try_new(schema.clone(), vec![vec![record_batch]])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create MemTable: {}", e),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 Verify data types and schema compatibility".to_string(),
+            })?;
 
         ctx.register_table(alias, Arc::new(mem_table))
-            .map_err(|e| DataFusionError::Execution(format!("Failed to register table: {}", e)))?;
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Table registration".to_string(),
+                reason: format!("Failed to register table: {}", e),
+                suggestion: "💡 Try using a different alias or check table compatibility".to_string(),
+            })?;
 
-        let df = ctx.table(alias).await?;
+        let df = ctx.table(alias).await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "Table creation".to_string(),
+            reason: format!("Failed to create table: {}", e),
+            suggestion: "💡 Verify table creation parameters and permissions".to_string(),
+        })?;
 
         Ok(AliasedDataFrame {
             dataframe: df,
@@ -4167,7 +4622,7 @@ pub fn load_json<'a>(
 pub fn load_delta<'a>(
     file_path: &'a str,
     alias: &'a str,
-) -> BoxFuture<'a, Result<AliasedDataFrame, DataFusionError>> {
+) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
     Box::pin(async move {
         let ctx = SessionContext::new();
 
@@ -4176,17 +4631,25 @@ pub fn load_delta<'a>(
 
         // Open Delta table using path manager
         let table = open_table(&path_manager.table_path())
-            .await
-            .map_err(|e| DataFusionError::Execution(format!("Failed to open Delta table: {}", e)))?;
+        .await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Delta Table Opening".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Ensure the path points to a valid Delta table".to_string(),
+        })?;
 
         
         let file_paths: Vec<String> = {
             let raw_uris = table.get_file_uris()
-                .map_err(|e| DataFusionError::Execution(format!("Failed to get table files: {}", e)))?;
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Delta File Listing".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check Delta table permissions and integrity".to_string(),
+                })?;
             
             raw_uris.map(|uri| path_manager.normalize_uri(&uri))
                 .collect()
-            };
+        };
         
         // ParquetReadOptions
         let parquet_options = ParquetReadOptions::new()
@@ -4227,58 +4690,98 @@ pub async fn load_db(
     connection_string: &str,
     query: &str,
     alias: &str,
-) -> Result<AliasedDataFrame, DataFusionError> {
+) -> ElusionResult<AliasedDataFrame> {
     // println!("Debug - Query: {}", query);
 
     let connection = DB_ENV
         .connect_with_connection_string(connection_string, ConnectionOptions::default())
-        .map_err(|e| DataFusionError::Execution(format!("DB Connection failed: {}", e)))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Database Connection".to_string(),
+            reason: format!("Failed to connect to database: {}", e),
+            suggestion: "💡 Check your connection string and ensure database is accessible".to_string()
+        })?;
 
     // Execute query and get owned cursor
     let owned_cursor = connection
         .into_cursor(query, ())
         .map_err(|e| e.error)
-        .map_err(|e| DataFusionError::Execution(format!("Query execution failed: {}", e)))?
-        .expect("SELECT must produce cursor");
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Query Execution".to_string(),
+            reason: format!("Query execution failed: {}", e),
+            suggestion: "💡 Verify SQL syntax and table permissions".to_string()
+        })?
+        .ok_or_else(|| ElusionError::InvalidOperation {
+            operation: "Query Result".to_string(),
+            reason: "Query did not produce a result set".to_string(),
+            suggestion: "💡 Ensure query returns data (e.g., SELECT statement)".to_string()
+        })?;
 
     // Configure ODBC reader for optimal performance
     let reader = OdbcReaderBuilder::new()
-        .with_max_num_rows_per_batch(50000)  
-        .with_max_bytes_per_batch(1024 * 1024 * 1024)  // 512MB limit per batch
-        .with_fallibale_allocations(true) 
+        .with_max_num_rows_per_batch(50000)
+        .with_max_bytes_per_batch(1024 * 1024 * 1024)
+        .with_fallibale_allocations(true)
         .build(owned_cursor)
-        .map_err(|e| DataFusionError::Execution(format!("Failed to create ODBC reader: {}", e)))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "ODBC Reader Setup".to_string(),
+            reason: format!("Failed to create ODBC reader: {}", e),
+            suggestion: "💡 Check ODBC driver configuration and memory settings".to_string()
+        })?;
 
     //  concurrent reader for better performance
     let concurrent_reader = reader.into_concurrent()
-        .map_err(|e| DataFusionError::Execution(format!("Failed to create concurrent reader: {}", e)))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Concurrent Reader Creation".to_string(),
+            reason: format!("Failed to create concurrent reader: {}", e),
+            suggestion: "💡 Try reducing batch size or memory allocation".to_string()
+        })?;
 
     //  all batches
     let mut all_batches = Vec::new();
     for batch_result in concurrent_reader {
-        let batch = batch_result.map_err(|e| DataFusionError::Execution(format!("Batch reading failed: {}", e)))?;
+        let batch = batch_result.map_err(|e| ElusionError::InvalidOperation {
+            operation: "Batch Reading".to_string(),
+            reason: format!("Failed to read data batch: {}", e),
+            suggestion: "💡 Check for data type mismatches or invalid values".to_string()
+        })?;
         all_batches.push(batch);
     }
     // Create DataFrame from batches
     let ctx = SessionContext::new();
     if let Some(first_batch) = all_batches.first() {
         let schema = first_batch.schema();
-        let mem_table = MemTable::try_new(schema, vec![all_batches])
-            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+        let mem_table = MemTable::try_new(schema.clone(), vec![all_batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create in-memory table: {}", e),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 Validate data types and schema compatibility".to_string()
+            })?;
 
         let normalized_alias = normalize_alias_write(alias);
         ctx.register_table(&normalized_alias, Arc::new(mem_table))
-            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Table Registration".to_string(),
+                reason: format!("Failed to register table: {}", e),
+                suggestion: "💡 Try using a different alias or check table name validity".to_string()
+            })?;
 
-        let df = ctx.table(&normalized_alias).await?;
-
+        let df = ctx.table(&normalized_alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "DataFrame Creation".to_string(),
+                reason: format!("Failed to create DataFrame: {}", e),
+                suggestion: "💡 Verify table registration and schema".to_string()
+            })?;
 
         Ok(AliasedDataFrame {
             dataframe: df,
             alias: alias.to_string(),
         })
     } else {
-        Err(DataFusionError::Execution("No data returned from query".to_string()))
+        Err(ElusionError::InvalidOperation {
+            operation: "Data Retrieval".to_string(),
+            reason: "No data returned from query".to_string(),
+            suggestion: "💡 Check if query returns any rows or modify WHERE conditions".to_string()
+        })
     }
 }
 
@@ -4305,7 +4808,11 @@ pub async fn from_db(
     let aliased_df = Self::load_db(connection_string, query, &table_alias).await?;
 
     if aliased_df.dataframe.schema().fields().is_empty() {
-        return Err(ElusionError::Custom("Query returned no data".to_string()));
+        return Err(ElusionError::SchemaError {
+            message: "Query returned empty schema".to_string(),
+            schema: None,
+            suggestion: "💡 Verify query returns expected columns".to_string()
+        });
     }
     
     Ok(CustomDataFrame {
@@ -4467,7 +4974,7 @@ pub async fn from_azure_with_sas_token(
     ctx.register_table(alias, Arc::new(mem_table))
         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
 
-    println!("Successfully created and registered in-memory table with alias '{}'", alias);
+    println!("✅ Successfully created and registered in-memory table with alias '{}'", alias);
 
     let df = ctx.table(alias)
         .await
@@ -4502,7 +5009,7 @@ pub async fn from_azure_with_sas_token(
 pub async fn load(
     file_path: &str,
     alias: &str,
-) -> Result<AliasedDataFrame, DataFusionError> {
+) -> ElusionResult<AliasedDataFrame> {
     let path_manager = DeltaPathManager::new(file_path);
     if path_manager.is_delta_table() {
         return Self::load_delta(file_path, alias).await;
@@ -4514,17 +5021,21 @@ pub async fn load(
         .unwrap_or_default()
         .to_lowercase();
 
-    match ext.as_str() {
-        "csv" => Self::load_csv(file_path, alias).await,
-        "json" => Self::load_json(file_path, alias).await,
-        "parquet" => Self::load_parquet(file_path, alias).await,
-        "" => Err(DataFusionError::Execution(format!(
-            "Directory is not a Delta table and has no recognized extension: {file_path}"
-        ))),
-        other => Err(DataFusionError::Execution(format!(
-            "Unsupported extension: {other}"
-        ))),
-    }
+        match ext.as_str() {
+            "csv" => Self::load_csv(file_path, alias).await,
+            "json" => Self::load_json(file_path, alias).await,
+            "parquet" => Self::load_parquet(file_path, alias).await,
+            "" => Err(ElusionError::InvalidOperation {
+                operation: "File Loading".to_string(),
+                reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
+                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet) or a valid Delta table directory".to_string(),
+            }),
+            other => Err(ElusionError::InvalidOperation {
+                operation: "File Loading".to_string(),
+                reason: format!("Unsupported file extension: {other}"),
+                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, or Delta table".to_string(),
+            }),
+        }
 }
 
 // -------------------- PLOTING -------------------------- //
@@ -5095,7 +5606,7 @@ impl PipelineScheduler {
         let job_fn = job_fn.clone();
         Box::pin(async move {
             let future = job_fn();
-            future.await.unwrap_or_else(|e| eprintln!("Job execution failed: {}", e));
+            future.await.unwrap_or_else(|e| eprintln!("❌ Job execution failed: {}", e));
             
             let next_tick = l.next_tick_for_job(uuid).await;
             match next_tick {
@@ -5103,14 +5614,14 @@ impl PipelineScheduler {
                 _ => println!("Could not determine next job execution"),
             }
         })
-    }).map_err(|e| ElusionError::Custom(format!("Job creation failed: {}", e)))?;
+    }).map_err(|e| ElusionError::Custom(format!("❌ Job creation failed: {}", e)))?;
 
 
         scheduler.add(job).await
-            .map_err(|e| ElusionError::Custom(format!("Job scheduling failed: {}", e)))?;
+            .map_err(|e| ElusionError::Custom(format!("❌ Job scheduling failed: {}", e)))?;
             
         scheduler.start().await
-            .map_err(|e| ElusionError::Custom(format!("Scheduler start failed: {}", e)))?;
+            .map_err(|e| ElusionError::Custom(format!("❌ Scheduler start failed: {}", e)))?;
         
        println!("JobScheduler successfully initialized and started.");
 
@@ -5159,9 +5670,9 @@ impl PipelineScheduler {
     pub async fn shutdown(mut self) -> ElusionResult<()> {
         println!("Shutdown is ready if needed with -> Ctr+C");
         tokio::signal::ctrl_c().await
-            .map_err(|e| ElusionError::Custom(format!("Ctrl+C handler failed: {}", e)))?;
+            .map_err(|e| ElusionError::Custom(format!("❌ Ctrl+C handler failed: {}", e)))?;
         self.scheduler.shutdown().await
-            .map_err(|e| ElusionError::Custom(format!("Shutdown failed: {}", e)))
+            .map_err(|e| ElusionError::Custom(format!("❌ Shutdown failed: {}", e)))
     }
 }
 
@@ -5199,7 +5710,7 @@ pub async fn from_api(
     let response = client.get(url)
         .send()
         .await
-        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+        .map_err(|e| ElusionError::Custom(format!("❌ HTTP request failed: {}", e)))?;
     
     let content = response.bytes()
         .await
@@ -5228,7 +5739,7 @@ pub async fn from_api_with_headers(
     let response = request
         .send()
         .await
-        .map_err(|e| ElusionError::Custom(format!("HTTP request failed: {}", e)))?;
+        .map_err(|e| ElusionError::Custom(format!("❌ HTTP request failed: {}", e)))?;
 
     let content = response.bytes()
         .await
@@ -5372,6 +5883,15 @@ pub async fn from_api_with_headers_and_sort(
 
 /// Process JSON response into JSON 
 async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()> {
+
+    if content.is_empty() {
+        return Err(ElusionError::InvalidOperation {
+            operation: "JSON Processing".to_string(),
+            reason: "Empty content provided".to_string(),
+            suggestion: "💡 Ensure API response contains data".to_string(),
+        });
+    }
+
     let reader = std::io::BufReader::new(content.as_ref());
     let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
     let mut stream = stream.peekable();
@@ -5379,60 +5899,140 @@ async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()>
     let json_type = match stream.peek() {
         Some(Ok(Value::Array(_))) => JsonType::Array,
         Some(Ok(Value::Object(_))) => JsonType::Object,
-        Some(Err(e)) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
-        _ => return Err(ElusionError::Custom("Invalid JSON response".to_string())),
+        Some(Ok(_)) => return Err(ElusionError::InvalidOperation {
+            operation: "JSON Validation".to_string(),
+            reason: "Invalid JSON structure".to_string(),
+            suggestion: "💡 JSON must be either an array or object at root level".to_string(),
+        }),
+        Some(Err(e)) => return Err(ElusionError::InvalidOperation {
+            operation: "JSON Parsing".to_string(),
+            reason: format!("JSON syntax error: {}", e),
+            suggestion: "💡 Check if the JSON content is well-formed".to_string(),
+        }),
+        None => return Err(ElusionError::InvalidOperation {
+            operation: "JSON Reading".to_string(),
+            reason: "Empty or invalid JSON content".to_string(),
+            suggestion: "💡 Verify the API response contains valid JSON data".to_string(),
+        }),
     };
 
-    // Create parent directory if it doesn't exist
-    if let Some(parent) = LocalPath::new(file_path).parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| ElusionError::Custom(format!("Failed to create directory: {}. Please make sure you have correct file path. Check github repo for examples.", e)))?;
+    // validating file path and create directories
+    let path = LocalPath::new(file_path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
+            path: parent.display().to_string(),
+            operation: "Directory Creation".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check directory permissions and path validity".to_string(),
+        })?;
     }
 
+    // Open file for writing
     let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(&file_path)
-        .map_err(|e| ElusionError::Custom(format!("Failed to open file: {}", e)))?;
+        .open(file_path)
+        .map_err(|e| ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "File Creation".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify file path and write permissions".to_string(),
+        })?;
 
     let mut writer = std::io::BufWriter::new(file);
     let mut first = true;
+    let mut items_written = 0;
 
     match json_type {
         JsonType::Array => {
-            writeln!(writer, "[")?;
+            writeln!(writer, "[").map_err(|e| ElusionError::WriteError {
+                path: file_path.to_string(),
+                operation: "Array Start".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check disk space and write permissions".to_string(),
+            })?;
+
             for value in stream {
                 match value {
                     Ok(Value::Array(array)) => {
                         for item in array {
                             if !first {
-                                writeln!(writer, ",")?;
+                                writeln!(writer, ",").map_err(|e| ElusionError::WriteError {
+                                    path: file_path.to_string(),
+                                    operation: "Array Separator".to_string(),
+                                    reason: e.to_string(),
+                                    suggestion: "💡 Check disk space and write permissions".to_string(),
+                                })?;
                             }
                             first = false;
+                            items_written += 1;
+
                             serde_json::to_writer_pretty(&mut writer, &item)
-                                .map_err(|e| ElusionError::Custom(format!("Failed to write JSON: {}", e)))?;
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: file_path.to_string(),
+                                    operation: format!("Write Array Item {}", items_written),
+                                    reason: format!("JSON serialization error: {}", e),
+                                    suggestion: "💡 Check if item contains valid JSON data".to_string(),
+                                })?;
                         }
                     }
                     Ok(_) => continue,
-                    Err(e) => return Err(ElusionError::Custom(format!("JSON parsing error: {}", e))),
+                    Err(e) => return Err(ElusionError::InvalidOperation {
+                        operation: "Array Processing".to_string(),
+                        reason: format!("Failed to parse array item: {}", e),
+                        suggestion: "💡 Verify JSON array structure is valid".to_string(),
+                    }),
                 }
             }
-            writeln!(writer, "\n]")?;
+            writeln!(writer, "\n]").map_err(|e| ElusionError::WriteError {
+                path: file_path.to_string(),
+                operation: "Array End".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check disk space and write permissions".to_string(),
+            })?;
         }
         JsonType::Object => {
             for value in stream {
-                if let Ok(Value::Object(map)) = value {
-                    serde_json::to_writer_pretty(&mut writer, &Value::Object(map))
-                        .map_err(|e| ElusionError::Custom(format!("Failed to write JSON: {}", e)))?;
+                match value {
+                    Ok(Value::Object(map)) => {
+                        items_written += 1;
+                        serde_json::to_writer_pretty(&mut writer, &Value::Object(map))
+                            .map_err(|e| ElusionError::WriteError {
+                                path: file_path.to_string(),
+                                operation: format!("Write Object {}", items_written),
+                                reason: format!("JSON serialization error: {}", e),
+                                suggestion: "💡 Check if object contains valid JSON data".to_string(),
+                            })?;
+                    }
+                    Ok(_) => return Err(ElusionError::InvalidOperation {
+                        operation: "Object Processing".to_string(),
+                        reason: "Non-object value in object stream".to_string(),
+                        suggestion: "💡 Ensure all items are valid JSON objects".to_string(),
+                    }),
+                    Err(e) => return Err(ElusionError::InvalidOperation {
+                        operation: "Object Processing".to_string(),
+                        reason: format!("Failed to parse object: {}", e),
+                        suggestion: "💡 Verify JSON object structure is valid".to_string(),
+                    }),
                 }
             }
         }
     }
 
-    writer.flush()
-        .map_err(|e| ElusionError::Custom(format!("Failed to flush writer: {}", e)))?;
-    println!("Successfully created {}", file_path);
+    writer.flush().map_err(|e| ElusionError::WriteError {
+        path: file_path.to_string(),
+        operation: "File Finalization".to_string(),
+        reason: e.to_string(),
+        suggestion: "💡 Check disk space and write permissions".to_string(),
+    })?;
+
+    println!("✅ Successfully created {} with {} items", file_path, items_written);
+    
+    if items_written == 0 {
+        println!("⚠️  Warning: No items were written to the file. Check if this is expected.");
+    }
+
     Ok(())
 }
 
