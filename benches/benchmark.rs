@@ -368,7 +368,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df1 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -381,7 +381,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df2 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -395,7 +395,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let result_df2 = df2.elusion("df2").await.unwrap();
             
             let union_df = result_df1.union(result_df2).await.unwrap();
-            let _ = union_df.limit(100).elusion("union_result").await.unwrap();
+            let _ = union_df.limit(100).elusion("union_re").await.unwrap();
         })
     }));
 
@@ -406,7 +406,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df1 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -419,7 +419,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df2 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -444,7 +444,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df1 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -458,7 +458,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df2 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -484,7 +484,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df1 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])
@@ -498,7 +498,7 @@ pub fn benchmark_appending(c: &mut Criterion) {
             let df2 = sales_df.clone()
                 .join(
                     customers_df.clone(),
-                    ["s.CustomerKey = c.CustomerKey"],
+                    ["se.CustomerKey = c.CustomerKey"],
                     "INNER"
                 )
                 .select(["c.FirstName", "c.LastName"])

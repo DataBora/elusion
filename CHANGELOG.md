@@ -1,3 +1,7 @@
+## [2.4.1] - 2025-02-07
+### Added
+- Custom ERROR handling
+
 ## [2.4.0] - 2025-02-06
 ### Fixed
 - Fixed UNION, UNION_ALL, EXCEPT, INTESECT now they return proper results
