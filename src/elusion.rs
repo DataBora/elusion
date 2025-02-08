@@ -2434,19 +2434,48 @@ impl CustomDataFrame {
 
      /// Performs a APPEND with another DataFrame
      pub async fn append(self, other: CustomDataFrame) -> ElusionResult<Self> {
+
+        // if self.df.schema() != other.df.schema() {
+        //     return Err(ElusionError::SetOperationError {
+        //         operation: "APPEND".to_string(),
+        //         reason: "Schema mismatch between dataframes".to_string(),
+        //         suggestion: "Ensure both dataframes have identical column names and types".to_string(),
+        //     });
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        let mut batches_self = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
-        let batches_other = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let mut batches_self = self.df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Collecting batches from first dataframe".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if the dataframe is valid and not empty".to_string(),
+        })?;
+
+        let batches_other = other.df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Collecting batches from second dataframe".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if the dataframe is valid and not empty".to_string(),
+        })?;
 
         batches_self.extend(batches_other);
     
         let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![batches_self])
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Creating memory table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify data consistency, number of columns or memory availability".to_string(),
+        })?;
     
-        let alias = "union_result";
+        let alias = "append_result";
+
         ctx.register_table(alias, Arc::new(mem_table))
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique in context".to_string(),
+        })?;
     
         let df = ctx.table(alias).await
             .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
@@ -2476,24 +2505,66 @@ impl CustomDataFrame {
     }
     /// Performs APPEND on multiple dataframes
     pub async fn append_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+
+        if N == 0 {
+            return Err(ElusionError::SetOperationError {
+                operation: "APPEND MANY".to_string(),
+                reason: "No dataframes provided for append operation".to_string(),
+                suggestion: "💡 Provide at least one dataframe to append".to_string(),
+            });
+        }
+
+        // for (i, other) in others.iter().enumerate() {
+        //     if self.df.schema() != other.df.schema() {
+        //         return Err(ElusionError::SetOperationError {
+        //             operation: "APPEND MANY".to_string(),
+        //             reason: format!("Schema mismatch with dataframe at index {}", i),
+        //             suggestion: "💡 Ensure all dataframes have identical column names and types".to_string(),
+        //         });
+        //     }
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        let mut all_batches = self.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let mut all_batches = self.df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Collecting base dataframe".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if the dataframe is valid and not empty".to_string(),
+        })?;
         
-        for other in others.iter() {
-            let other_batches = other.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        for (i, other) in others.iter().enumerate() {
+            let other_batches = other.df.clone().collect().await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: format!("Collecting dataframe at index {}", i),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if the dataframe is valid and not empty".to_string(),
+                })?;
             all_batches.extend(other_batches);
         }
     
         let mem_table = MemTable::try_new(self.df.schema().clone().into(), vec![all_batches])
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Creating memory table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify data consistency and memory availability".to_string(),
+        })?;
     
         let alias = "union_many_result";
+
         ctx.register_table(alias, Arc::new(mem_table))
-            .map_err(|e| ElusionError::DataFusion(DataFusionError::Execution(e.to_string())))?;
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering result table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique in context".to_string(),
+        })?;
     
         let df = ctx.table(alias).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "APPEND MANY".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify final table creation".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2520,10 +2591,31 @@ impl CustomDataFrame {
     }
     /// Performs UNION on two dataframes
     pub async fn union(self, other: CustomDataFrame) -> ElusionResult<Self> {
+
+        // if self.df.schema() != other.df.schema() {
+        //     return Err(ElusionError::SetOperationError {
+        //         operation: "UNION".to_string(),
+        //         reason: "Schema mismatch between dataframes".to_string(),
+        //         suggestion: "💡 Ensure both dataframes have identical column names and types".to_string(),
+        //     });
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering first table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
+
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering second table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
+    
         
         let sql = format!(
             "SELECT DISTINCT * FROM {} UNION SELECT DISTINCT * FROM {}",
@@ -2532,7 +2624,11 @@ impl CustomDataFrame {
         );
 
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "UNION".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2559,13 +2655,42 @@ impl CustomDataFrame {
     }
     /// Performs UNION on multiple dataframes
     pub async fn union_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+
+        if N == 0 {
+            return Err(ElusionError::SetOperationError {
+                operation: "UNION MANY".to_string(),
+                reason: "No dataframes provided for union operation".to_string(),
+                suggestion: "💡 Provide at least one dataframe to union with".to_string(),
+            });
+        }
+
+        // for (i, other) in others.iter().enumerate() {
+        //     if self.df.schema() != other.df.schema() {
+        //         return Err(ElusionError::SetOperationError {
+        //             operation: "UNION MANY".to_string(),
+        //             reason: format!("Schema mismatch with dataframe at index {}", i),
+        //             suggestion: "💡 Ensure all dataframes have identical column names and types".to_string(),
+        //         });
+        //     }
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering base table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
         
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_source_{}", i);
-            Self::register_df_as_table(&ctx, &alias, &other.df).await?;
+            Self::register_df_as_table(&ctx, &alias, &other.df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: format!("Registering table {}", i),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+                })?;
         }
         
         let mut sql = format!("SELECT DISTINCT * FROM {}", normalize_alias(&self.table_alias));
@@ -2575,7 +2700,11 @@ impl CustomDataFrame {
         }
     
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create union DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "UNION MANY".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2603,10 +2732,30 @@ impl CustomDataFrame {
 
     /// Performs UNION_ALL  on two dataframes
     pub async fn union_all(self, other: CustomDataFrame) -> ElusionResult<Self> {
+
+        // if self.df.schema() != other.df.schema() {
+        //     return Err(ElusionError::SetOperationError {
+        //         operation: "UNION ALL".to_string(),
+        //         reason: "Schema mismatch between dataframes".to_string(),
+        //         suggestion: "💡 Ensure both dataframes have identical column names and types".to_string(),
+        //     });
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering first table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
+
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering second table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
         
         let sql = format!(
             "SELECT * FROM {} UNION ALL SELECT * FROM {}",
@@ -2615,7 +2764,11 @@ impl CustomDataFrame {
         );
     
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "UNION ALL".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2642,13 +2795,42 @@ impl CustomDataFrame {
     }
     /// Performs UNIONA_ALL on multiple dataframes
     pub async fn union_all_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
+
+        if N == 0 {
+            return Err(ElusionError::SetOperationError {
+                operation: "UNION ALL MANY".to_string(),
+                reason: "No dataframes provided for union operation".to_string(),
+                suggestion: "💡 Provide at least one dataframe to union with".to_string(),
+            });
+        }
+
+        // for (i, other) in others.iter().enumerate() {
+        //     if self.df.schema() != other.df.schema() {
+        //         return Err(ElusionError::SetOperationError {
+        //             operation: "UNION ALL MANY".to_string(),
+        //             reason: format!("Schema mismatch with dataframe at index {}", i),
+        //             suggestion: "💡 Ensure all dataframes have identical column names and types".to_string(),
+        //         });
+        //     }
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering base table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
         
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_all_source_{}", i);
-            Self::register_df_as_table(&ctx, &alias, &other.df).await?;
+            Self::register_df_as_table(&ctx, &alias, &other.df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: format!("Registering table {}", i),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+                })?;
         }
         
         let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
@@ -2658,7 +2840,11 @@ impl CustomDataFrame {
         }
     
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create union all DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "UNION ALL MANY".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2685,10 +2871,30 @@ impl CustomDataFrame {
     }
     /// Performs EXCEPT on two dataframes
     pub async fn except(self, other: CustomDataFrame) -> ElusionResult<Self> {
+
+        // if self.df.schema() != other.df.schema() {
+        //     return Err(ElusionError::SetOperationError {
+        //         operation: "EXCEPT".to_string(),
+        //         reason: "Schema mismatch between dataframes".to_string(),
+        //         suggestion: "💡 Ensure both dataframes have identical column names and types".to_string(),
+        //     });
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering first table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
+
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering second table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
         
         let sql = format!(
             "SELECT * FROM {} EXCEPT SELECT * FROM {}",
@@ -2697,7 +2903,11 @@ impl CustomDataFrame {
         );
     
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create except DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "EXCEPT".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
@@ -2771,10 +2981,30 @@ impl CustomDataFrame {
     // }
     /// Performs INTERSECT on two dataframes
     pub async fn intersect(self, other: CustomDataFrame) -> ElusionResult<Self> {
+
+        // if self.df.schema() != other.df.schema() {
+        //     return Err(ElusionError::SetOperationError {
+        //         operation: "INTERSECT".to_string(),
+        //         reason: "Schema mismatch between dataframes".to_string(),
+        //         suggestion: "💡 Ensure both dataframes have identical column names and types".to_string(),
+        //     });
+        // }
+
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await?;
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering first table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
+
+        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Registering second table".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if table name is unique and data is valid".to_string(),
+        })?;
         
         let sql = format!(
             "SELECT * FROM {} INTERSECT SELECT * FROM {}",
@@ -2783,7 +3013,11 @@ impl CustomDataFrame {
         );
     
         let df = ctx.sql(&sql).await
-            .map_err(|e| ElusionError::Custom(format!("Failed to create intersect DataFrame: {}", e)))?;
+        .map_err(|e| ElusionError::SetOperationError {
+            operation: "INTERSECT".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify SQL syntax and schema compatibility".to_string(),
+        })?;
     
         Ok(CustomDataFrame {
             df,
