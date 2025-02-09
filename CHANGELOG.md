@@ -1,4 +1,4 @@
-## [2.4.2] - 2025-02-09
+## [2.4.3] - 2025-02-09
 ### Fixed
 - Appending data for Parquet Writer
 
