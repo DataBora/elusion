@@ -58,6 +58,8 @@ use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
 use plotly::common::{Mode, Line, Marker, Orientation};
 use plotly::layout::{Axis, Layout};
 use plotly::color::Rgb;
+use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
+use plotly::layout::{DragMode, RangeSlider};
 use arrow::array::{Array, Float64Array,Int64Array};
 use arrow::array::Date32Array;
 use std::cmp::Ordering;
@@ -6026,16 +6028,16 @@ pub async fn load(
     ) -> ElusionResult<()> {
         // Handle file path
         let file_path = if let Some(dir_path) = path {
-            let path = std::path::Path::new(dir_path);
+            let path = LocalPath::new(dir_path);
             if !path.exists() {
-                std::fs::create_dir_all(path)
+                fs::create_dir_all(path)
                     .map_err(|e| ElusionError::Custom(
                         format!("Failed to create directory '{}': {}", dir_path, e)
                     ))?;
             }
             path.join(filename)
         } else {
-            std::path::Path::new(filename).to_path_buf()
+            LocalPath::new(filename).to_path_buf()
         };
 
         let file_path_str = file_path.to_str()
@@ -6142,8 +6144,597 @@ pub async fn load(
 
         Ok(())
     }
-}
 
+    // -------------INteractive Charts
+     /// Create an enhanced time series plot with range selector buttons
+     pub async fn interactive_plot_time_series(
+        &self,
+        date_col: &str,
+        value_col: &str,
+        show_markers: bool,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_time_series(date_col, value_col, show_markers, title).await?;
+
+        // Create range selector buttons
+        let buttons = vec![
+            Button::new()
+                .name("1m")
+                .args(json!({
+                    "xaxis.range": ["now-1month", "now"]
+                }))
+                .label("1m"),
+            Button::new()
+                .name("6m")
+                .args(json!({
+                    "xaxis.range": ["now-6months", "now"]
+                }))
+                .label("6m"),
+            Button::new()
+                .name("1y")
+                .args(json!({
+                    "xaxis.range": ["now-1year", "now"]
+                }))
+                .label("1y"),
+            Button::new()
+                .name("YTD")
+                .args(json!({
+                    "xaxis.range": ["now-ytd", "now"]
+                }))
+                .label("YTD"),
+            Button::new()
+                .name("all")
+                .args(json!({
+                    "xaxis.autorange": true
+                }))
+                .label("All")
+        ];
+
+        // Update layout with range selector and slider
+        let layout = plot.layout().clone()
+            .x_axis(Axis::new()
+                .title(date_col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true)
+                .type_(plotly::layout::AxisType::Date)
+                .range_slider(RangeSlider::new().visible(true)))
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ])
+            .drag_mode(DragMode::Zoom);
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create an enhanced bar chart with sort buttons
+    pub async fn interactive_plot_bar(
+        &self,
+        x_col: &str,
+        y_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_bar(x_col, y_col, None, title).await?;
+
+        // Create sort buttons
+        let update_menu_buttons = vec![
+            Button::new()
+                .name("reset")
+                .args(json!({
+                    "xaxis.type": "category",
+                    "xaxis.categoryorder": "trace"
+                }))
+                .label("Reset"),
+            Button::new()
+                .name("ascending")
+                .args(json!({
+                    "xaxis.type": "category",
+                    "xaxis.categoryorder": "total ascending"
+                }))
+                .label("Sort Ascending"),
+            Button::new()
+                .name("descending")
+                .args(json!({
+                    "xaxis.type": "category",
+                    "xaxis.categoryorder": "total descending"
+                }))
+                .label("Sort Descending")
+        ];
+
+        // Update layout with buttons
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(update_menu_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create an enhanced scatter plot with zoom and selection modes
+    pub async fn interactive_plot_scatter(
+        &self,
+        x_col: &str,
+        y_col: &str,
+        marker_size: Option<usize>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_scatter(x_col, y_col, marker_size).await?;
+
+        // Create mode buttons
+        let mode_buttons = vec![
+            Button::new()
+                .name("zoom")
+                .args(json!({
+                    "dragmode": "zoom"
+                }))
+                .label("Zoom"),
+            Button::new()
+                .name("select")
+                .args(json!({
+                    "dragmode": "select"
+                }))
+                .label("Select"),
+            Button::new()
+                .name("pan")
+                .args(json!({
+                    "dragmode": "pan"
+                }))
+                .label("Pan")
+        ];
+
+        // Update layout with buttons
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .drag_mode(DragMode::Zoom)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(mode_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+            
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+    ///Interactive histogram plot
+    pub async fn interactive_plot_histogram(
+        &self,
+        col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_histogram(col, None, title).await?;
+    
+        // Create binning control buttons
+        let bin_buttons = vec![
+            Button::new()
+                .name("bins10")
+                .args(json!({
+                    "xbins.size": 10
+                }))
+                .label("10 Bins"),
+            Button::new()
+                .name("bins20")
+                .args(json!({
+                    "xbins.size": 20
+                }))
+                .label("20 Bins"),
+            Button::new()
+                .name("bins30")
+                .args(json!({
+                    "xbins.size": 30
+                }))
+                .label("30 Bins")
+        ];
+    
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(bin_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+    
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+    ///Interactive Box plot
+    pub async fn interactive_plot_box(
+        &self,
+        value_col: &str,
+        group_by_col: Option<&str>,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_box(value_col, group_by_col, title).await?;
+    
+        // Create outlier control buttons
+        let outlier_buttons = vec![
+            Button::new()
+                .name("show_outliers")
+                .args(json!({
+                    "boxpoints": "outliers"
+                }))
+                .label("Show Outliers"),
+            Button::new()
+                .name("hide_outliers")
+                .args(json!({
+                    "boxpoints": false
+                }))
+                .label("Hide Outliers")
+        ];
+    
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(outlier_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+    
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+    ///Interactive Pie Plot
+    pub async fn interactive_plot_pie(
+        &self,
+        label_col: &str,
+        value_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_pie(label_col, value_col, title).await?;
+    
+        // Create display mode buttons
+        let display_buttons = vec![
+            Button::new()
+                .name("percentage")
+                .args(json!({
+                    "textinfo": "percent"
+                }))
+                .label("Show Percentages"),
+            Button::new()
+                .name("values")
+                .args(json!({
+                    "textinfo": "value"
+                }))
+                .label("Show Values"),
+            Button::new()
+                .name("both")
+                .args(json!({
+                    "textinfo": "value+percent"
+                }))
+                .label("Show Both")
+        ];
+    
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(display_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+    
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+    ///Interactive Donut Plot
+    pub async fn interactive_plot_donut(
+        &self,
+        label_col: &str,
+        value_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        let mut plot = self.plot_donut(label_col, value_col, title, Some(0.5)).await?;
+    
+        // Create hole size control buttons
+        let hole_buttons = vec![
+            Button::new()
+                .name("small")
+                .args(json!({
+                    "hole": 0.3
+                }))
+                .label("Small Hole"),
+            Button::new()
+                .name("medium")
+                .args(json!({
+                    "hole": 0.5
+                }))
+                .label("Medium Hole"),
+            Button::new()
+                .name("large")
+                .args(json!({
+                    "hole": 0.7
+                }))
+                .label("Large Hole")
+        ];
+    
+        let layout = plot.layout().clone()
+            .show_legend(true)
+            .update_menus(vec![
+                UpdateMenu::new()
+                    .buttons(hole_buttons)
+                    .direction(UpdateMenuDirection::Down)
+                    .show_active(true)
+            ]);
+    
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+    /// Create an enhanced report with interactive features
+    pub async fn create_interactive_report(
+        plots: &[(&Plot, &str)],
+        report_title: &str,
+        filename: &str,
+        path: Option<&str>,
+        layout_config: Option<ReportLayout>,
+    ) -> ElusionResult<()> {
+        let file_path = if let Some(dir_path) = path {
+            let path = LocalPath::new(dir_path);
+            if !path.exists() {
+                fs::create_dir_all(path)?;
+            }
+            path.join(filename)
+        } else {
+            LocalPath::new(filename).to_path_buf()
+        };
+    
+        let file_path_str = file_path.to_str()
+            .ok_or_else(|| ElusionError::Custom("Invalid path".to_string()))?;
+    
+        // Get layout configuration
+        let layout = layout_config.unwrap_or_default();
+    
+        // Create plot containers HTML
+        let plot_containers = plots.iter().enumerate().map(|(i, (plot, title))| format!(
+            r#"<div class="plot-container" 
+                data-plot-data='{}'
+                data-plot-layout='{}'>
+                <div class="plot-title">{}</div>
+                <div id="plot_{}" style="width:100%;height:{}px;"></div>
+            </div>"#,
+            serde_json::to_string(plot.data()).unwrap(),
+            serde_json::to_string(plot.layout()).unwrap(),
+            title,
+            i,
+            layout.plot_height
+        )).collect::<Vec<_>>().join("\n");
+    
+        let html_content = format!(
+            r#"<!DOCTYPE html>
+            <html>
+            <head>
+                <title>{0}</title>
+                <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        margin: 0;
+                        padding: 20px;
+                        background-color: #f5f5f5;
+                    }}
+                    .container {{
+                        max-width: {1}px;
+                        margin: 0 auto;
+                        background-color: white;
+                        padding: 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    h1 {{
+                        color: #333;
+                        text-align: center;
+                        margin-bottom: 30px;
+                    }}
+                    .controls {{
+                        margin-bottom: 20px;
+                        padding: 15px;
+                        background: #f8f9fa;
+                        border-radius: 8px;
+                        display: flex;
+                        gap: 10px;
+                        justify-content: center;
+                    }}
+                    .controls button {{
+                        padding: 8px 16px;
+                        border: none;
+                        border-radius: 4px;
+                        background: #007bff;
+                        color: white;
+                        cursor: pointer;
+                        transition: background 0.2s;
+                    }}
+                    .controls button:hover {{
+                        background: #0056b3;
+                    }}
+                    .grid {{
+                        display: grid;
+                        grid-template-columns: repeat({2}, 1fr);
+                        gap: {3}px;
+                    }}
+                    .plot-container {{
+                        background: white;
+                        padding: 15px;
+                        border-radius: 8px;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    }}
+                    .plot-title {{
+                        font-size: 18px;
+                        font-weight: bold;
+                        margin-bottom: 10px;
+                        color: #444;
+                    }}
+                    @media (max-width: 768px) {{
+                        .grid {{
+                            grid-template-columns: 1fr;
+                        }}
+                    }}
+                    .loading {{
+                        display: none;
+                        position: fixed;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        background: rgba(255,255,255,0.9);
+                        padding: 20px;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>{0}</h1>
+                    <div class="controls">
+                        <button onclick="syncZoom()">Sync Zoom</button>
+                        <button onclick="resetZoom()">Reset All</button>
+                        <button onclick="downloadPNG()">Download PNG</button>
+                        <button onclick="toggleGrid()">Toggle Layout</button>
+                    </div>
+                    <div id="loading" class="loading">Processing...</div>
+                    <div class="grid">
+                        {4}
+                    </div>
+                </div>
+                <script>
+                    const plots = [];
+                    let currentGridColumns = {2};
+                    
+                    // Initialize plots with additional configuration
+                    document.querySelectorAll('.plot-container').forEach((container, index) => {{
+                        const plotDiv = container.querySelector(`#plot_${{index}}`);
+                        const data = JSON.parse(container.dataset.plotData);
+                        const layout = JSON.parse(container.dataset.plotLayout);
+                        
+                        // Add responsive behavior
+                        layout.autosize = true;
+                        
+                        Plotly.newPlot(plotDiv, data, layout, {{
+                            responsive: true,
+                            scrollZoom: true,
+                            modeBarButtonsToAdd: [
+                                'hoverClosestCartesian',
+                                'hoverCompareCartesian'
+                            ],
+                            displaylogo: false
+                        }}).then(gd => {{
+                            plots.push(gd);
+                            
+                            // Add click event handler for each plot
+                            gd.on('plotly_click', function(data) {{
+                                highlightPoint(data, index);
+                            }});
+                        }});
+                    }});
+    
+                    function syncZoom() {{
+                        const loading = document.getElementById('loading');
+                        loading.style.display = 'block';
+                        
+                        try {{
+                            const source = plots[0];
+                            if (!source) return;
+                            
+                            const xRange = source.layout.xaxis.range;
+                            const yRange = source.layout.yaxis.range;
+                            
+                            Promise.all(plots.slice(1).map(plot => 
+                                Plotly.relayout(plot, {{
+                                    'xaxis.range': xRange,
+                                    'yaxis.range': yRange
+                                }})
+                            )).finally(() => {{
+                                loading.style.display = 'none';
+                            }});
+                        }} catch (error) {{
+                            console.error('Error syncing zoom:', error);
+                            loading.style.display = 'none';
+                        }}
+                    }}
+    
+                    function resetZoom() {{
+                        const loading = document.getElementById('loading');
+                        loading.style.display = 'block';
+                        
+                        Promise.all(plots.map(plot =>
+                            Plotly.relayout(plot, {{
+                                'xaxis.autorange': true,
+                                'yaxis.autorange': true
+                            }})
+                        )).finally(() => {{
+                            loading.style.display = 'none';
+                        }});
+                    }}
+    
+                    function downloadPNG() {{
+                        const loading = document.getElementById('loading');
+                        loading.style.display = 'block';
+                        
+                        Promise.all(plots.map((plot, index) =>
+                            Plotly.toImage(plot, {{format: 'png', width: 800, height: 600}})
+                                .then(url => {{
+                                    const link = document.createElement('a');
+                                    link.download = `plot_${{index}}.png`;
+                                    link.href = url;
+                                    link.click();
+                                }})
+                        )).finally(() => {{
+                            loading.style.display = 'none';
+                        }});
+                    }}
+    
+                    function toggleGrid() {{
+                        const grid = document.querySelector('.grid');
+                        currentGridColumns = currentGridColumns === {2} ? 1 : {2};
+                        grid.style.gridTemplateColumns = `repeat(${{currentGridColumns}}, 1fr)`;
+                    }}
+    
+                    function highlightPoint(data, plotIndex) {{
+                        if (!data.points || !data.points[0]) return;
+                        
+                        const point = data.points[0];
+                        const pointColor = 'red';
+                        
+                        plots.forEach((plot, idx) => {{
+                            if (idx !== plotIndex) {{
+                                const trace = plot.data[0];
+                                if (trace.x && trace.y) {{
+                                    const matchingPoints = trace.x.map((x, i) => {{
+                                        return {{x, y: trace.y[i]}};
+                                    }}).filter(p => p.x === point.x && p.y === point.y);
+                                    
+                                    if (matchingPoints.length > 0) {{
+                                        Plotly.restyle(plot, {{'marker.color': pointColor}}, [0]);
+                                    }}
+                                }}
+                            }}
+                        }});
+                    }}
+                </script>
+            </body>
+            </html>
+            "#,
+            report_title,                // {0}
+            layout.max_width,            // {1}
+            layout.grid_columns,         // {2}
+            layout.grid_gap,            // {3}
+            plot_containers,            // {4}
+        );
+    
+        std::fs::write(file_path_str, html_content)?;
+        println!("✅ Interactive Dashboard created, at {}", file_path_str);
+        Ok(())
+    }
+    
+}
+// ============== PIPELINE SCHEDULER
 #[derive(Clone)]
 pub struct PipelineScheduler {
     scheduler: JobScheduler,
@@ -6608,4 +7199,23 @@ async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()>
     Ok(())
 }
 
+}
+
+#[derive(Debug, Clone)]
+pub struct ReportLayout {
+    pub grid_columns: usize,    // Number of columns in the grid
+    pub grid_gap: usize,        // Gap between plots in pixels
+    pub max_width: usize,       // Maximum width of the container
+    pub plot_height: usize,     // Height of each plot
+}
+
+impl Default for ReportLayout {
+    fn default() -> Self {
+        Self {
+            grid_columns: 2,
+            grid_gap: 20,
+            max_width: 1200,
+            plot_height: 400,
+        }
+    }
 }

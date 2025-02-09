@@ -1,15 +1,15 @@
-# Elusion 🦀 DataFrame Library for Everybody!
+# Elusion 🦀 DataFrame / Data Engineering / Data Analysis Library for Everybody!
 
 ![Elusion Logo](images/elusion.png)
 
 
-Elusion is a high-performance DataFrame library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
+Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
 DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. (scroll down for examples)
 
-Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently.
+Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently. It also has Integrated Plotting and Interactive Dashboard features.
 
 ## Core Philosophy
 Elusion wants you to be you!
@@ -56,6 +56,9 @@ Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions 
 ### 📊 Plotting
 You can create individual HTML files with single Plot, OR you can create HTML reports with multiple Plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
 
+### 📊 Interactive Dashboards
+You can create Interactive Dashboards in HTML files with multiple interactive Plots.
+
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
 Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
@@ -72,7 +75,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.5.0"
+elusion = "2.5.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -685,6 +688,7 @@ let union_all_df = result_df1.union_all(result_df2).await?;
 let except_df = result_df1.except(result_df2).await?;
 //INTERSECT
 let intersect_df = result_df1.intersect(result_df2).await?;
+
 ```
 ## UNION_MANY, UNION_ALL_MANY
 #### UNION_MANY: Combines rows from many dataframes, removing duplicates
@@ -1282,19 +1286,19 @@ covid_df.from_api_with_dates(
 let reqres = ElusionApi::new();
 reqres.from_api_with_pagination(
     "https://reqres.in/api/users",
-    1,                                              // page
-    10,                                            // per_page
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\reqres_data.json",  // path where json will be stored
+    1,      // page
+    10,      // per_page
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\reqres_data.json"
 ).await?;
 ```
 ### FROM API WITH SORT
 ```rust
 let movie_db = ElusionApi::new();
 movie_db.from_api_with_sort(
-    "https://api.themoviedb.org/3/discover/movie",  // base url
-    "popularity",                                    // sort field
-    "desc",                                         // order
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies.json",  // path where json will be stored
+    "https://api.themoviedb.org/3/discover/movie", // base url
+    "popularity",   // sort field
+    "desc",         // order
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies.json"
 ).await?;
 ```
 ### FROM API WITH HEADERS AND SORT
@@ -1309,7 +1313,7 @@ movie_db.from_api_with_headers_and_sort(
     headers,                                        // headers
     "popularity",                                   // sort field
     "desc",                                        // order
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies1.json",   // path where json will be stored
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies1.json"
 ).await?;
 ```
 ---
@@ -1351,6 +1355,7 @@ let custom_csv_options = CsvWriteOptions {
 ```
 #### We have 2 writing modes: Overwrite and Append
 ```rust
+
 // overwrite existing file
 result_df
     .write_to_csv(
@@ -1368,6 +1373,7 @@ result_df
         custom_csv_options
     )
     .await?;
+
 ```
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
@@ -1554,7 +1560,123 @@ CustomDataFrame::create_report(
 ![Bar](images/bar.PNG)
 ### Example of Report with multiple Plots
 ![Report](images/report.PNG)
+---
+## INTERACTIVE DASHBOARD
+#### Currently available Interactive Plots: TimeSeries, Box, Bar, Histogram, Pie, Donut, Scatter
+```rust
+let ord = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+let sales_order_df = CustomDataFrame::new(ord, "ord").await?;
 
+let mix_query = sales_order_df.clone()
+.select([
+    "customer_name",
+    "order_date",
+    "ABS(billable_value) AS abs_billable_value",
+    "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value",
+    "billable_value * 2 AS double_billable_value",  // Multiplication
+    "billable_value / 100 AS percentage_billable"  // Division
+])
+.agg([
+    "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
+    "SUM(billable_value) AS total_billable",
+    "MAX(ABS(billable_value)) AS max_abs_billable",
+    "SUM(billable_value) * 2 AS double_total_billable",      // Operator-based aggregation
+    "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
+])
+.filter("billable_value > 50.0")
+.group_by_all()
+.order_by_many([
+    ("total_billable", false),  // Order by total_billable descending
+    ("max_abs_billable", true), // Then by max_abs_billable ascending
+]);
+
+let mix_res = mix_query.elusion("scalar_df").await?;
+
+///INTERACTIVE PLOTS
+let bars = mix_res
+   .interactive_plot_bar(
+       "customer_name",         // X-axis: Customer names
+       "total_billable",        // Y-axis: Total billable amount
+       Some("Customer Total Sales") // Title of the plot
+   ).await?;
+
+// Time series showing sales trend
+let time_series = mix_res
+   .interactive_plot_time_series(
+       "order_date",           // X-axis: Date column (must be Date32 type)
+       "total_billable",       // Y-axis: Total billable amount
+       true,                   // Show markers on the line
+       Some("Sales Trend Over Time") // Title of the plot
+   ).await?;
+
+// Histogram showing distribution of abs billable values
+let histogram = mix_res
+   .interactive_plot_histogram(
+       "abs_billable_value",   // Data column for distribution analysis
+       Some("Distribution of Sale Values") // Title of the plot
+   ).await?;
+
+// Box plot showing abs billable value distribution
+let box_plot = mix_res
+   .interactive_plot_box(
+       "abs_billable_value",   // Value column for box plot
+       Some("customer_name"),   // Optional grouping column
+       Some("Sales Distribution by Customer") // Title of the plot
+   ).await?;
+
+// Scatter plot showing relationship between original and doubled values
+let scatter = mix_res
+   .interactive_plot_scatter(
+       "abs_billable_value",   // X-axis: Original values
+       "double_billable_value", // Y-axis: Doubled values
+       Some(8)                 // Optional marker size
+   ).await?;
+
+// Pie chart showing sales distribution
+let pie = mix_res
+   .interactive_plot_pie(
+       "customer_name",        // Labels for pie segments
+       "total_billable",       // Values for pie segments
+       Some("Sales Share by Customer") // Title of the plot
+   ).await?;
+
+// Donut chart alternative view
+let donut = mix_res
+   .interactive_plot_donut(
+       "customer_name",        // Labels for donut segments
+       "percentage_total_billable", // Values as percentages
+       Some("Percentage Distribution") // Title of the plot
+   ).await?;
+
+// Create comprehensive dashboard with all plots
+let plots = [
+   (&time_series, "Sales Timeline"),       // Time-based analysis
+   (&bars, "Customer Sales"),              // Customer comparison
+   (&histogram, "Sales Distribution"),      // Value distribution
+   (&scatter, "Value Comparison"),         // Value relationships
+   (&box_plot, "Customer Distributions"),   // Statistical distribution
+   (&pie, "Sales Share"),                  // Share analysis
+   (&donut, "Percentage View"),            // Percentage breakdown
+];
+
+let layout = ReportLayout {
+   grid_columns: 2,      // Arrange plots in 2 columns
+   grid_gap: 30,         // 30px gap between plots
+   max_width: 1600,      // Maximum width of 1600px
+   plot_height: 450,     // Each plot 450px high
+};
+
+// Generate the enhanced interactive report with all plots
+CustomDataFrame::create_interactive_report(
+   &plots,                    // Array of plots and their titles
+   "Interactive Sales Analysis Dashboard", // Dashboard title
+   "C:\\Borivoj\\RUST\\Elusion\\Plots\\complete_dashboard.html", // Output path
+   None,                      // Optional custom directory
+   Some(layout)              // Layout configuration
+).await?;
+```
+### Interactive Dashboard Demo
+![Dash](./images/interactivedash.gif)
 ---
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
@@ -1563,10 +1685,9 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
-, Appache Arrow, Arrow ODBC, Tokio Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
+, Appache Arrow, Arrow ODBC, Tokio Cron Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 ## Where you can find me:
 
 LindkedIn - [LinkedIn](https://www.linkedin.com/in/borivojgrujicic/ )
 YouTube channel - [YouTube](https://www.youtube.com/@RustyBiz)
-Udemy Instructor - [Udemy](https://www.udemy.com/user/borivoj-grujicic/)

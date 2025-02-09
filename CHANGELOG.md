@@ -1,3 +1,7 @@
+## [2.5.1] - 2025-02-09
+### Added
+- Interactive Dashboarding
+
 ## [2.5.0] - 2025-02-09
 ### REAKING CHANGE
 - Now write_parquet_to_azure_with_sas() function needs specified writing mode: overwrite or append
