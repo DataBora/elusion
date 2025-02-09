@@ -1,7 +1,6 @@
 pub mod prelude;
 
 // =========== DataFusion
-use datafusion::logical_expr::col;
 use regex::Regex;
 use datafusion::prelude::*;
 use datafusion::error::DataFusionError;
@@ -24,7 +23,6 @@ use std::io::{Write, BufWriter};
 //============ WRITERS
 use datafusion::prelude::SessionContext;
 use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
-use tokio::task;
 
 // ========= JSON   
 use serde_json::{json, Value};
@@ -71,8 +69,6 @@ use datafusion::common::ScalarValue;
 use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
 use arrow_odbc::OdbcReaderBuilder;
 use lazy_static::lazy_static;
-// use arrow_odbc::arrow::record_batch::RecordBatch as OdbcReaderBatch;
-// use std::str::FromStr;
 
 // ========== AZURE
 use azure_storage_blobs::prelude::*;
@@ -92,6 +88,8 @@ use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
 use datafusion::parquet::arrow::ArrowWriter;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use futures::TryStreamExt;
+use tempfile::Builder;
 //  ==================== Pipeline Scheduler
 use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
@@ -104,7 +102,7 @@ use reqwest::Client;
 // Azure ULR validator helper function
 fn validate_azure_url(url: &str) -> ElusionResult<()> {
     if !url.starts_with("https://") {
-        return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
+        return Err(ElusionError::Custom("Bad url format. Expected format: https://{account}.{endpoint}.core.windows.net/{container}/{blob}".to_string()));
     }
 
     if !url.contains(".blob.core.windows.net/") && !url.contains(".dfs.core.windows.net/") {
@@ -4229,48 +4227,8 @@ pub async fn write_to_csv(
     path: &str,
     csv_options: CsvWriteOptions,
 ) -> ElusionResult<()> {
-    // let write_options = csv_options.unwrap_or_else(CsvWriteOptions::default);
     csv_options.validate()?;
-
-    let mut df = self.df.clone();
-
-    // Get the schema
-    let schema = df.schema();
-
-    let mut cast_expressions = Vec::new();
     
-    for field in schema.fields() {
-        let cast_expr = match field.data_type() {
-            // For floating point types and decimals, cast to Decimal
-            ArrowDataType::Float32 | ArrowDataType::Float64 | 
-            ArrowDataType::Decimal128(_, _) | ArrowDataType::Decimal256(_, _) => {
-                Some((
-                    field.name().to_string(),
-                    cast(col(field.name()), ArrowDataType::Decimal128(20, 4))
-                ))
-            },
-            // For integer types, cast to Int64
-            ArrowDataType::Int8 | ArrowDataType::Int16 | ArrowDataType::Int32 | ArrowDataType::Int64 |
-            ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 | ArrowDataType::UInt64 => {
-                Some((
-                    field.name().to_string(),
-                    cast(col(field.name()), ArrowDataType::Int64)
-                ))
-            },
-            // Leave other types as they are
-            _ => None,
-        };
-        
-        if let Some(expr) = cast_expr {
-            cast_expressions.push(expr);
-        }
-    }
-    
-    // Apply all transformations at once
-    for (name, cast_expr) in cast_expressions {
-        df = df.with_column(&name, cast_expr)?;
-    }
-
     if let Some(parent) = LocalPath::new(path).parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
@@ -4284,6 +4242,7 @@ pub async fn write_to_csv(
 
     match mode {
         "overwrite" => {
+            // Remove existing file if it exists
             if fs::metadata(path).is_ok() {
                 fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)).map_err(|e| 
                     ElusionError::WriteError {
@@ -4294,132 +4253,304 @@ pub async fn write_to_csv(
                     }
                 )?;
             }
-        }
-        "append" => {
-            if !fs::metadata(path).is_ok() {
-                return Err(ElusionError::WriteError {
-                    path: path.to_string(),
-                    operation: "append".to_string(),
-                    reason: "Target file does not exist".to_string(),
-                    suggestion: "💡 Create the file first or use 'overwrite' mode".to_string(),
+
+            let batches = self.df.clone().collect().await.map_err(|e| 
+                ElusionError::InvalidOperation {
+                    operation: "Data Collection".to_string(),
+                    reason: format!("Failed to collect DataFrame: {}", e),
+                    suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+                }
+            )?;
+
+            if batches.is_empty() {
+                return Err(ElusionError::InvalidOperation {
+                    operation: "CSV Writing".to_string(),
+                    reason: "No data to write".to_string(),
+                    suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
                 });
             }
-        }
+
+            let file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path)
+                .map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "file_create".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check file permissions and path validity".to_string(),
+                })?;
+
+            let writer = BufWriter::new(file);
+            let mut csv_writer = WriterBuilder::new()
+                .with_header(true)
+                .with_delimiter(csv_options.delimiter)
+                .with_escape(csv_options.escape)
+                .with_quote(csv_options.quote)
+                .with_double_quote(csv_options.double_quote)
+                .with_null(csv_options.null_value.clone())
+                .build(writer);
+
+            for batch in batches.iter() {
+                csv_writer.write(batch).map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "write_data".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to write data batch".to_string(),
+                })?;
+            }
+            
+            csv_writer.into_inner().flush().map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "flush".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Failed to flush data to file".to_string(),
+            })?;
+        },
+        "append" => {
+            if !fs::metadata(path).is_ok() {
+                // If file doesn't exist in append mode, just write directly
+                let batches = self.df.clone().collect().await.map_err(|e| 
+                    ElusionError::InvalidOperation {
+                        operation: "Data Collection".to_string(),
+                        reason: format!("Failed to collect DataFrame: {}", e),
+                        suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+                    }
+                )?;
+
+                if batches.is_empty() {
+                    return Err(ElusionError::InvalidOperation {
+                        operation: "CSV Writing".to_string(),
+                        reason: "No data to write".to_string(),
+                        suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
+                    });
+                }
+
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "file_create".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Check file permissions and path validity".to_string(),
+                    })?;
+
+                let writer = BufWriter::new(file);
+                let mut csv_writer = WriterBuilder::new()
+                    .with_header(true)
+                    .with_delimiter(csv_options.delimiter)
+                    .with_escape(csv_options.escape)
+                    .with_quote(csv_options.quote)
+                    .with_double_quote(csv_options.double_quote)
+                    .with_null(csv_options.null_value.clone())
+                    .build(writer);
+
+                for batch in batches.iter() {
+                    csv_writer.write(batch).map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "write_data".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Failed to write data batch".to_string(),
+                    })?;
+                }
+                csv_writer.into_inner().flush().map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "flush".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to flush data to file".to_string(),
+                })?;
+            } else {
+                let ctx = SessionContext::new();
+                let existing_df = ctx.read_csv(
+                    path,
+                    CsvReadOptions::new()
+                        .has_header(true)
+                        .schema_infer_max_records(1000),
+                ).await?;
+
+                // Verify columns match before proceeding
+                let existing_cols: HashSet<_> = existing_df.schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().to_string())
+                    .collect();
+                
+                let new_cols: HashSet<_> = self.df.schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().to_string())
+                    .collect();
+
+                if existing_cols != new_cols {
+                    return Err(ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "column_check".to_string(),
+                        reason: "Column mismatch between existing file and new data".to_string(),
+                        suggestion: "💡 Ensure both datasets have the same columns".to_string()
+                    });
+                }
+
+                ctx.register_table("existing_data", Arc::new(
+                    MemTable::try_new(
+                        existing_df.schema().clone().into(),
+                        vec![existing_df.clone().collect().await.map_err(|e| ElusionError::WriteError {
+                            path: path.to_string(),
+                            operation: "collect_existing".to_string(),
+                            reason: e.to_string(),
+                            suggestion: "💡 Failed to collect existing data".to_string()
+                        })?]
+                    ).map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "create_mem_table".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Failed to create memory table".to_string()
+                    })?
+                )).map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "register_existing".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to register existing data".to_string()
+                })?;
+
+                ctx.register_table("new_data", Arc::new(
+                    MemTable::try_new(
+                        self.df.schema().clone().into(),
+                        vec![self.df.clone().collect().await.map_err(|e| ElusionError::WriteError {
+                            path: path.to_string(),
+                            operation: "collect_new".to_string(),
+                            reason: e.to_string(),
+                            suggestion: "💡 Failed to collect new data".to_string()
+                        })?]
+                    ).map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "create_mem_table".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Failed to create memory table".to_string()
+                    })?
+                )).map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "register_new".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to register new data".to_string()
+                })?;
+
+                let column_list = existing_df.schema()
+                    .fields()
+                    .iter()
+                    .map(|f| format!("\"{}\"", f.name()))  
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let sql = format!(
+                    "SELECT {} FROM existing_data UNION ALL SELECT {} FROM new_data",
+                    column_list, column_list
+                );
+
+                let combined_df = ctx.sql(&sql).await
+                    .map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "combine_data".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Failed to combine existing and new data".to_string()
+                    })?;
+
+                let temp_path = format!("{}.temp", path);
+
+                // Clean up any existing temp file
+                if fs::metadata(&temp_path).is_ok() {
+                    fs::remove_file(&temp_path).map_err(|e| ElusionError::WriteError {
+                        path: temp_path.clone(),
+                        operation: "cleanup_temp".to_string(),
+                        reason: format!("Failed to delete temporary file: {}", e),
+                        suggestion: "💡 Check file permissions and ensure no other process is using the file".to_string(),
+                    })?;
+                }
+
+                let batches = combined_df.collect().await.map_err(|e| 
+                    ElusionError::InvalidOperation {
+                        operation: "Data Collection".to_string(),
+                        reason: format!("Failed to collect DataFrame: {}", e),
+                        suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+                    }
+                )?;
+
+                if batches.is_empty() {
+                    return Err(ElusionError::InvalidOperation {
+                        operation: "CSV Writing".to_string(),
+                        reason: "No data to write".to_string(),
+                        suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
+                    });
+                }
+
+                // Write to temporary file
+                {
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open(&temp_path)
+                        .map_err(|e| ElusionError::WriteError {
+                            path: temp_path.clone(),
+                            operation: "file_open".to_string(),
+                            reason: e.to_string(),
+                            suggestion: "💡 Check file permissions and path validity".to_string(),
+                        })?;
+
+                    let writer = BufWriter::new(file);
+                    let mut csv_writer = WriterBuilder::new()
+                        .with_header(true)
+                        .with_delimiter(csv_options.delimiter)
+                        .with_escape(csv_options.escape)
+                        .with_quote(csv_options.quote)
+                        .with_double_quote(csv_options.double_quote)
+                        .with_null(csv_options.null_value.clone())
+                        .build(writer);
+
+                    for batch in batches.iter() {
+                        csv_writer.write(batch).map_err(|e| ElusionError::WriteError {
+                            path: temp_path.clone(),
+                            operation: "write_data".to_string(),
+                            reason: e.to_string(),
+                            suggestion: "💡 Failed to write data batch".to_string(),
+                        })?;
+                    }
+
+                    csv_writer.into_inner().flush().map_err(|e| ElusionError::WriteError {
+                        path: temp_path.clone(),
+                        operation: "flush".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Check disk space and write permissions".to_string(),
+                    })?;
+                } // Writer is dropped here
+
+                // Remove original file first if it exists
+                if fs::metadata(path).is_ok() {
+                    fs::remove_file(path).map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "remove_original".to_string(),
+                        reason: format!("Failed to remove original file: {}", e),
+                        suggestion: "💡 Check file permissions".to_string()
+                    })?;
+                }
+
+                // Now rename temp file to original path
+                fs::rename(&temp_path, path).map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "rename_temp".to_string(),
+                    reason: format!("Failed to rename temporary file: {}", e),
+                    suggestion: "💡 Check file system permissions".to_string()
+                })?;
+            }
+        },
         _ => return Err(ElusionError::InvalidOperation {
             operation: mode.to_string(),
             reason: "Invalid write mode".to_string(),
             suggestion: "💡 Use 'overwrite' or 'append'".to_string()
         })
-    
     }
-
-    // RecordBatches from the DataFrame
-    let batches = self.df.clone().collect().await.map_err(|e| 
-        ElusionError::InvalidOperation {
-            operation: "Data Collection".to_string(),
-            reason: format!("Failed to collect DataFrame: {}", e),
-            suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
-        }
-    )?;
-
-    if batches.is_empty() {
-        return Err(ElusionError::InvalidOperation {
-            operation: "CSV Writing".to_string(),
-            reason: "No data to write".to_string(),
-            suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
-        });
-    }
-
-    // clone data for the blocking task
-    let batches_clone = batches.clone();
-    let mode_clone = mode.to_string();
-    let path_clone = path.to_string();
-    let write_options_clone = csv_options.clone();
-
-    // Spawn a blocking task to handle synchronous CSV writing
-    task::spawn_blocking(move || -> Result<(), ElusionError> {
-        // Open the file with appropriate options based on the mode
-        let file = match mode_clone.as_str() {
-            "overwrite" => OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&path_clone)
-                .map_err(|e| ElusionError::WriteError {
-                    path: path_clone.clone(),
-                    operation: "file_open".to_string(),
-                    reason: e.to_string(),
-                    suggestion: "💡 Check file permissions and path validity".to_string(),
-                })?,
-            "append" => OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(&path_clone)
-                .map_err(|e| ElusionError::WriteError {
-                    path: path_clone.clone(),
-                    operation: "file_open".to_string(),
-                    reason: e.to_string(),
-                    suggestion: "💡 Check file permissions and path validity".to_string(),
-                })?,
-            _ => unreachable!(), // Mode already validated
-        };
-
-        let writer = BufWriter::new(file);
-
-        let has_headers = match mode_clone.as_str() {
-            "overwrite" => true,
-            "append" => false,
-            _ => true, 
-        };
-        // initialize the CSV writer with the provided options
-        let mut csv_writer = WriterBuilder::new()
-            .with_header(has_headers)
-            .with_delimiter(write_options_clone.delimiter)
-            .with_escape(write_options_clone.escape)
-            .with_quote(write_options_clone.quote)
-            .with_double_quote(write_options_clone.double_quote)
-            .with_null(write_options_clone.null_value)
-            .build(writer);
-            
-
-            // if let Some(date_fmt) = write_options_clone.date_format {
-            //     builder = builder.with_date_format(date_fmt);
-            // }
-            // if let Some(time_fmt) = write_options_clone.time_format {
-            //     builder = builder.with_time_format(time_fmt);
-            // }
-            // if let Some(timestamp_fmt) = write_options_clone.timestamp_format {
-            //     builder = builder.with_timestamp_format(timestamp_fmt);
-            // }
-            // if let Some(timestamp_tz_fmt) = write_options_clone.timestamp_tz_format {
-            //     builder = builder.with_timestamp_tz_format(timestamp_tz_fmt);
-            // }
-
-            
-            // Write each batch 
-            for (idx, batch) in batches_clone.iter().enumerate() {
-                csv_writer.write(batch).map_err(|e| ElusionError::WriteError {
-                    path: path_clone.clone(),
-                    operation: format!("write_batch_{}", idx),
-                    reason: e.to_string(),
-                    suggestion: "💡 Check if batch data contains invalid characters or formatting".to_string(),
-                })?;
-            }
-        
-            csv_writer.into_inner().flush().map_err(|e| ElusionError::WriteError {
-                path: path_clone,
-                operation: "flush".to_string(),
-                reason: e.to_string(),
-                suggestion: "💡 Check disk space and write permissions".to_string(),
-            })?;
-            
-        Ok(())
-    }).await.map_err(|e| ElusionError::WriteError {
-        path: path.to_string(),
-        operation: "async_write".to_string(),
-        reason: e.to_string(),
-        suggestion: "💡 Internal error during async operation".to_string(),
-    })??;
 
     match mode {
         "overwrite" => println!("✅ Data successfully overwritten to '{}'", path),
@@ -4536,154 +4667,10 @@ fn setup_azure_client(&self, url: &str, sas_token: &str) -> ElusionResult<(Conta
     Ok((client, blob_name))
 }
 
-// async fn prepare_parquet_content(&self) -> ElusionResult<Bytes> {
-//     // Convert DataFrame to RecordBatch
-//     let batches: Vec<RecordBatch> = self.clone().df.collect().await
-//         .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
-
-//     // Create ParquetWriter properties
-//     let props = WriterProperties::builder()
-//         .set_writer_version(WriterVersion::PARQUET_2_0)
-//         .set_compression(Compression::SNAPPY)
-//         .set_created_by("Elusion".to_string())
-//         .build();
-
-//     // Write RecordBatch to in-memory Parquet file
-//     let mut buffer = Vec::new();
-//     {
-//         let schema = self.df.schema();
-//         let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
-//             .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
-
-//         for batch in batches {
-//             writer.write(&batch)
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
-//         }
-//         writer.close()
-//             .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
-//     }
-
-//     Ok(Bytes::from(buffer))
-// }
-
-// pub async fn write_parquet_to_azure_with_sas(
-//     &self,
-//     mode: &str,
-//     url: &str,
-//     sas_token: &str,
-// ) -> ElusionResult<()> {
-//     validate_azure_url(url)?;
-    
-//     let (client, blob_name) = self.setup_azure_client(url, sas_token)?;
-//     let blob_client = client.blob_client(&blob_name);
-
-//     // Check if blob exists
-//     let exists = blob_client
-//         .get_properties()
-//         .await
-//         .is_ok();
-
-//     match mode.to_lowercase().as_str() {
-//         "overwrite" => {
-//             // Convert DataFrame to Parquet
-//             let content = self.prepare_parquet_content().await?;
-//             let content_length = content.len();
-
-//             // Use block blob operations with staged upload for larger files
-//             if content_length > 100_000_000 {  // 100MB threshold
-//                 let block_id = STANDARD.encode(format!("{:0>20}", 1));
-
-//                 blob_client
-//                     .put_block(block_id.clone(), content)
-//                     .await
-//                     .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
-
-//                 let block_list = BlockList {
-//                     blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
-//                 };
-
-//                 blob_client
-//                     .put_block_list(block_list)
-//                     .content_type("application/parquet")
-//                     .await
-//                     .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
-//             } else {
-//                 blob_client
-//                     .put_block_blob(content)
-//                     .content_type("application/parquet")
-//                     .await
-//                     .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
-//             }
-//             println!("Data successfully overwritten to Azure blob: '{}'", url);
-//         }
-//         "append" => {
-//             if !exists {
-//                 return Err(ElusionError::Custom(format!(
-//                     "Append mode requires an existing blob at '{}'",
-//                     url
-//                 )));
-//             }
-
-//             // Get existing blocks for append
-//             let existing_blocks = blob_client
-//                 .get_block_list()
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to get block list: {}", e)))?
-//                 .block_with_size_list
-//                 .blocks
-//                 .into_iter()
-//                 .filter_map(|block| {
-//                     if let BlobBlockType::Committed(id) = block.block_list_type {
-//                         Some(id)
-//                     } else {
-//                         None
-//                     }
-//                 })
-//                 .collect::<Vec<_>>();
-
-//             // Generate next block ID
-//             let next_block_id = format!("{:0>20}", existing_blocks.len() + 1);
-//             let new_block_id = STANDARD.encode(next_block_id);
-
-//             // Convert DataFrame to Parquet and upload new block
-//             let content = self.prepare_parquet_content().await?;
-
-//             // Upload new block
-//             blob_client
-//                 .put_block(new_block_id.clone(), content)
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
-
-//             // Prepare final block list (existing + new)
-//             let mut blocks = existing_blocks
-//                 .into_iter()
-//                 .map(|id| BlobBlockType::Committed(id))
-//                 .collect::<Vec<_>>();
-//             blocks.push(BlobBlockType::Uncommitted(new_block_id.into_bytes().into()));
-
-//             // Commit all blocks
-//             let block_list = BlockList { blocks };
-//             blob_client
-//                 .put_block_list(block_list)
-//                 .content_type("application/parquet")
-//                 .await
-//                 .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
-
-//             println!("Data successfully appended to Azure blob: '{}'", url);
-//         }
-//         _ => {
-//             return Err(ElusionError::Custom(format!(
-//                 "Unsupported write mode: '{}'. Use 'overwrite' or 'append'.",
-//                 mode
-//             )));
-//         }
-//     }
-
-//     Ok(())
-// }
-/// Write DataFrame to Azure Blob Storage as Parquet
+/// Function to write data to Azure BLOB Storage with overwrite and append modes
 pub async fn write_parquet_to_azure_with_sas(
     &self,
+    mode: &str,
     url: &str,
     sas_token: &str,
 ) -> ElusionResult<()> {
@@ -4692,30 +4679,184 @@ pub async fn write_parquet_to_azure_with_sas(
     let (client, blob_name) = self.setup_azure_client(url, sas_token)?;
     let blob_client = client.blob_client(&blob_name);
 
-    let batches: Vec<RecordBatch> = self.clone().df.collect().await
-        .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+    match mode {
+        "overwrite" => {
+            // Existing overwrite logic
+            let batches: Vec<RecordBatch> = self.clone().df.collect().await
+                .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
 
+            let props = WriterProperties::builder()
+                .set_writer_version(WriterVersion::PARQUET_2_0)
+                .set_compression(Compression::SNAPPY)
+                .set_created_by("Elusion".to_string())
+                .build();
 
-    let props = WriterProperties::builder()
-        .set_writer_version(WriterVersion::PARQUET_2_0)
-        .set_compression(Compression::SNAPPY)
-        .set_created_by("Elusion".to_string())
-        .build();
+            let mut buffer = Vec::new();
+            {
+                let schema = self.df.schema();
+                let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+                    .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
 
-    let mut buffer = Vec::new();
-    {
-        let schema = self.df.schema();
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
-            .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+                for batch in batches {
+                    writer.write(&batch)
+                        .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+                }
+                writer.close()
+                    .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+            }
 
-        for batch in batches {
-            writer.write(&batch)
-                .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+            self.upload_to_azure(&blob_client, buffer).await?;
+            println!("✅ Successfully overwrote parquet data to Azure blob: {}", url);
         }
-        writer.close()
-            .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
-    }
+        "append" => {
+            let ctx = SessionContext::new();
+            
+            // Try to download existing blob
+            match blob_client.get().into_stream().try_collect::<Vec<_>>().await {
+                Ok(chunks) => {
+                    // Combine all chunks into a single buffer
+                    let mut existing_data = Vec::new();
+                    for chunk in chunks {
+                        let data = chunk.data.collect().await
+                            .map_err(|e| ElusionError::Custom(format!("Failed to collect chunk data: {}", e)))?;
+                        existing_data.extend(data);
+                    }
+                    
+                    // Create temporary file to store existing data
+                    let temp_file = Builder::new()
+                        .prefix("azure_parquet_")
+                        .suffix(".parquet")  
+                        .tempfile()
+                        .map_err(|e| ElusionError::Custom(format!("Failed to create temp file: {}", e)))?;
+                    
+                    std::fs::write(&temp_file, existing_data)
+                        .map_err(|e| ElusionError::Custom(format!("Failed to write to temp file: {}", e)))?;
+        
+                    let existing_df = ctx.read_parquet(
+                        temp_file.path().to_str().unwrap(),
+                        ParquetReadOptions::default()
+                    ).await.map_err(|e| ElusionError::Custom(
+                        format!("Failed to read existing parquet: {}", e)
+                    ))?;
 
+                    // Register existing data
+                    ctx.register_table(
+                        "existing_data",
+                        Arc::new(MemTable::try_new(
+                            existing_df.schema().clone().into(),
+                            vec![existing_df.clone().collect().await.map_err(|e| 
+                                ElusionError::Custom(format!("Failed to collect existing data: {}", e)))?]
+                        ).map_err(|e| ElusionError::Custom(
+                            format!("Failed to create memory table: {}", e)
+                        ))?)
+                    ).map_err(|e| ElusionError::Custom(
+                        format!("Failed to register existing data: {}", e)
+                    ))?;
+
+                    // Register new data
+                    ctx.register_table(
+                        "new_data",
+                        Arc::new(MemTable::try_new(
+                            self.df.schema().clone().into(),
+                            vec![self.df.clone().collect().await.map_err(|e|
+                                ElusionError::Custom(format!("Failed to collect new data: {}", e)))?]
+                        ).map_err(|e| ElusionError::Custom(
+                            format!("Failed to create memory table: {}", e)
+                        ))?)
+                    ).map_err(|e| ElusionError::Custom(
+                        format!("Failed to register new data: {}", e)
+                    ))?;
+
+                    // Build column list with proper quoting
+                    let column_list = existing_df.schema()
+                        .fields()
+                        .iter()
+                        .map(|f| format!("\"{}\"", f.name()))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    // Combine data using UNION ALL
+                    let sql = format!(
+                        "SELECT {} FROM existing_data UNION ALL SELECT {} FROM new_data",
+                        column_list, column_list
+                    );
+
+                    let combined_df = ctx.sql(&sql).await
+                        .map_err(|e| ElusionError::Custom(
+                            format!("Failed to combine data: {}", e)
+                        ))?;
+
+                    // Convert combined DataFrame to RecordBatches
+                    let batches = combined_df.clone().collect().await
+                        .map_err(|e| ElusionError::Custom(format!("Failed to collect combined data: {}", e)))?;
+
+                    // Write combined data
+                    let props = WriterProperties::builder()
+                        .set_writer_version(WriterVersion::PARQUET_2_0)
+                        .set_compression(Compression::SNAPPY)
+                        .set_created_by("Elusion".to_string())
+                        .build();
+
+                    let mut buffer = Vec::new();
+                    {
+                        let schema = combined_df.schema();
+                        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+                            .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+                        for batch in batches {
+                            writer.write(&batch)
+                                .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+                        }
+                        writer.close()
+                            .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+                    }
+
+                    // Upload combined data
+                    self.upload_to_azure(&blob_client, buffer).await?;
+                    println!("✅ Successfully appended parquet data to Azure blob: {}", url);
+                }
+                Err(_) => {
+                    // If blob doesn't exist, create it with initial data
+                    let batches: Vec<RecordBatch> = self.clone().df.collect().await
+                        .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+
+                    let props = WriterProperties::builder()
+                        .set_writer_version(WriterVersion::PARQUET_2_0)
+                        .set_compression(Compression::SNAPPY)
+                        .set_created_by("Elusion".to_string())
+                        .build();
+
+                    let mut buffer = Vec::new();
+                    {
+                        let schema = self.df.schema();
+                        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+                            .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+                        for batch in batches {
+                            writer.write(&batch)
+                                .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+                        }
+                        writer.close()
+                            .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+                    }
+
+                    self.upload_to_azure(&blob_client, buffer).await?;
+                    println!("✅ Successfully created initial parquet data in Azure blob: {}", url);
+                }
+            }
+        }
+        _ => return Err(ElusionError::InvalidOperation {
+            operation: mode.to_string(),
+            reason: "Invalid write mode".to_string(),
+            suggestion: "💡 Use 'overwrite' or 'append'".to_string()
+        })
+    }
+   
+    Ok(())
+}
+
+// Helper method for uploading data to Azure
+async fn upload_to_azure(&self, blob_client: &BlobClient, buffer: Vec<u8>) -> ElusionResult<()> {
     let content = Bytes::from(buffer);
     let content_length = content.len();
 
@@ -4744,10 +4885,75 @@ pub async fn write_parquet_to_azure_with_sas(
             .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
     }
 
-    println!("✅ Successfully wrote parquet data to Azure blob: {}", url);
-   
     Ok(())
 }
+/// Write DataFrame to Azure Blob Storage as Parquet
+// pub async fn write_parquet_to_azure_with_sas(
+//     &self,
+//     url: &str,
+//     sas_token: &str,
+// ) -> ElusionResult<()> {
+//     validate_azure_url(url)?;
+    
+//     let (client, blob_name) = self.setup_azure_client(url, sas_token)?;
+//     let blob_client = client.blob_client(&blob_name);
+
+//     let batches: Vec<RecordBatch> = self.clone().df.collect().await
+//         .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+
+
+//     let props = WriterProperties::builder()
+//         .set_writer_version(WriterVersion::PARQUET_2_0)
+//         .set_compression(Compression::SNAPPY)
+//         .set_created_by("Elusion".to_string())
+//         .build();
+
+//     let mut buffer = Vec::new();
+//     {
+//         let schema = self.df.schema();
+//         let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+//             .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+//         for batch in batches {
+//             writer.write(&batch)
+//                 .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+//         }
+//         writer.close()
+//             .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+//     }
+
+//     let content = Bytes::from(buffer);
+//     let content_length = content.len();
+
+//     if content_length > 1_073_741_824 {  // 1GB threshold
+//         let block_id = STANDARD.encode(format!("{:0>20}", 1));
+
+//         blob_client
+//             .put_block(block_id.clone(), content)
+//             .await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
+
+//         let block_list = BlockList {
+//             blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
+//         };
+
+//         blob_client
+//             .put_block_list(block_list)
+//             .content_type("application/parquet")
+//             .await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
+//     } else {
+//         blob_client
+//             .put_block_blob(content)
+//             .content_type("application/parquet")
+//             .await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
+//     }
+
+//     println!("✅ Successfully wrote parquet data to Azure blob: {}", url);
+   
+//     Ok(())
+// }
 
 //=================== LOADERS ============================= //
 /// LOAD function for CSV file type
