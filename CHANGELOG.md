@@ -1,3 +1,7 @@
+## [2.4.2] - 2025-02-09
+### Fixed
+- Appending data for Parquet Writer
+
 ## [2.4.2] - 2025-02-08
 ### Added
 - Custom ERROR handling to UNION, APPEND...
