@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.4.3"
+elusion = "2.5.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -1325,8 +1325,7 @@ result_df
         "C:\\Path\\To\\Your\\test.parquet",
         None // I've set WriteOptions to default for writing Parquet files, so keep it None
     )
-    .await
-    .expect("Failed to write to Parquet");
+    .await?;
 
 // append to exisiting file
 result_df
@@ -1335,8 +1334,7 @@ result_df
         "C:\\Path\\To\\Your\\test.parquet",
         None // I've set WriteOptions to default for writing Parquet files, so keep it None
     ) 
-    .await
-    .expect("Failed to append to Parquet");
+    .await?;
 ```
 ## Writing to CSV File
 
@@ -1360,8 +1358,7 @@ result_df
         "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
         custom_csv_options
     )
-    .await
-    .expect("Failed to overwrite CSV file");
+    .await?;
 
 // append to exisiting file
 result_df
@@ -1370,8 +1367,7 @@ result_df
         "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
         custom_csv_options
     )
-    .await
-    .expect("Failed to append to CSV file");
+    .await?;
 ```
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
@@ -1397,12 +1393,11 @@ result_df
     .await
     .expect("Failed to append to Delta table");
 ```
-
 ## Writing Parquet to Azure BLOB Storage 
-#### Writing is set to Default, Overwrite, Compression: SNAPPY and Parquet 2.0 
-#### Threshold file size is 100mb
+#### We have 2 writing options "overwrite" and "append"
+#### Writing is set to Default, Compression: SNAPPY and Parquet 2.0
+#### Threshold file size is 1GB
 ```rust
-
 let df = CustomDataFrame::new(csv_data, "sales").await?; 
 
 let query = df.select(["*"]);
@@ -1412,8 +1407,18 @@ let data = query.elusion("df_sales").await?;
 let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
 let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
 
-data.write_parquet_to_azure_with_sas(url_to_folder, sas_write_token).await?;
+data.write_parquet_to_azure_with_sas(
+    "overwrite",
+    url_to_folder,
+    sas_write_token
+).await?;
 
+// append version
+data.write_parquet_to_azure_with_sas(
+    "append",
+    url_to_folder,
+    sas_write_token
+).await?;
 ```
 ---
 # PLOTTING

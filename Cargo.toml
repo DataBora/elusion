@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "2.4.3"
+version = "2.5.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -36,6 +36,7 @@ bytes = "1.10.0"
 num_cpus = "1.0"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 urlencoding = "2.1.3"
+tempfile = "3.16.0"
 # log = "0.4.25"
 # env_logger = "0.11.6"
 

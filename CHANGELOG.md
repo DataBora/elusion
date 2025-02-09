@@ -1,3 +1,11 @@
+## [2.5.0] - 2025-02-09
+### REAKING CHANGE
+- Now write_parquet_to_azure_with_sas() function needs specified writing mode: overwrite or append
+### Fixed
+- CSV writer
+### Added
+- Dependency tempfile `3.16.0`
+
 ## [2.4.3] - 2025-02-09
 ### Fixed
 - Appending data for Parquet Writer

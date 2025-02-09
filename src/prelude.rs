@@ -3,7 +3,6 @@ pub use crate::PipelineScheduler;
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 
-pub use datafusion::logical_expr::col;
 pub use regex::Regex;
 pub use datafusion::prelude::*;
 pub use datafusion::error::DataFusionError;
@@ -25,7 +24,6 @@ pub use std::io::{self, Read, Write, BufWriter};
 //============ WRITERS
 pub use datafusion::prelude::SessionContext;
 pub use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
-pub use tokio::task;
 
 // ========= JSON   
 pub use serde_json::{json, Map, Value};
@@ -92,6 +90,8 @@ pub use datafusion::parquet::file::properties::{WriterProperties, WriterVersion}
 pub use datafusion::parquet::arrow::ArrowWriter;
 pub use base64::engine::general_purpose::STANDARD;
 pub use base64::Engine;
+pub use futures::TryStreamExt;
+pub use tempfile::Builder;
 
 // ======== Scheduler
 pub use std::future::Future;
