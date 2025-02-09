@@ -4043,6 +4043,16 @@ pub async fn write_to_parquet(
 ) -> ElusionResult<()> {
     let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
 
+    if let Some(parent) = LocalPath::new(path).parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
+                path: parent.display().to_string(),
+                operation: "create_directory".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check if you have permissions to create directories".to_string(),
+            })?;
+        }
+    }
     match mode {
         "overwrite" => {
             if fs::metadata(path).is_ok() {
@@ -4055,16 +4065,146 @@ pub async fn write_to_parquet(
                     }
                 })?;
             }
+            
+            self.df.clone().write_parquet(path, write_options, None).await
+                .map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "overwrite".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check file permissions and path validity".to_string()
+                })?;
         }
-        "append" => {
-            if !fs::metadata(path).is_ok() {
-                return Err(ElusionError::WriteError {
+       "append" => {
+        let ctx = SessionContext::new();
+        
+        if !fs::metadata(path).is_ok() {
+            self.df.clone().write_parquet(path, write_options, None).await
+                .map_err(|e| ElusionError::WriteError {
                     path: path.to_string(),
                     operation: "append".to_string(),
-                    reason: "❌ Target file does not exist".to_string(),
-                    suggestion: "💡 Create the file first or use 'overwrite' mode".to_string()
-                });
-            }
+                    reason: format!("❌ Failed to create initial file: {}", e),
+                    suggestion: "💡 Check directory permissions and path validity".to_string()
+                })?;
+            return Ok(());
+        }
+
+        // Read existing parquet file
+        let existing_df = ctx.read_parquet(path, ParquetReadOptions::default()).await
+            .map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "read_existing".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Verify the file is a valid Parquet file".to_string()
+            })?;
+
+        // Print schemas for debugging
+        // println!("Existing schema: {:?}", existing_df.schema());
+        // println!("New schema: {:?}", self.df.schema());
+        
+        // Print column names for both DataFrames
+        // println!("Existing columns ({}): {:?}", 
+        //     existing_df.schema().fields().len(),
+        //     existing_df.schema().field_names());
+        // println!("New columns ({}): {:?}", 
+        //     self.df.schema().fields().len(),
+        //     self.df.schema().field_names());
+
+        // Register existing data with a table alias
+        ctx.register_table("existing_data", Arc::new(
+            MemTable::try_new(
+                existing_df.schema().clone().into(),
+                vec![existing_df.clone().collect().await.map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "collect_existing".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to collect existing data".to_string()
+                })?]
+            ).map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "create_mem_table".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Failed to create memory table".to_string()
+            })?
+        )).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "register_existing".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Failed to register existing data".to_string()
+        })?;
+
+        // new data with a table alias
+        ctx.register_table("new_data", Arc::new(
+            MemTable::try_new(
+                self.df.schema().clone().into(),
+                vec![self.df.clone().collect().await.map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "collect_new".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to collect new data".to_string()
+                })?]
+            ).map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "create_mem_table".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Failed to create memory table".to_string()
+            })?
+        )).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "register_new".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Failed to register new data".to_string()
+        })?;
+
+        // SQL with explicit column list
+        let column_list = existing_df.schema()
+            .fields()
+            .iter()
+            .map(|f| format!("\"{}\"", f.name()))  
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        //  UNION ALL with explicit columns
+        let sql = format!(
+            "SELECT {} FROM existing_data UNION ALL SELECT {} FROM new_data",
+            column_list, column_list
+        );
+        // println!("Executing SQL: {}", sql);
+
+        let combined_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "combine_data".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Failed to combine existing and new data".to_string()
+            })?;
+
+            // temporary path for writing
+            let temp_path = format!("{}.temp", path);
+
+            // Write combined data to temporary file
+            combined_df.write_parquet(&temp_path, write_options, None).await
+                .map_err(|e| ElusionError::WriteError {
+                    path: temp_path.clone(),
+                    operation: "write_combined".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Failed to write combined data".to_string()
+                })?;
+
+            // Remove original file
+            fs::remove_file(path).map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "remove_original".to_string(),
+                reason: format!("❌ Failed to remove original file: {}", e),
+                suggestion: "💡 Check file permissions".to_string()
+            })?;
+
+            // Rename temporary file to original path
+            fs::rename(&temp_path, path).map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "rename_temp".to_string(),
+                reason: format!("❌ Failed to rename temporary file: {}", e),
+                suggestion: "💡 Check file system permissions".to_string()
+            })?;
         }
         _ => return Err(ElusionError::InvalidOperation {
             operation: mode.to_string(),
@@ -4072,14 +4212,6 @@ pub async fn write_to_parquet(
             suggestion: "💡 Use 'overwrite' or 'append'".to_string()
         })
     }
-        
-    self.df.clone().write_parquet(path, write_options, None).await
-        .map_err(|e| ElusionError::WriteError {
-            path: path.to_string(),
-            operation: mode.to_string(),
-            reason: e.to_string(),
-            suggestion: "💡 Check file permissions and path validity".to_string()
-        })?;
 
     match mode {
         "overwrite" => println!("✅ Data successfully overwritten to '{}'", path),

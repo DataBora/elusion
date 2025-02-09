@@ -72,7 +72,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.4.2"
+elusion = "2.4.3"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -137,10 +137,15 @@ let df = CustomDataFrame::from_azure_with_sas_token(
     ).await?;
 ```
 ---
+## SELECT
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
-let customers_alias = df_customers
+let df_AS = select_df
     .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
+
+let df_select_all = select_df.select(["*"]);
+
+let df_count_all = select_df.select(["COUNT(*)"]);
 ```
 ---
 ## Where to use which Functions:
@@ -612,11 +617,11 @@ let df3 = "C:\\Borivoj\\RUST\\Elusion\\API\\df3.json";
 let df4 = "C:\\Borivoj\\RUST\\Elusion\\API\\df4.json";
 let df5 = "C:\\Borivoj\\RUST\\Elusion\\API\\df5.json";
 
-let df1 = CustomDataFrame::new(df1, "msales").await?; 
-let df2 = CustomDataFrame::new(df2, "msales").await?; 
-let df3 = CustomDataFrame::new(df3, "msales").await?; 
-let df4 = CustomDataFrame::new(df4, "msales").await?; 
-let df5 = CustomDataFrame::new(df5, "msales").await?; 
+let df1 = CustomDataFrame::new(df1, "msales1").await?; 
+let df2 = CustomDataFrame::new(df2, "msales2").await?; 
+let df3 = CustomDataFrame::new(df3, "msales3").await?; 
+let df4 = CustomDataFrame::new(df4, "msales4").await?; 
+let df5 = CustomDataFrame::new(df5, "msales5").await?; 
 
 let res_df1 = df1.select(["Month", "TotalSales"]).string_functions(["'site1' AS Restaurant"]);
 let result_df1 = res_df1.elusion("el1").await?;
