@@ -2,7 +2,7 @@ pub use crate::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
-pub use crate::ReportLayout;
+pub use crate::{ReportLayout, TableOptions};
 
 pub use regex::Regex;
 pub use datafusion::prelude::*;
@@ -68,8 +68,7 @@ pub use plotly::layout::{Axis, Layout};
 pub use plotly::color::Rgb;
 pub use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
 pub use plotly::layout::{DragMode, RangeSlider};
-pub use arrow::array::{Array, Float64Array,Int64Array};
-pub use arrow::array::Date32Array;
+pub use arrow::array::{Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
 pub use std::cmp::Ordering;
 
 // STATISTICS
