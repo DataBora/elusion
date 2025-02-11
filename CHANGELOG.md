@@ -1,3 +1,7 @@
+## [2.7.0] - 2025-02-11
+### Added
+- Interactive tables for Reporting
+
 ## [2.5.1] - 2025-02-09
 ### Added
 - Interactive Dashboarding

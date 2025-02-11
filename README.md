@@ -7,7 +7,7 @@ Elusion is a high-performance DataFrame / Data Engineering / Data Analysis libra
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. Report Creation is built atop Plotly and AG GRID. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently. It also has Integrated Plotting and Interactive Dashboard features.
 
@@ -53,11 +53,11 @@ Analytical Capabilities: Implement window functions like RANK, DENSE_RANK, ROW_N
 ### 🔄 Pivot and Unpivot Functions
 Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions to suit your analytical needs.
 
-### 📊 Plotting
-You can create individual HTML files with single Plot, OR you can create HTML reports with multiple Plots: Bar, Line, Pie, Donut, Histogram, TimeSeries...
-
-### 📊 Interactive Dashboards
-You can create Interactive Dashboards in HTML files with multiple interactive Plots.
+### 📊 Create REPORTS
+Create HTML files with Interactive Dashboards with multiple interactive Plots and Tables.
+Plots Available: TimeSeries, Bar, Pie, Donut, Histogram, Scatter, Box...
+Tables can Paginate pages, Filter, Resize, Reorder columns...
+Export Tables data to EXCEL and CSV
 
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
@@ -75,7 +75,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.5.1"
+elusion = "2.7.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -1427,142 +1427,11 @@ data.write_parquet_to_azure_with_sas(
 ).await?;
 ```
 ---
-# PLOTTING
-### Available Plots: Bar, Pie, Donut, Line, TimeSeries, Histogram, Box
-#### Bellow are examples how you can simply create different plots and Report
-```rust
-let sales_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
-let sales_order_df = CustomDataFrame::new(sales_path, "sales").await?;
-
-let mix_df3 = sales_order_df
-    .select([
-        "customer_name",
-        "order_date",
-        "ABS(billable_value) AS abs_billable_value",
-        "ROUND(SQRT(billable_value), 2) AS sqrt_billable_value", 
-        "billable_value * 2 AS double_billable_value", 
-        "billable_value / 100 AS percentage_billable"  
-    ])
-    .string_functions([
-        "TRIM(shipper_name) AS trimmed_shipper",
-        "SPLIT_PART(customer_contact_name, ',', 1) AS first_name",
-        "SPLIT_PART(customer_contact_name, ',', 2) AS last_name",
-    ])
-    .agg([
-        "SUM(billable_value) AS total_billable",
-        "COUNT(*) AS order_count"
-    ])
-    .group_by_all()
-    .filter("billable_value > 50.0")
-    .limit(100);
-
-let mix = mix_df3.elusion("result_sales").await?;
-
-// PLOTTING
-
-// plot_bar()
-let billable_plot = mix.plot_bar(
-    "customer_name", // - x_col: column name for x-axis
-    "total_billable", // - y_col: column name for y-axis
-    None, // - orientation: Keep None for Horizontal chart (Vertical Bars)
-    Some("Total Sales By Customer") // - title: optional custom title (can be None)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_plot, // reference to above variable
-    "billable_plot.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_line()
-let billable_line = mix.plot_line(
-    "order_date", // - x_col: column name for x-axis (can be date or numeric)
-    "double_billable_value", // - y_col: column name for y-axis
-    true,  // - show_markers: true to show points, false for line only
-    Some("Sales over time") // - title: optional custom title (can be None)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_line, // reference to above variable
-    "billable_line.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_time_series()
-let billable_ts = mix.plot_time_series(
-    "order_date", // - date_col: column name for dates (must be Date32 type)
-    "double_billable_value", // - value_col: column name for values
-    true, // - show_markers: true to show points, false for line only
-    Some("Sales Over Time") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_ts, // reference to above variable
-    "billable_ts.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_histogram()
-let billable_hist = mix.plot_histogram(
-    "abs_billable_value", // - col: column name for values to distribute
-    Some(20), // - bins: optional number of bins (defaults to 30)
-    Some("Distribution of Sales") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_hist, // reference to above variable
-    "billable_hist.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_pie()
-let billable_pie = mix.plot_pie(
-    "customer_name", // - label_col: column name for slice labels
-    "total_billable", // - value_col: column name for slice values
-    Some("Sales Distribution by Customer") // - title: optional custom title
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_pie, // reference to above variable
-    "billable_pie.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// plot_donut()
-let billable_donut = mix.plot_donut(
-    "customer_name", // - label_col: column name for slice labels
-    "total_billable", // - value_col: column name for slice values
-    Some("Sales Distribution by Customer"), // - title: optional custom title
-    Some(0.5) // - hole_size: optional hole size between 0.0 and 1.0 (defaults to 0.5)
-).await?;
-
-CustomDataFrame::save_plot(
-    &billable_donut, // reference to above variable
-    "billable_donut.html", // file name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // save file destination
-).await?;
-
-// Create report by Appening All Plots that you created
-let plots = [
-    (&billable_plot, "Sales by Customer"),
-    (&billable_line, "Sales Over Time"),
-    (&billable_pie, "Sales Distribution by Customer")
-];
-
-CustomDataFrame::create_report(
-    &plots,  
-    "Sales Analysis Report", // Report Title
-    "sales_report.html", // File name
-    Some("C:\\Borivoj\\RUST\\Elusion\\Plots") // Path to folder
-).await?;
-```
-### Example of single Plot
-![Bar](images/bar.PNG)
-### Example of Report with multiple Plots
-![Report](images/report.PNG)
----
-## INTERACTIVE DASHBOARD
-#### Currently available Interactive Plots: TimeSeries, Box, Bar, Histogram, Pie, Donut, Scatter
+# REPORTING
+### CREATING REPORT with Interactive Plots/Visuals and Tables
+### Export Table data to EXCEL and CSV
+#### Currently available Interactive Plots: TimeSeries, Box, Bar, Histogram, Pie, Donut, Scatter...
+#### Interactive Tables can: Paginate pages, Filter, Reorder, Resize columns...
 ```rust
 let ord = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
 let sales_order_df = CustomDataFrame::new(ord, "ord").await?;
@@ -1593,8 +1462,15 @@ let mix_query = sales_order_df.clone()
 let mix_res = mix_query.elusion("scalar_df").await?;
 
 ///INTERACTIVE PLOTS
+let line = mix_res.plot_line(
+    "order_date", // - x_col: column name for x-axis (can be date or numeric)
+    "double_billable_value", // - y_col: column name for y-axis
+    true,  // - show_markers: true to show points, false for line only
+    Some("Sales over time") // - title: optional custom title (can be None)
+).await?;
+
 let bars = mix_res
-   .interactive_plot_bar(
+   .plot_bar(
        "customer_name",         // X-axis: Customer names
        "total_billable",        // Y-axis: Total billable amount
        Some("Customer Total Sales") // Title of the plot
@@ -1602,7 +1478,7 @@ let bars = mix_res
 
 // Time series showing sales trend
 let time_series = mix_res
-   .interactive_plot_time_series(
+   .plot_time_series(
        "order_date",           // X-axis: Date column (must be Date32 type)
        "total_billable",       // Y-axis: Total billable amount
        true,                   // Show markers on the line
@@ -1611,14 +1487,14 @@ let time_series = mix_res
 
 // Histogram showing distribution of abs billable values
 let histogram = mix_res
-   .interactive_plot_histogram(
+   .plot_histogram(
        "abs_billable_value",   // Data column for distribution analysis
        Some("Distribution of Sale Values") // Title of the plot
    ).await?;
 
 // Box plot showing abs billable value distribution
 let box_plot = mix_res
-   .interactive_plot_box(
+   .plot_box(
        "abs_billable_value",   // Value column for box plot
        Some("customer_name"),   // Optional grouping column
        Some("Sales Distribution by Customer") // Title of the plot
@@ -1626,7 +1502,7 @@ let box_plot = mix_res
 
 // Scatter plot showing relationship between original and doubled values
 let scatter = mix_res
-   .interactive_plot_scatter(
+   .plot_scatter(
        "abs_billable_value",   // X-axis: Original values
        "double_billable_value", // Y-axis: Doubled values
        Some(8)                 // Optional marker size
@@ -1634,7 +1510,7 @@ let scatter = mix_res
 
 // Pie chart showing sales distribution
 let pie = mix_res
-   .interactive_plot_pie(
+   .plot_pie(
        "customer_name",        // Labels for pie segments
        "total_billable",       // Values for pie segments
        Some("Sales Share by Customer") // Title of the plot
@@ -1642,41 +1518,89 @@ let pie = mix_res
 
 // Donut chart alternative view
 let donut = mix_res
-   .interactive_plot_donut(
+   .plot_donut(
        "customer_name",        // Labels for donut segments
        "percentage_total_billable", // Values as percentages
        Some("Percentage Distribution") // Title of the plot
    ).await?;
 
+ // Create Tables to add to report
+let summary_table = mix_res.clone() //Clone for multiple usages
+    .select([
+        "customer_name",
+        "total_billable",
+        "avg_abs_billable",
+        "max_abs_billable",
+        "percentage_total_billable"
+    ])
+    .order_by_many([
+        ("total_billable", false)
+    ])
+    .elusion("summary")
+    .await?;
+
+let transactions_table = mix_res
+    .select([
+        "customer_name",
+        "order_date",
+        "abs_billable_value",
+        "double_billable_value",
+        "percentage_billable"
+    ])
+    .order_by_many([
+        ("order_date", false),
+        ("abs_billable_value", false)
+    ])
+    .elusion("transactions")
+    .await?;
+
 // Create comprehensive dashboard with all plots
 let plots = [
-   (&time_series, "Sales Timeline"),       // Time-based analysis
-   (&bars, "Customer Sales"),              // Customer comparison
-   (&histogram, "Sales Distribution"),      // Value distribution
-   (&scatter, "Value Comparison"),         // Value relationships
-   (&box_plot, "Customer Distributions"),   // Statistical distribution
-   (&pie, "Sales Share"),                  // Share analysis
-   (&donut, "Percentage View"),            // Percentage breakdown
+    (&line, "Sales Line"),                  // Line based analysis
+    (&time_series, "Sales Timeline"),       // Time-based analysis
+    (&bars, "Customer Sales"),              // Customer comparison
+    (&histogram, "Sales Distribution"),      // Value distribution
+    (&scatter, "Value Comparison"),         // Value relationships
+    (&box_plot, "Customer Distributions"),   // Statistical distribution
+    (&pie, "Sales Share"),                  // Share analysis
+    (&donut, "Percentage View"),            // Percentage breakdown
+];
+
+// Add tables array
+let tables = [
+    (&summary_table, "Customer Summary"),
+    (&transactions_table, "Transaction Details")
 ];
 
 let layout = ReportLayout {
-   grid_columns: 2,      // Arrange plots in 2 columns
-   grid_gap: 30,         // 30px gap between plots
-   max_width: 1600,      // Maximum width of 1600px
-   plot_height: 450,     // Each plot 450px high
+    grid_columns: 2, // Arrange plots in 2 columns
+    grid_gap: 30, // 30px gap between plots
+    max_width: 1600, // Maximum width of 1600px
+    plot_height: 450, // Each plot 450px high
+    table_height: 500,  // Height for tables
+};
+    
+let table_options = TableOptions {
+    pagination: true,       // Enable pagination for tables
+    page_size: 15,         // Show 15 rows per page
+    enable_sorting: true,   // Allow column sorting
+    enable_filtering: true, // Allow column filtering
+    enable_column_menu: true, // Show column menu (sort/filter/hide options)
+    theme: "ag-theme-alpine".to_string(), // Use Alpine theme for modern look
 };
 
-// Generate the enhanced interactive report with all plots
-CustomDataFrame::create_interactive_report(
-   &plots,                    // Array of plots and their titles
-   "Interactive Sales Analysis Dashboard", // Dashboard title
-   "C:\\Borivoj\\RUST\\Elusion\\Plots\\complete_dashboard.html", // Output path
-   None,                      // Optional custom directory
-   Some(layout)              // Layout configuration
+// Generate the enhanced interactive report with all plots and tables
+CustomDataFrame::create_report(
+    Some(&plots),  // plots (Optional)
+    Some(&tables),   // tables (Optional)
+    "Interactive Sales Analysis Dashboard",  // report_title
+    "C:\\Borivoj\\RUST\\Elusion\\Plots\\interactive_aggrid_dashboard.html", // filename
+    Some(layout),      // layout_config (Optional)
+    Some(table_options)  // table_options (Optional)
 ).await?;
 ```
-### Interactive Dashboard Demo
-![Dash](./images/interactivedash.gif)
+### Dashboard Demo
+![Dash](./images/interactivedash3.gif)
 ---
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
