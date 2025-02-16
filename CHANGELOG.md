@@ -1,3 +1,9 @@
+## [2.8.0] - 2025-02-16
+### Added
+- DateTime Functions within datetime_functions()
+### FeatureFlag
+- Moved ODBC behind feature flag
+
 ## [2.7.0] - 2025-02-11
 ### Added
 - Interactive tables for Reporting

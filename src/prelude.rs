@@ -54,9 +54,21 @@ pub use std::fmt::{self, Debug};
 pub use std::error::Error;
 
 // ================ DATABASE
+// Conditionally import and re-export ODBC-related items
+#[cfg(feature = "odbc")]
 pub use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
+#[cfg(feature = "odbc")]
 pub use arrow_odbc::OdbcReaderBuilder;
+#[cfg(feature = "odbc")]
 pub use lazy_static::lazy_static;
+
+// Optional: Provide stub types when ODBC is not enabled
+#[cfg(not(feature = "odbc"))]
+pub struct Environment;
+#[cfg(not(feature = "odbc"))]
+pub struct ConnectionOptions;
+#[cfg(not(feature = "odbc"))]
+pub struct OdbcReaderBuilder;
 // PIVOT
 pub use arrow::compute;
 pub use arrow::array::StringArray;
