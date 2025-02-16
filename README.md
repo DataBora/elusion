@@ -587,7 +587,7 @@ CASE()
 ---
 ### DATETIME FUNCTIONS
 #### Currently only work with Lowercase Column Names
-#### If you have uppercase letters use \&quot;ColumnName\&quot; until I force DataFusion to preserve casing
+#### If you have uppercase letters use <code>\"ColumnName\"</code> until I force DataFusion to preserve casing
 #### Works best with YYYY-MM-DD format
 ```rust
 let mix_query = sales_order_df
