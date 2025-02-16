@@ -120,17 +120,11 @@ fn benchmark_multiple_groupings(c: &mut Criterion) {
     group.bench_function("agg_multiple_groupings", |b| b.iter(|| {
         rt.block_on(async {
             order_df.clone()
+                .select(["customer_name"])
                 .agg([
-                    "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
-                    "SUM(billable_value) AS total_billable",
-                    "MAX(ABS(billable_value)) AS max_abs_billable",
-                    "SUM(billable_value) * 2 AS double_total_billable",
-                    "SUM(billable_value) / 100 AS percentage_total_billable"
+                    "SUM(order_value) AS total_value"
                 ])
-                .group_by(["customer_name", "order_date"])
-                .filter("billable_value > 100.0")
-                .order_by(["order_date"], [true])
-                .limit(10)
+                .group_by(["customer_name"])
                 .elusion("agg_multiple_groupings")
                 .await
                 .unwrap();

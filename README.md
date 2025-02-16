@@ -75,12 +75,30 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.7.0"
+elusion = "2.8.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
 ```toml
 >= 1.81
+```
+---
+## ODBC Support
+
+Elusion now provides ODBC functionality behind an optional feature flag to keep the core library lightweight and provide flexibility for users.
+
+### Enabling ODBC Support
+
+To use ODBC-related features, you need to:
+
+1. Add the ODBC feature when specifying the dependency:
+```toml
+[dependencies]
+elusion = { version = "2.8.0", features = ["odbc"] }
+```
+#### When building your project, use the ODBC feature:
+```rust
+cargo build --features odbc
 ```
 ---
 # Usage examples:
@@ -565,6 +583,103 @@ CAST() - Type conversion
 CONVERT() - Type conversion
 10. Control Flow:
 CASE()
+```
+---
+### DATETIME FUNCTIONS
+#### Currently only work with Lowercase Column Names
+#### If you have uppercase letters use \"ColumnName\" until I force DataFusion to preserve casing
+#### Works best with YYYY-MM-DD format
+```rust
+let mix_query = sales_order_df
+    .select([
+        "customer_name",
+        "order_date",
+        "delivery_date"
+    ])
+    .datetime_functions([
+    // Current date/time comparisons
+    "CURRENT_DATE() AS today",
+    "CURRENT_TIMESTAMP() AS now",
+    "DATE_PART('day', CURRENT_DATE() - order_date) AS days_since_order",
+    
+    // Date binning (for time-series analysis)
+    "DATE_BIN('1 week', order_date, make_date(2020, 1, 1)) AS weekly_bin",
+    "DATE_BIN('1 month', order_date, make_date(2020, 1, 1)) AS monthly_bin",
+    
+    // Date formatting
+    "TO_CHAR(order_date, 'Month DD, YYYY') AS pretty_date",
+    "TO_CHAR(order_date, 'YYYY-Q') AS year_quarter",
+    
+    // Basic date components
+    "DATE_PART('year', order_date) AS year",
+    "DATE_PART('month', order_date) AS month",
+    "DATE_PART('day', order_date) AS day",
+
+    // Quarters and weeks
+    "DATE_PART('quarter', order_date) AS order_quarter",
+    "DATE_PART('week', order_date) AS order_week",
+
+    // Day of week/year
+    "DATE_PART('dow', order_date) AS day_of_week",
+    "DATE_PART('doy', order_date) AS day_of_year",
+
+    // Delivery analysis
+    "DATE_PART('day', delivery_date - order_date) AS delivery_days",
+    
+    // Date truncation (alternative syntax)
+    "DATE_TRUNC('week', order_date) AS week_start",
+    "DATE_TRUNC('quarter', order_date) AS quarter_start",
+    "DATE_TRUNC('month', order_date) AS month_start",
+    "DATE_TRUNC('year', order_date) AS year_start",
+    
+    // Complex date calculations
+    "CASE 
+        WHEN DATE_PART('month', order_date) <= 3 THEN 'Q1'
+        WHEN DATE_PART('month', order_date) <= 6 THEN 'Q2'
+        WHEN DATE_PART('month', order_date) <= 9 THEN 'Q3'
+        ELSE 'Q4'
+        END AS fiscal_quarter",
+        
+    // Date comparisons with current date
+    "CASE 
+        WHEN order_date = CURRENT_DATE() THEN 'Today'
+        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 7 THEN 'Last Week'
+        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 30 THEN 'Last Month'
+        ELSE 'Older'
+        END AS order_recency",
+
+        // Time windows
+    "CASE 
+        WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
+        THEN 'This Week'
+        ELSE 'Previous Weeks'
+    END AS week_window",
+
+    // Fiscal year calculations
+    "CASE 
+        WHEN DATE_PART('month', order_date) >= 7 
+        THEN DATE_PART('year', order_date) + 1 
+        ELSE DATE_PART('year', order_date) 
+    END AS fiscal_year"
+    ])
+    .group_by_all()
+    .order_by_many([
+        ("order_date", false)
+    ])
+    .limit(20);
+
+let mix_res = mix_query.elusion("datetime_df").await?;
+mix_res.display().await?;
+```
+#### Currently Available DateTIme functions
+```rust
+CURRENT_DATE()
+CURRENT_TIMESTAMP()
+DATE_PART()
+DATE_TRUNC()
+DATE_BIN()
+MAKE_DATE()
+TO_CHAR()
 ```
 ---
 ### WINDOW functions
@@ -1461,7 +1576,8 @@ let mix_query = sales_order_df.clone()
 
 let mix_res = mix_query.elusion("scalar_df").await?;
 
-///INTERACTIVE PLOTS
+//INTERACTIVE PLOTS
+// Line plot showing sales over time
 let line = mix_res.plot_line(
     "order_date", // - x_col: column name for x-axis (can be date or numeric)
     "double_billable_value", // - y_col: column name for y-axis
@@ -1469,6 +1585,7 @@ let line = mix_res.plot_line(
     Some("Sales over time") // - title: optional custom title (can be None)
 ).await?;
 
+// Bar plot showing aggregated values
 let bars = mix_res
    .plot_bar(
        "customer_name",         // X-axis: Customer names

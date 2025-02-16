@@ -67,8 +67,11 @@ use std::cmp::Ordering;
 use datafusion::common::ScalarValue;
 
 // ============ DATABASE
+#[cfg(feature = "odbc")]
 use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
+#[cfg(feature = "odbc")]
 use arrow_odbc::OdbcReaderBuilder;
+#[cfg(feature = "odbc")]
 use lazy_static::lazy_static;
 
 // ========== AZURE
@@ -254,6 +257,7 @@ async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec
 }
 
 // ===== struct to manage ODBC DB connections
+#[cfg(feature = "odbc")]
 lazy_static!{
     static ref DB_ENV: Environment = {
         Environment::new().expect("Failed to create odbc environment")
@@ -261,13 +265,14 @@ lazy_static!{
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum DatabaseType {
+pub enum DatabaseType {
     MySQL,
     PostgreSQL,
     MongoDB,
     SQLServer,
     Unknown
 }
+#[cfg(feature = "odbc")]
 // ========== Database helper functions
 fn detect_database(connection_string: &str) -> DatabaseType {
     if connection_string.contains("MySQL") {
@@ -283,6 +288,7 @@ fn detect_database(connection_string: &str) -> DatabaseType {
     }
  }
 
+ #[cfg(feature = "odbc")]
  fn extract_alias_from_sql(query: &str, db_type: DatabaseType) -> Option<String> {
     let lower_query = query.to_lowercase();
     if let Some(from_idx) = lower_query.find(" from ") {
@@ -306,6 +312,17 @@ fn detect_database(connection_string: &str) -> DatabaseType {
     } else {
         None
     }
+}
+
+// Provide stub implementations when ODBC is not enabled
+#[cfg(not(feature = "odbc"))]
+pub fn detect_database(_connection_string: &str) -> DatabaseType {
+    DatabaseType::Unknown
+}
+
+#[cfg(not(feature = "odbc"))]
+pub fn extract_alias_from_sql(_query: &str, _db_type: DatabaseType) -> Option<String> {
+    None
 }
 
 //======= Ploting Helper functions
@@ -1287,10 +1304,11 @@ fn normalize_alias_write(alias: &str) -> String {
 
 /// Normalizes column name by trimming whitespace and properly quoting table aliases and column names.
 fn normalize_column_name(name: &str) -> String {
+    
     if let Some(pos) = name.find('.') {
         let table = &name[..pos];
         let column = &name[pos + 1..];
-        format!("\"{}\".\"{}\"", table.trim().replace(" ", "_"), column.trim().replace(" ", "_"))
+        format!("\"{}\".\"{}\"", table.trim(), column.trim().replace(" ", "_"))
     } else {
         format!("\"{}\"", name.trim().replace(" ", "_"))
     }
@@ -1322,6 +1340,8 @@ fn normalize_expression(expression: &str, table_alias: &str) -> String {
         
         let normalized_expr = if is_aggregate_expression(expr_part) {
             normalize_aggregate_expression(expr_part, table_alias)
+        } else if is_datetime_expression(expr_part) {
+            normalize_datetime_expression(expr_part)
         } else {
             normalize_simple_expression(expr_part, table_alias)
         };
@@ -1330,6 +1350,8 @@ fn normalize_expression(expression: &str, table_alias: &str) -> String {
     } else {
         if is_aggregate_expression(expression) {
             normalize_aggregate_expression(expression, table_alias)
+        } else if is_datetime_expression(expression) {
+            normalize_datetime_expression(expression)
         } else {
             normalize_simple_expression(expression, table_alias)
         }
@@ -1429,6 +1451,29 @@ fn is_aggregate_expression(expr: &str) -> bool {
  
 }
 
+fn is_datetime_expression(expr: &str) -> bool {
+    // List of all datetime functions to check for
+    let datetime_functions = [
+        "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "DATE_BIN", "DATE_FORMAT",
+        "DATE_PART", "DATE_TRUNC", "DATEPART", "DATETRUNC", "FROM_UNIXTIME", "MAKE_DATE",
+        "NOW", "TO_CHAR", "TO_DATE", "TO_LOCAL_TIME", "TO_TIMESTAMP", "TO_TIMESTAMP_MICROS",
+        "TO_TIMESTAMP_MILLIS", "TO_TIMESTAMP_NANOS", "TO_TIMESTAMP_SECONDS", "TO_UNIXTIME", "TODAY"
+    ];
+
+    datetime_functions.iter().any(|&func| expr.to_uppercase().starts_with(func))
+}
+
+/// Normalizes datetime expressions by quoting column names with double quotes.
+fn normalize_datetime_expression(expr: &str) -> String {
+    let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+
+    let expr_with_columns = re.replace_all(expr, |caps: &regex::Captures| {
+        let column_name = &caps["column"];
+        format!("\"{}\"", column_name)
+    }).to_string();
+
+    expr_with_columns
+}
 
 /// window functions normalization
 fn normalize_window_function(expression: &str) -> String {
@@ -2192,7 +2237,7 @@ impl CustomDataFrame {
         self
     }
    
-/// Apply multiple string functions to create new columns in the SELECT clause.
+    /// Apply multiple string functions to create new columns in the SELECT clause.
     pub fn string_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
         for expr in expressions.iter() {
             // Add to SELECT clause
@@ -2205,6 +2250,27 @@ impl CustomDataFrame {
                     .next()
                     .unwrap_or(expr);
                 self.group_by_columns.push(normalize_expression(expr_part, &self.table_alias));
+            }
+        }
+        self
+    }
+
+     /// Add datetime functions to the SELECT clause
+    /// Supports various date/time operations and formats
+    /// Add datetime functions to the SELECT clause
+    /// Update the datetime_functions method to use the new normalization
+    pub fn datetime_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
+        for expr in expressions.iter() {
+            // Add to SELECT clause
+            self.selected_columns.push(normalize_expression(expr, &self.table_alias));
+    
+            // If GROUP BY is used, extract the expression part (before AS)
+            if !self.group_by_columns.is_empty() {
+                let expr_part = expr.split(" AS ")
+                    .next()
+                    .unwrap_or(expr);
+                
+                    self.group_by_columns.push(normalize_expression(expr_part, &self.table_alias));
             }
         }
         self
@@ -4993,6 +5059,33 @@ pub fn load_delta<'a>(
     })
 }
 
+//stub for odbc
+#[cfg(not(feature = "odbc"))]
+pub async fn load_db(
+    _connection_string: &str,
+    _query: &str,
+    _alias: &str,
+) -> ElusionResult<AliasedDataFrame> {
+    Err(ElusionError::InvalidOperation {
+        operation: "Database Connection".to_string(),
+        reason: "ODBC support is not compiled. Recompile with --features odbc".to_string(),
+        suggestion: "Compile with ODBC feature enabled to use database loading".to_string(),
+    })
+}
+
+#[cfg(not(feature = "odbc"))]
+pub async fn from_db(
+    _connection_string: &str, 
+    _query: &str
+) -> ElusionResult<Self> {
+    Err(ElusionError::InvalidOperation {
+        operation: "Database Connection".to_string(),
+        reason: "ODBC support is not compiled. Recompile with --features odbc".to_string(),
+        suggestion: "Compile with ODBC feature enabled to use database loading".to_string(),
+    })
+}
+
+#[cfg(feature = "odbc")]
 pub async fn load_db(
     connection_string: &str,
     query: &str,
@@ -5092,6 +5185,7 @@ pub async fn load_db(
     }
 }
 
+#[cfg(feature = "odbc")]
 // Constructor for database sources
 pub async fn from_db(
     connection_string: &str, 
