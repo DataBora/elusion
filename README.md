@@ -173,6 +173,7 @@ let df_count_all = select_df.select(["COUNT(*)"]);
 ### Scalar and Operators -> in SELECT() function
 ### Aggregation Functions -> in AGG() function
 ### String Column Functions -> in STRING_FUNCTIONS() function
+### DateTime Functions -> in DATETIME_FUNCTIONS() function
 ---
 ### Numerical Operators (supported +, -, * , / , %)
 ```rust
