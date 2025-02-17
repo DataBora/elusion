@@ -1,3 +1,7 @@
+## [3.0.0] - 2025-02-17
+### BREAKING CHANGE
+- ALL Query Expresions, DataFrame Columns and Functions are normalized LOWERCASE(), TRIM(), REPLACE(" ", "_")
+
 ## [2.8.0] - 2025-02-16
 ### Added
 - DateTime Functions within datetime_functions()

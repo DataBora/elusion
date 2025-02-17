@@ -37,7 +37,7 @@ Async Support: Built on tokio for non-blocking operations.
 
 ### 🚀 High-Performance DataFrame Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
-SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, GROUP BY, and WINDOW with ease.
+SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
 
 ### 📉 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
@@ -75,7 +75,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "2.8.0"
+elusion = "3.0.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -84,9 +84,7 @@ tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ---
 ## ODBC Support
-
 Elusion now provides ODBC functionality behind an optional feature flag to keep the core library lightweight and provide flexibility for users.
-
 ### Enabling ODBC Support
 
 To use ODBC-related features, you need to:
@@ -94,12 +92,28 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "2.8.0", features = ["odbc"] }
+elusion = { version = "3.0.0", features = ["odbc"] }
+```
+2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
+Ubuntu/Debian: 
+```toml
+sudo apt-get install unixodbc-dev
+```
+macOS: 
+```toml
+brew install unixodbc
 ```
 #### When building your project, use the ODBC feature:
 ```rust
 cargo build --features odbc
 ```
+---
+## NORMALIZATION
+#### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
+#### All DataFrame query expresions, functions, aliases and column names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
+---
+## Schema 
+#### SCHEMA IS DYNAMICALLY INFERED
 ---
 # Usage examples:
 
@@ -116,8 +130,6 @@ async fn main() -> ElusionResult<()> {
 }
 
 ```
-## Schema 
-#### SCHEMA IS DYNAMICALLY INFERED since v0.2.5
 ---
 ## LOADING
 ### - Loading data into CustomDataFrame can be from:
@@ -587,11 +599,9 @@ CASE()
 ```
 ---
 ### DATETIME FUNCTIONS
-#### Currently only work with Lowercase Column Names
-#### If you have uppercase letters use `\"ColumnName\"` until I force DataFusion to preserve casing
-#### Works best with YYYY-MM-DD format
+#### Work best with YYYY-MM-DD format
 ```rust
-let mix_query = sales_order_df
+let dt_query = sales_order_df
     .select([
         "customer_name",
         "order_date",
@@ -600,16 +610,18 @@ let mix_query = sales_order_df
     .datetime_functions([
     // Current date/time comparisons
     "CURRENT_DATE() AS today",
+    "CURRENT_TIME() AS current_time",
     "CURRENT_TIMESTAMP() AS now",
-    "DATE_PART('day', CURRENT_DATE() - order_date) AS days_since_order",
+    "NOW() AS now_timestamp",
+    "TODAY() AS today_timestamp",
     
     // Date binning (for time-series analysis)
-    "DATE_BIN('1 week', order_date, make_date(2020, 1, 1)) AS weekly_bin",
-    "DATE_BIN('1 month', order_date, make_date(2020, 1, 1)) AS monthly_bin",
+    "DATE_BIN('1 week', order_date, MAKE_DATE(2020, 1, 1)) AS weekly_bin",
+    "DATE_BIN('1 month', order_date, MAKE_DATE(2020, 1, 1)) AS monthly_bin",
     
     // Date formatting
-    "TO_CHAR(order_date, 'Month DD, YYYY') AS pretty_date",
-    "TO_CHAR(order_date, 'YYYY-Q') AS year_quarter",
+    "DATE_FORMAT(order_date, '%Y-%m-%d') AS formatted_date",
+    "DATE_FORMAT(order_date, '%Y/%m/%d') AS formatted_date_alt",
     
     // Basic date components
     "DATE_PART('year', order_date) AS year",
@@ -624,8 +636,9 @@ let mix_query = sales_order_df
     "DATE_PART('dow', order_date) AS day_of_week",
     "DATE_PART('doy', order_date) AS day_of_year",
 
-    // Delivery analysis
+    // Analysis
     "DATE_PART('day', delivery_date - order_date) AS delivery_days",
+    "DATE_PART('day', CURRENT_DATE() - order_date) AS days_since_order",
     
     // Date truncation (alternative syntax)
     "DATE_TRUNC('week', order_date) AS week_start",
@@ -649,7 +662,7 @@ let mix_query = sales_order_df
         ELSE 'Older'
         END AS order_recency",
 
-        // Time windows
+    // Time windows
     "CASE 
         WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
         THEN 'This Week'
@@ -661,26 +674,39 @@ let mix_query = sales_order_df
         WHEN DATE_PART('month', order_date) >= 7 
         THEN DATE_PART('year', order_date) + 1 
         ELSE DATE_PART('year', order_date) 
-    END AS fiscal_year"
+    END AS fiscal_year",
+
+    // Complex date logic - modified to work with Date32
+    "CASE 
+        WHEN order_date < MAKE_DATE(2024, 1, 1) THEN 'Past'
+        ELSE 'Present'
+    END AS temporal_status",
+    
+    "CASE 
+        WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
+        ELSE 'Afternoon'
+    END AS time_of_day"
     ])
     .group_by_all()
     .order_by_many([
         ("order_date", false)
-    ])
-    .limit(20);
+    ]);
 
-let mix_res = mix_query.elusion("datetime_df").await?;
-mix_res.display().await?;
+let dt_res = dt_query.elusion("datetime_df").await?;
+dt_res.display().await?;
 ```
-#### Currently Available DateTIme functions
+#### Currently Available DateTime Functions
 ```rust
 CURRENT_DATE()
+CURRENT_TIME(),
 CURRENT_TIMESTAMP()
+NOW(),
+TODAY(),
 DATE_PART()
 DATE_TRUNC()
 DATE_BIN()
 MAKE_DATE()
-TO_CHAR()
+DATE_FORMAT()
 ```
 ---
 ### WINDOW functions
