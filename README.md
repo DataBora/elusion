@@ -92,7 +92,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.0.0", features = ["odbc"] }
+elusion = { version = "3.1.0", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -106,6 +106,9 @@ brew install unixodbc
 #### When building your project, use the ODBC feature:
 ```rust
 cargo build --features odbc
+```
+```rust
+cargo run --features odbc  
 ```
 ---
 ## NORMALIZATION
@@ -204,7 +207,7 @@ let num_ops_sales = sales_order_df
 let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
 num_ops_res.display().await?;
 ```
-### FILTERING
+### FILTER  (used before aggregations)
 ```rust
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
@@ -214,6 +217,79 @@ let filter_df = sales_order_df
 
 let filtered = filter_df.elusion("result_sales").await?;
 filtered.display().await?;
+
+// exmple 2
+const FILTER_CUSTOMER: &str = "customer_name == 'Customer IRRVL'";
+
+let filter_query = sales_order_df
+    .select([
+        "customer_name",
+        "order_date",
+        "ABS(billable_value) AS abs_billable_value",
+        "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value",
+        "billable_value * 2 AS double_billable_value",  // Multiplication
+        "billable_value / 100 AS percentage_billable"  // Division
+    ])
+    .agg([
+        "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
+        "SUM(billable_value) AS total_billable",
+        "MAX(ABS(billable_value)) AS max_abs_billable",
+        "SUM(billable_value) * 2 AS double_total_billable",      // Operator-based aggregation
+        "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
+    ])
+    .filter(FILTER_CUSTOMER)
+    .group_by_all()
+    .order_by_many([
+        ("total_billable", false),  // Order by total_billable descending
+        ("max_abs_billable", true), // Then by max_abs_billable ascending
+    ])
+```
+### HAVING (used after aggregations)
+```rust
+//Example 1 with aggregatied column names
+ let example1 = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", true ),
+        ("p.ProductName", false)
+    ]);
+
+let result = example1.elusion("sales_res").await?;
+result.display().await?;
+
+//Example 2 with aggregation in having
+let df_having= sales_df
+    .join(customers_df, ["s.CustomerKey = c.CustomerKey"], 
+        "INNER"
+    )
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName"])
+    .having_many([
+        ("SUM(s.OrderQuantity) > 10"),
+        ("AVG(s.OrderQuantity) < 100")
+    ])
+    .order_by(["total_quantity"], [true])
+    .limit(5);
+
+let result = df_having.elusion("sales_res").await?;
+result.display().await?;
 ```
 ### SCALAR functions
 ```rust
