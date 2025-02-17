@@ -1297,6 +1297,27 @@ impl CsvWriteOptions {
 }
 // ================== NORMALIZERS
 
+async fn lowercase_column_names(df: DataFrame) -> ElusionResult<DataFrame> {
+    let schema = df.schema();
+   
+    // Create a SELECT statement that renames all columns to lowercase
+    let columns: Vec<String> = schema.fields()
+        .iter()
+        .map(|f| format!("\"{}\" as \"{}\"", f.name(),  f.name().trim().replace(" ", "_").to_lowercase()))
+        .collect();
+
+    let ctx = SessionContext::new();
+    
+    // Register original DataFrame with proper schema conversion
+    let batches = df.clone().collect().await?;
+    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])?;
+    ctx.register_table("temp_table", Arc::new(mem_table))?;
+    
+    // Create new DataFrame with lowercase columns
+    let sql = format!("SELECT {} FROM temp_table", columns.join(", "));
+    ctx.sql(&sql).await.map_err(|e| ElusionError::Custom(format!("Failed to lowercase column names: {}", e)))
+}
+
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.
 fn normalize_alias_write(alias: &str) -> String {
     alias.trim().to_lowercase()
@@ -1304,13 +1325,15 @@ fn normalize_alias_write(alias: &str) -> String {
 
 /// Normalizes column name by trimming whitespace and properly quoting table aliases and column names.
 fn normalize_column_name(name: &str) -> String {
-    
     if let Some(pos) = name.find('.') {
         let table = &name[..pos];
         let column = &name[pos + 1..];
-        format!("\"{}\".\"{}\"", table.trim(), column.trim().replace(" ", "_"))
+        format!("\"{}\".\"{}\"", 
+            table.trim().to_lowercase(), 
+            column.trim().replace(" ", "_").to_lowercase())
     } else {
-        format!("\"{}\"", name.trim().replace(" ", "_"))
+        format!("\"{}\"", 
+            name.trim().replace(" ", "_").to_lowercase())
     }
 }
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.
@@ -1324,15 +1347,15 @@ fn normalize_condition(condition: &str) -> String {
     // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
     let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
     
-    re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string()
+    re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string().to_lowercase()
 }
 
 /// Normalizes an expression by properly quoting table aliases and column names.
 /// Example:
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
 /// Normalizes an expression by properly quoting table aliases and column names.
-fn normalize_expression(expression: &str, table_alias: &str) -> String {
-    let parts: Vec<&str> = expression.splitn(2, " AS ").collect();
+fn normalize_expression(expr: &str, table_alias: &str) -> String {
+    let parts: Vec<&str> = expr.splitn(2, " AS ").collect();
     
     if parts.len() == 2 {
         let expr_part = parts[0].trim();
@@ -1346,14 +1369,16 @@ fn normalize_expression(expression: &str, table_alias: &str) -> String {
             normalize_simple_expression(expr_part, table_alias)
         };
 
-        format!("{} AS \"{}\"", normalized_expr, alias_part.replace(" ", "_"))
+        format!("{} AS \"{}\"", 
+            normalized_expr.to_lowercase(), 
+            alias_part.replace(" ", "_").to_lowercase())
     } else {
-        if is_aggregate_expression(expression) {
-            normalize_aggregate_expression(expression, table_alias)
-        } else if is_datetime_expression(expression) {
-            normalize_datetime_expression(expression)
+        if is_aggregate_expression(expr) {
+            normalize_aggregate_expression(expr, table_alias).to_lowercase()
+        } else if is_datetime_expression(expr) {
+            normalize_datetime_expression(expr).to_lowercase()
         } else {
-            normalize_simple_expression(expression, table_alias)
+            normalize_simple_expression(expr, table_alias).to_lowercase()
         }
     }
 }
@@ -1367,13 +1392,13 @@ fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
             .map(|arg| normalize_simple_expression(arg.trim(), table_alias))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("{}({})", func_name, normalized_args) 
+        format!("{}({})", func_name.to_lowercase(), normalized_args.to_lowercase())
     } else {
-        expr.to_string()
+        expr.to_lowercase()
     }
 }
 
- fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
+fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
     let col_re = Regex::new(r"(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)").unwrap();
     let func_re = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)$").unwrap();
     let operator_re = Regex::new(r"([\+\-\*\/])").unwrap();
@@ -1387,23 +1412,23 @@ fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
             .collect::<Vec<_>>()
             .join(", ");
             
-        format!("{}({})", func_name, normalized_args)
+        format!("{}({})", func_name.to_lowercase(), normalized_args.to_lowercase())
     } else if operator_re.is_match(expr) {
         let mut result = String::new();
         let mut parts = operator_re.split(expr).peekable();
         
         while let Some(part) = parts.next() {
             let trimmed = part.trim();
-            // Add normalized part
             if col_re.is_match(trimmed) {
-                result.push_str(&trimmed.to_string());
+                result.push_str(&trimmed.to_lowercase());
             } else if is_simple_column(trimmed) {
-                result.push_str(&format!("\"{}\".\"{}\"", table_alias, trimmed));
+                result.push_str(&format!("\"{}\".\"{}\"", 
+                    table_alias.to_lowercase(), 
+                    trimmed.to_lowercase()));
             } else {
-                result.push_str(trimmed);
+                result.push_str(&trimmed.to_lowercase());
             }
             
-            // Add operator if there's more parts
             if parts.peek().is_some() {
                 if let Some(op) = expr.chars().skip_while(|c| !"+-*/%".contains(*c)).next() {
                     result.push_str(&format!(" {} ", op));
@@ -1412,13 +1437,17 @@ fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
         }
         result
     } else if col_re.is_match(expr) {
-        col_re.replace_all(expr, "\"$1\".\"$2\"").to_string()
+        col_re.replace_all(expr, "\"$1\".\"$2\"")
+            .to_string()
+            .to_lowercase()
     } else if is_simple_column(expr) {
-        format!("\"{}\".\"{}\"", table_alias, expr.trim().replace(" ", "_"))
+        format!("\"{}\".\"{}\"", 
+            table_alias.to_lowercase(), 
+            expr.trim().replace(" ", "_").to_lowercase())
     } else {
-        expr.to_string()
+        expr.to_lowercase()
     }
- }
+}
 
 /// Helper function to determine if a string is an expression.
 fn is_expression(s: &str) -> bool {
@@ -1468,85 +1497,68 @@ fn normalize_datetime_expression(expr: &str) -> String {
     let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.(?P<column>[A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
 
     let expr_with_columns = re.replace_all(expr, |caps: &regex::Captures| {
-        let column_name = &caps["column"];
-        format!("\"{}\"", column_name)
+        format!("\"{}\"", caps["column"].to_lowercase())
     }).to_string();
 
-    expr_with_columns
+    expr_with_columns.to_lowercase()
 }
 
 /// window functions normalization
 fn normalize_window_function(expression: &str) -> String {
-    // 1) Split into "<function_part> OVER <over_part>"
     let parts: Vec<&str> = expression.splitn(2, " OVER ").collect();
     if parts.len() != 2 {
-        // No "OVER"? Just return as-is.
-        return expression.to_string();
+        return expression.to_lowercase();
     }
 
     let function_part = parts[0].trim();
     let over_part = parts[1].trim();
 
-    //  regex to capture:
-    //    - The function name (one or more word chars)
-    //    - The entire parenthesized argument list (anything until the final closing parenthesis).
-    //      ^(\w+)\(     : start, capture function name, then an open parenthesis
-    //      (.*)         : capture everything, including commas, until the last close parenthesis
-    //      \)$          : a close parenthesis at the end of string
     let func_regex = Regex::new(r"^(\w+)\((.*)\)$").unwrap();
 
-    // If there's no parenthesis at all skip argument processing
     let (normalized_function, maybe_args) = if let Some(caps) = func_regex.captures(function_part) {
         let func_name = &caps[1];
-        let arg_list_str = &caps[2]; //  "s.OrderQuantity, 1, 0"
+        let arg_list_str = &caps[2];
 
-        // split by commas, trim, and normalize each argument if it's a column reference
         let raw_args: Vec<&str> = arg_list_str.split(',').map(|s| s.trim()).collect();
         
-        //  transform each argument if it looks like "s.Column"
         let normalized_args: Vec<String> = raw_args
             .iter()
             .map(|arg| normalize_function_arg(arg))
             .collect();
 
-        (func_name.to_string(), Some(normalized_args))
+        (func_name.to_lowercase(), Some(normalized_args))
     } else {
-        // no parentheses matched → maybe "ROW_NUMBER()" or "ROW_NUMBER" or "DENSE_RANK()"
-        // just return the entire function_part as-is (minus trailing "()" if any).
-        (function_part.to_string(), None)
+        (function_part.to_lowercase(), None)
     };
 
-    // rebuild the function call
     let rebuilt_function = if let Some(args) = maybe_args {
-        // Join normalized arguments with commas
-        format!("{}({})", normalized_function, args.join(", "))
+        format!("{}({})", normalized_function, args.join(", ").to_lowercase())
     } else {
-        // "ROW_NUMBER()" or "ROW_NUMBER"
         normalized_function
     };
 
-    //normalize the OVER(...) clause - convert s.Column to "s"."Column"
     let re_cols = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-    let normalized_over = re_cols.replace_all(over_part, "\"$1\".\"$2\"").to_string();
+    let normalized_over = re_cols.replace_all(over_part, "\"$1\".\"$2\"")
+        .to_string()
+        .to_lowercase();
 
     format!("{} OVER {}", rebuilt_function, normalized_over)
 }
 
 /// Helper: Normalize one argument if it looks like a table.column reference.
 fn normalize_function_arg(arg: &str) -> String {
-    // regex matches `tableAlias.columnName`
     let re_table_col = Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$").unwrap();
 
     if let Some(caps) = re_table_col.captures(arg) {
         let table = &caps[1];
         let col = &caps[2];
-        format!("\"{}\".\"{}\"", table, col)
+        format!("\"{}\".\"{}\"", 
+            table.to_lowercase(), 
+            col.to_lowercase())
     } else {
-        // if it's just a numeric or some other literal, leave it as is
-        arg.to_string()
+        arg.to_lowercase()
     }
 }
-
 // ================= DELTA
 /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
 /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
@@ -5413,7 +5425,13 @@ pub async fn load(
 ) -> ElusionResult<AliasedDataFrame> {
     let path_manager = DeltaPathManager::new(file_path);
     if path_manager.is_delta_table() {
-        return Self::load_delta(file_path, alias).await;
+        let aliased_df = Self::load_delta(file_path, alias).await?;
+        // Apply lowercase transformation
+        let df_lower = lowercase_column_names(aliased_df.dataframe).await?;
+        return Ok(AliasedDataFrame {
+            dataframe: df_lower,
+            alias: alias.to_string(),
+        });
     }
 
     let ext = file_path
@@ -5422,21 +5440,27 @@ pub async fn load(
         .unwrap_or_default()
         .to_lowercase();
 
-        match ext.as_str() {
-            "csv" => Self::load_csv(file_path, alias).await,
-            "json" => Self::load_json(file_path, alias).await,
-            "parquet" => Self::load_parquet(file_path, alias).await,
-            "" => Err(ElusionError::InvalidOperation {
-                operation: "File Loading".to_string(),
-                reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
-                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet) or a valid Delta table directory".to_string(),
-            }),
-            other => Err(ElusionError::InvalidOperation {
-                operation: "File Loading".to_string(),
-                reason: format!("Unsupported file extension: {other}"),
-                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, or Delta table".to_string(),
-            }),
-        }
+    let aliased_df = match ext.as_str() {
+        "csv" => Self::load_csv(file_path, alias).await?,
+        "json" => Self::load_json(file_path, alias).await?,
+        "parquet" => Self::load_parquet(file_path, alias).await?,
+        "" => return Err(ElusionError::InvalidOperation {
+            operation: "File Loading".to_string(),
+            reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
+            suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet) or a valid Delta table directory".to_string(),
+        }),
+        other => return Err(ElusionError::InvalidOperation {
+            operation: "File Loading".to_string(),
+            reason: format!("Unsupported file extension: {other}"),
+            suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, or Delta table".to_string(),
+        }),
+    };
+
+    let df_lower = lowercase_column_names(aliased_df.dataframe).await?;
+    Ok(AliasedDataFrame {
+        dataframe: df_lower,
+        alias: alias.to_string(),
+    })
 }
 
 // -------------------- PLOTING -------------------------- //
