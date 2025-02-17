@@ -763,10 +763,7 @@ let dt_query = sales_order_df
         ELSE 'Afternoon'
     END AS time_of_day"
     ])
-    .group_by_all()
-    .order_by_many([
-        ("order_date", false)
-    ]);
+    .order_by(["order_date"], [false])
 
 let dt_res = dt_query.elusion("datetime_df").await?;
 dt_res.display().await?;
