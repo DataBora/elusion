@@ -1350,6 +1350,13 @@ fn normalize_condition(condition: &str) -> String {
     re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string().to_lowercase()
 }
 
+fn normalize_condition_filter(condition: &str) -> String {
+    // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
+    let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+    
+    re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string()
+}
+
 /// Normalizes an expression by properly quoting table aliases and column names.
 /// Example:
 /// - "SUM(s.OrderQuantity) AS total_quantity" becomes "SUM(\"s\".\"OrderQuantity\") AS total_quantity"
@@ -2145,13 +2152,13 @@ impl CustomDataFrame {
 
     /// Add multiple WHERE conditions using a Vec<&str>
     pub fn filter_vec(mut self, conditions: Vec<&str>) -> Self {
-        self.where_conditions.extend(conditions.into_iter().map(|c| normalize_condition(c)));
+        self.where_conditions.extend(conditions.into_iter().map(|c| normalize_condition_filter(c)));
         self
     }
 
     /// Add a single WHERE condition
     pub fn filter(mut self, condition: &str) -> Self {
-        self.where_conditions.push(normalize_condition(condition));
+        self.where_conditions.push(normalize_condition_filter(condition));
         self
     }
     
@@ -5183,6 +5190,13 @@ pub async fn load_db(
                 reason: format!("Failed to create DataFrame: {}", e),
                 suggestion: "💡 Verify table registration and schema".to_string()
             })?;
+        
+        let df = lowercase_column_names(df).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Column Normalization".to_string(),
+                reason: format!("Failed to normalize column names: {}", e),
+                suggestion: "💡 Check column names and schema compatibility".to_string()
+            })?;
 
         Ok(AliasedDataFrame {
             dataframe: df,
@@ -5387,12 +5401,13 @@ pub async fn from_azure_with_sas_token(
     ctx.register_table(alias, Arc::new(mem_table))
         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
 
-    println!("✅ Successfully created and registered in-memory table with alias '{}'", alias);
-
     let df = ctx.table(alias)
         .await
         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
 
+    let df = lowercase_column_names(df).await?;
+
+    println!("✅ Successfully created and registered in-memory table with alias '{}'", alias);
     // info!("Returning CustomDataFrame for alias '{}'", alias);
     Ok(CustomDataFrame {
         df,
