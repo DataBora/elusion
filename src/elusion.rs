@@ -3269,42 +3269,37 @@ impl CustomDataFrame {
 
     /// Add selected columns to the SELECT clause using a Vec<&str>
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
-
-         // Store original expressions with AS clauses
+        // Store original expressions with AS clauses
         self.original_expressions = columns
-        .iter()
-        .filter(|&col| col.contains(" AS "))
-        .map(|&s| s.to_string())
-        .collect();
-
+            .iter()
+            .filter(|&col| col.contains(" AS "))
+            .map(|&s| s.to_string())
+            .collect();
+    
+        // Instead of replacing selected_columns, merge with existing ones
+        let mut all_columns = self.selected_columns.clone();
+        
         if !self.group_by_columns.is_empty() {
-            let mut valid_selects = Vec::new();
-
             for col in columns {
                 if is_expression(col) {
                     if is_aggregate_expression(col) {
-                        valid_selects.push(normalize_expression(col, &self.table_alias));
+                        all_columns.push(normalize_expression(col, &self.table_alias));
                     } else {
-                        // Expression is not an aggregate; include it in GROUP BY
                         self.group_by_columns.push(col.to_string());
-                        valid_selects.push(normalize_expression(col, &self.table_alias));
+                        all_columns.push(normalize_expression(col, &self.table_alias));
                     }
                 } else {
-                    // Simple column
                     let normalized_col = normalize_column_name(col);
                     if self.group_by_columns.contains(&normalized_col) {
-                        valid_selects.push(normalized_col);
+                        all_columns.push(normalized_col);
                     } else {
-                        // Automatically add to GROUP BY
                         self.group_by_columns.push(normalized_col.clone());
-                        valid_selects.push(normalized_col);
+                        all_columns.push(normalized_col);
                     }
                 }
             }
-            self.selected_columns = valid_selects;
         } else {
-            // Existing behavior when GROUP BY is not used
-            // Extract aggregate aliases to exclude them from selected_columns
+            // Handle non-GROUP BY case
             let aggregate_aliases: Vec<String> = self
                 .aggregations
                 .iter()
@@ -3314,20 +3309,28 @@ impl CustomDataFrame {
                         .map(|alias| normalize_alias(alias))
                 })
                 .collect();
-
-            self.selected_columns = columns
-                .into_iter()
-                .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-                .map(|s| {
-                    if is_expression(s) {
-                        normalize_expression(s, &self.table_alias)
-                    } else {
-                        normalize_column_name(s)
-                    }
-                })
-                .collect();
+    
+            all_columns.extend(
+                columns
+                    .into_iter()
+                    .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+                    .map(|s| {
+                        if is_expression(s) {
+                            normalize_expression(s, &self.table_alias)
+                        } else {
+                            normalize_column_name(s)
+                        }
+                    })
+            );
         }
-
+    
+        // Remove duplicates while preserving order
+        let mut seen = HashSet::new();
+        self.selected_columns = all_columns
+            .into_iter()
+            .filter(|x| seen.insert(x.clone()))
+            .collect();
+    
         self
     }
 
