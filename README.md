@@ -75,7 +75,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.1.0"
+elusion = "3.2.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -92,7 +92,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.1.0", features = ["odbc"] }
+elusion = { version = "3.2.0", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -729,39 +729,6 @@ let dt_query = sales_order_df
         WHEN DATE_PART('month', order_date) <= 9 THEN 'Q3'
         ELSE 'Q4'
         END AS fiscal_quarter",
-        
-    // Date comparisons with current date
-    "CASE 
-        WHEN order_date = CURRENT_DATE() THEN 'Today'
-        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 7 THEN 'Last Week'
-        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 30 THEN 'Last Month'
-        ELSE 'Older'
-        END AS order_recency",
-
-    // Time windows
-    "CASE 
-        WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
-        THEN 'This Week'
-        ELSE 'Previous Weeks'
-    END AS week_window",
-
-    // Fiscal year calculations
-    "CASE 
-        WHEN DATE_PART('month', order_date) >= 7 
-        THEN DATE_PART('year', order_date) + 1 
-        ELSE DATE_PART('year', order_date) 
-    END AS fiscal_year",
-
-    // Complex date logic - modified to work with Date32
-    "CASE 
-        WHEN order_date < MAKE_DATE(2024, 1, 1) THEN 'Past'
-        ELSE 'Present'
-    END AS temporal_status",
-    
-    "CASE 
-        WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
-        ELSE 'Afternoon'
-    END AS time_of_day"
     ])
     .order_by(["order_date"], [false])
 

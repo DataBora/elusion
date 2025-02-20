@@ -1,3 +1,7 @@
+## [3.2.0] - 2025-02-20
+### Fixed
+- Query flexible query ordering for select, string, agg, filter and datetime
+
 ## [3.1.0] - 2025-02-17
 ### Fixed
 - filter() condition Case Sensitivity
