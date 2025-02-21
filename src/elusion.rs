@@ -1325,15 +1325,65 @@ fn normalize_alias_write(alias: &str) -> String {
 
 /// Normalizes column name by trimming whitespace and properly quoting table aliases and column names.
 fn normalize_column_name(name: &str) -> String {
-    if let Some(pos) = name.find('.') {
-        let table = &name[..pos];
-        let column = &name[pos + 1..];
-        format!("\"{}\".\"{}\"", 
-            table.trim().to_lowercase(), 
-            column.trim().replace(" ", "_").to_lowercase())
+    // Case-insensitive check for " AS " with more flexible whitespace handling
+    let name_upper = name.to_uppercase();
+    if name_upper.contains(" AS ") {
+       
+        // let pattern = regex::Regex::new(r"(?i)\s+AS\s+") //r"(?i)^(.*?)\s+AS\s+(.+?)$"
+        // .unwrap();
+
+        let pattern = match regex::Regex::new(r"(?i)\s+AS\s+") {
+            Ok(re) => re,
+            Err(e) => {
+                // Log error and return a safe default
+                eprintln!("Column parsing error in SELECT() function: {}", e);
+                return name.to_string();
+            }
+        };
+
+        let parts: Vec<&str> = pattern.split(name).collect();
+        
+        if parts.len() >= 2 {
+            let column = parts[0].trim();
+            let alias = parts[1].trim();
+            
+            if let Some(pos) = column.find('.') {
+                let table = &column[..pos];
+                let col = &column[pos + 1..];
+                format!("\"{}\".\"{}\" AS \"{}\"",
+                    table.trim().to_lowercase(),
+                    col.trim().to_lowercase(),
+                    alias.to_lowercase())
+            } else {
+                format!("\"{}\" AS \"{}\"",
+                    column.trim().to_lowercase(),
+                    alias.to_lowercase())
+            }
+        } else {
+
+            if let Some(pos) = name.find('.') {
+                let table = &name[..pos];
+                let column = &name[pos + 1..];
+                format!("\"{}\".\"{}\"", 
+                    table.trim().to_lowercase(), 
+                    column.trim().replace(" ", "_").to_lowercase())
+            } else {
+                format!("\"{}\"", 
+                    name.trim().replace(" ", "_").to_lowercase())
+            }
+        }
     } else {
-        format!("\"{}\"", 
-            name.trim().replace(" ", "_").to_lowercase())
+
+        if let Some(pos) = name.find('.') {
+            let table = &name[..pos];
+            let column = &name[pos + 1..];
+            format!("\"{}\".\"{}\"", 
+                table.trim().to_lowercase(), 
+                column.trim().replace(" ", "_").to_lowercase())
+        } else {
+            format!("\"{}\"", 
+                name.trim().replace(" ", "_").to_lowercase())
+        }
     }
 }
 /// Normalizes an alias by trimming whitespace and converting it to lowercase.

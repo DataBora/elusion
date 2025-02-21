@@ -1,3 +1,7 @@
+## [3.3.0] - 2025-02-21
+### Fixed
+- Select() AS not to get _ in between column name and AS
+
 ## [3.2.0] - 2025-02-20
 ### Fixed
 - Query flexible query ordering for select, string, agg, filter and datetime
