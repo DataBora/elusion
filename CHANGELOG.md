@@ -1,3 +1,8 @@
+## [3.3.1] - 2025-02-26
+### Fixed build 
+- Update to arrow crate and arrow-arith crate made build conflict with chrono crate. DOwngraded datafusion to `43.0.0`
+arrow fixed to `=53.2.0`, chrono fixed to `=0.4.38`
+
 ## [3.3.0] - 2025-02-21
 ### Fixed
 - Select() AS not to get _ in between column name and AS
