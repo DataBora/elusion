@@ -1192,14 +1192,10 @@ pg_res.display().await?;
 ```
 ---
 # Views and Caching
-### Query Caching:
-For transparent performance optimization
-When the same query might be run multiple times in a session
-For interactive analysis scenarios
 ### Materialized Views:
-For long-term storage of complex query results
-When results need to be referenced by name
-For data that changes infrequently
+For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
+### Query Caching:
+For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.
 ```rust
 let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
 let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
