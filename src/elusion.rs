@@ -259,7 +259,7 @@ impl MaterializedViewManager {
         Ok(())
     }
 
-    pub async fn refresh_materialized_view(
+    pub async fn refresh_view(
         &mut self,
         ctx: &SessionContext,
         name: &str,
@@ -2330,10 +2330,10 @@ impl CustomDataFrame {
       }
       
       /// Refresh a materialized view
-      pub async fn refresh_materialized_view(view_name: &str) -> ElusionResult<()> {
+      pub async fn refresh_view(view_name: &str) -> ElusionResult<()> {
           let ctx = SessionContext::new();
           let mut manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
-          manager.refresh_materialized_view(&ctx, view_name).await
+          manager.refresh_view(&ctx, view_name).await
       }
       
       /// Drop a materialized view
