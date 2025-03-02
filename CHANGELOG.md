@@ -1,3 +1,7 @@
+## [3.4.1] - 2025-03-02
+### Renamed
+- Renamed function from_materialized_view() to from_view()
+
 ## [3.4.0] - 2025-03-02
 ### Added
 - Caching and Materialized Views
