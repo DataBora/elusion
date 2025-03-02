@@ -799,10 +799,10 @@ dt_res.display().await?;
 #### Currently Available DateTime Functions
 ```rust
 CURRENT_DATE()
-CURRENT_TIME(),
+CURRENT_TIME()
 CURRENT_TIMESTAMP()
-NOW(),
-TODAY(),
+NOW()
+TODAY()
 DATE_PART()
 DATE_TRUNC()
 DATE_BIN()
