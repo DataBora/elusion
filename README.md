@@ -35,9 +35,35 @@ Async Support: Built on tokio for non-blocking operations.
 - Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
-### 🚀 High-Performance DataFrame Operations
+### 🚀 High-Performance DataFrame Query Operations
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
+
+### 🚀 Caching and Materialized Views
+The caching and materialized views functionality offer several significant advantages over regular querying:
+#### Reduced Computation Time:
+Complex queries (especially with joins, aggregations, and string functions) only need to be computed once
+Subsequent requests use pre-computed results, which can be 10-100x faster
+#### Memory Management:
+Large intermediate results are managed better in cached form (prevents stack overflow)
+The query execution plan doesn't need to be rebuilt each time
+Memory allocation patterns become more predictable
+#### Query Optimization:
+Results are stored in an optimized format (Arrow RecordBatches)
+Repeated access doesn't require re-parsing SQL or rebuilding execution plans
+#### Interactive Analysis:
+Data scientists can explore data interactively without waiting for the same queries to execute repeatedly
+Makes iterative analysis practical even with large datasets
+#### Dashboards and Reports:
+Multiple visualizations can share the same underlying data without redundant computation
+Refresh only when needed (TTL-based expiration)
+#### Resource Utilization:
+Reduced CPU usage for repeated queries
+Less I/O pressure for file-based data sources
+More efficient use of memory (prevent re-allocations)
+#### Concurrency:
+Multiple users/processes can access the same cached results
+Reduces contention for system resources
 
 ### 📉 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
@@ -75,7 +101,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.3.1"
+elusion = "3.4.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -92,7 +118,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.3.1", features = ["odbc"] }
+elusion = { version = "3.4.0", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -731,6 +757,39 @@ let dt_query = sales_order_df
         WHEN DATE_PART('month', order_date) <= 9 THEN 'Q3'
         ELSE 'Q4'
         END AS fiscal_quarter",
+    
+    // Date comparisons with current date
+    "CASE 
+        WHEN order_date = CURRENT_DATE() THEN 'Today'
+        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 7 THEN 'Last Week'
+        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 30 THEN 'Last Month'
+        ELSE 'Older'
+        END AS order_recency",
+
+    // Time windows
+    "CASE 
+        WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
+        THEN 'This Week'
+        ELSE 'Previous Weeks'
+    END AS week_window",
+
+    // Fiscal year calculations
+    "CASE 
+        WHEN DATE_PART('month', order_date) >= 7 
+        THEN DATE_PART('year', order_date) + 1 
+        ELSE DATE_PART('year', order_date) 
+    END AS fiscal_year",
+
+    // Complex date logic - modified to work with Date32
+    "CASE 
+        WHEN order_date < MAKE_DATE(2024, 1, 1) THEN 'Past'
+        ELSE 'Present'
+    END AS temporal_status",
+    
+    "CASE 
+        WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
+        ELSE 'Afternoon'
+    END AS time_of_day"
     ])
     .order_by(["order_date"], [false])
 
@@ -1130,6 +1189,150 @@ let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
 
 let pg_res = pg_df.elusion("pg_res").await?;
 pg_res.display().await?;
+```
+---
+# Views and Caching
+### Query Caching:
+For transparent performance optimization
+When the same query might be run multiple times in a session
+For interactive analysis scenarios
+### Materialized Views:
+For long-term storage of complex query results
+When results need to be referenced by name
+For data that changes infrequently
+```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
+// Example 1: Using materialized view for customer count
+// The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
+customers_df.clone()
+    .select(["COUNT(*) as count"])
+    .limit(10)
+    .create_view("customer_count_view", Some(3600)) 
+    .await?;
+
+// Access the view by name - no recomputation needed
+let customer_count = CustomDataFrame::from_materialized_view("customer_count_view").await?;
+customer_count.display().await?;
+
+// Example 2: Using query caching with complex joins and aggregations
+// First execution computes and stores the result
+let join_result = sales_df.clone()
+    .join_many([
+        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", true),
+        ("p.ProductName", false)
+    ])
+    .limit(5)
+    .elusion_with_cache("sales_join")
+    .await?;
+
+join_result.display().await?;
+
+// Same query again - results retrieved from cache (much faster)
+// Note: identical queries automatically use the cache
+let cached_result = sales_df.clone()
+    .join_many([
+        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", true),
+        ("p.ProductName", false)
+    ])
+    .limit(5)
+    .elusion_with_cache("sales_join")
+    .await?;
+
+cached_result.display().await?;
+
+// Example 3: String manipulation functions with caching
+// This complex query benefits greatly from caching
+let string_funcs = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "INNER"),
+    ]) 
+    .select([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName",
+    ])
+    .string_functions([
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "LTRIM(c.EmailAddress) AS left_trimmed_email",
+        "RTRIM(c.EmailAddress) AS right_trimmed_email",
+        "UPPER(c.FirstName) AS upper_first_name",
+        "LOWER(c.LastName) AS lower_last_name",
+        "LENGTH(c.EmailAddress) AS email_length",
+        "LEFT(p.ProductName, 10) AS product_start",
+        "RIGHT(p.ProductName, 10) AS product_end",
+        "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
+        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
+        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
+        "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
+        "STRPOS(c.EmailAddress, '@') AS email_at_pos",
+        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
+        "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
+        "REPEAT('*', 5) AS stars",
+        "REVERSE(c.FirstName) AS reversed_name",
+        "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
+        "RPAD(c.FirstName, 20, '.') AS padded_name",
+        "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
+        "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
+    ])
+    .agg([
+        "COUNT(p.ProductKey) AS product_count",
+        "SUM(s.OrderQuantity) AS total_order_quantity",
+    ])
+    .group_by_all()
+    .having_many([("total_order_quantity > 10"), ("product_count >= 1")])  
+    .order_by_many([
+        ("total_order_quantity", true), 
+        ("p.ProductName", false) 
+    ])
+    .elusion_with_cache("string_funcs")
+    .await?;
+
+string_funcs.display().await?;
+
+// Other useful cache/view management functions:
+CustomDataFrame::invalidate_cache(&["table_name".to_string()]); // Clear cache for specific tables
+CustomDataFrame::clear_cache(); // Clear entire cache
+CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
+CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
+CustomDataFrame::list_views().await; // Get info about all views
 ```
 ---
 # AZURE Blob Storage Connector 

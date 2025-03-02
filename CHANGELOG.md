@@ -1,3 +1,7 @@
+## [3.4.0] - 2025-03-02
+### Added
+- Caching and Materialized Views
+
 ## [3.3.1] - 2025-02-26
 ### Fixed build 
 - Update to arrow crate and arrow-arith crate made build conflict with chrono crate. DOwngraded datafusion to `43.0.0`
