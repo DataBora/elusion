@@ -39,8 +39,8 @@ Async Support: Built on tokio for non-blocking operations.
 Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
 
-### 🚀 Caching and Materialized Views
-The caching and materialized views functionality offer several significant advantages over regular querying:
+### 🚀 Caching and Views
+The caching and views functionality offer several significant advantages over regular querying:
 #### Reduced Computation Time:
 Complex queries (especially with joins, aggregations, and string functions) only need to be computed once
 Subsequent requests use pre-computed results, which can be 10-100x faster
