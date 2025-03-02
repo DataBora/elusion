@@ -115,3 +115,10 @@ pub use tokio_cron_scheduler::{JobScheduler, Job};
 pub use reqwest::Client;
 pub use urlencoding::encode;
 pub use crate::ElusionApi;
+
+// ========= VIEWS and CAche
+pub use std::hash::{Hash, Hasher};
+pub use std::collections::hash_map::DefaultHasher;
+pub use chrono::{DateTime, Utc};
+pub use std::sync::Mutex;
+pub use lazy_static::lazy_static;

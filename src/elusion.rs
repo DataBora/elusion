@@ -101,7 +101,258 @@ use tokio_cron_scheduler::{JobScheduler, Job};
 // ======== From API
 use reqwest::Client;
 
-// use log::{info, debug};
+//========== VIEWS
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use chrono::{DateTime, Utc};
+use std::sync::Mutex;
+use lazy_static::lazy_static;
+
+/// A struct to hold materialized view metadata and data
+pub struct MaterializedView {
+    /// Name of the materialized view
+    pub(crate) name: String,
+    /// The SQL query that defines this view
+    definition: String,
+    /// The actual data stored as batches
+    data: Vec<RecordBatch>,
+    /// Time when this view was created/refreshed
+    refresh_time: DateTime<Utc>,
+    /// Optional time-to-live in seconds
+    ttl: Option<u64>,
+}
+
+impl MaterializedView {
+    fn is_valid(&self) -> bool {
+        if let Some(ttl) = self.ttl {
+            let now = Utc::now();
+            let age = now.signed_duration_since(self.refresh_time).num_seconds();
+            return age < ttl as i64;
+        }
+        true
+    }
+
+    fn display_info(&self) -> String {
+        format!(
+            "View '{}' - Created: {}, TTL: {} seconds",
+            self.name,
+            self.refresh_time.format("%Y-%m-%d %H:%M:%S"),
+            self.ttl.map_or("None".to_string(), |ttl| ttl.to_string())
+        )
+    }
+}
+
+/// A cache for storing query results
+pub struct QueryCache {
+    cached_queries: HashMap<u64, (Vec<RecordBatch>, DateTime<Utc>)>,
+    max_cache_size: usize,
+    ttl_seconds: Option<u64>,
+}
+
+impl QueryCache {
+    pub fn new(max_cache_size: usize, ttl_seconds: Option<u64>) -> Self {
+        Self {
+            cached_queries: HashMap::new(),
+            max_cache_size,
+            ttl_seconds,
+        }
+    }
+
+    pub fn cache_query(&mut self, query: &str, result: Vec<RecordBatch>) {
+        if self.cached_queries.len() >= self.max_cache_size {
+            // Simple LRU eviction - remove the oldest entry
+            if let Some(oldest) = self.cached_queries
+                .iter()
+                .min_by_key(|(_, (_, time))| time) {
+                let key = *oldest.0;
+                self.cached_queries.remove(&key);
+            }
+        }
+
+        let mut hasher = DefaultHasher::new();
+        query.hash(&mut hasher);
+        let query_hash = hasher.finish();
+        self.cached_queries.insert(query_hash, (result, Utc::now()));
+    }
+
+    pub fn get_cached_result(&mut self, query: &str) -> Option<Vec<RecordBatch>> {
+        let mut hasher = DefaultHasher::new();
+        query.hash(&mut hasher);
+        let query_hash = hasher.finish();
+
+        if let Some((result, timestamp)) = self.cached_queries.get(&query_hash) {
+            // Check TTL if set
+            if let Some(ttl) = self.ttl_seconds {
+                let now = Utc::now();
+                let age = now.signed_duration_since(*timestamp).num_seconds();
+                if age > ttl as i64 {
+                    // Cache entry expired, remove it
+                    self.cached_queries.remove(&query_hash);
+                    return None;
+                }
+            }
+            return Some(result.clone());
+        }
+        None
+    }
+
+    pub fn clear(&mut self) {
+        self.cached_queries.clear();
+    }
+
+    pub fn invalidate(&mut self, table_names: &[String]) {
+        // if any tables are modified, clear entire cache
+        if !table_names.is_empty() {
+            println!("Invalidating cache due to changes in tables: {:?}", table_names);
+            self.clear();
+        }
+    }
+}
+
+/// Materialized View Manager
+pub struct MaterializedViewManager {
+    views: HashMap<String, MaterializedView>,
+    max_views: usize,
+}
+
+impl MaterializedViewManager {
+    pub fn new(max_views: usize) -> Self {
+        Self {
+            views: HashMap::new(),
+            max_views,
+        }
+    }
+
+    pub async fn create_view(
+        &mut self,
+        ctx: &SessionContext,
+        name: &str,
+        query: &str,
+        ttl: Option<u64>,
+    ) -> ElusionResult<()> {
+        // Check if we've hit the max number of views
+        if self.views.len() >= self.max_views && !self.views.contains_key(name) {
+            return Err(ElusionError::Custom(
+                format!("Maximum number of materialized views ({}) reached", self.max_views)
+            ));
+        }
+
+        // Execute the query
+        let df = ctx.sql(query).await.map_err(|e| ElusionError::Custom(
+            format!("Failed to execute query for materialized view: {}", e)
+        ))?;
+
+        let batches = df.collect().await.map_err(|e| ElusionError::Custom(
+            format!("Failed to collect results for materialized view: {}", e)
+        ))?;
+
+        // Create or update the materialized view
+        let view = MaterializedView {
+            name: name.to_string(),
+            definition: query.to_string(),
+            data: batches,
+            refresh_time: Utc::now(),
+            ttl,
+        };
+
+        self.views.insert(name.to_string(), view);
+        Ok(())
+    }
+
+    pub async fn refresh_materialized_view(
+        &mut self,
+        ctx: &SessionContext,
+        name: &str,
+    ) -> ElusionResult<()> {
+        if let Some(view) = self.views.get(name) {
+            let query = view.definition.clone();
+            let ttl = view.ttl;
+            return self.create_view(ctx, name, &query, ttl).await;
+        }
+        Err(ElusionError::Custom(format!("View '{}' not found", name)))
+    }
+
+    pub async fn get_view_as_dataframe(
+        &self,
+        ctx: &SessionContext,
+        name: &str,
+    ) -> ElusionResult<DataFrame> {
+        if let Some(view) = self.views.get(name) {
+            if !view.is_valid() {
+                return Err(ElusionError::Custom(
+                    format!("View '{}' has expired", name)
+                ));
+            }
+
+            let schema = match view.data.first() {
+                Some(batch) => batch.schema(),
+                None => return Err(ElusionError::Custom(
+                    format!("View '{}' contains no data", name)
+                )),
+            };
+
+            let mem_table = MemTable::try_new(schema.clone(), vec![view.data.clone()])
+                .map_err(|e| ElusionError::Custom(
+                    format!("Failed to create memory table from view: {}", e)
+                ))?;
+
+            let table_name = format!("view_{}", name);
+            ctx.register_table(&table_name, Arc::new(mem_table))
+                .map_err(|e| ElusionError::Custom(
+                    format!("Failed to register table from view: {}", e)
+                ))?;
+
+            let df = ctx.table(&table_name).await
+                .map_err(|e| ElusionError::Custom(
+                    format!("Failed to create DataFrame from view: {}", e)
+                ))?;
+
+            Ok(df)
+        } else {
+            Err(ElusionError::Custom(format!("View '{}' not found", name)))
+        }
+    }
+
+    pub fn drop_view(&mut self, name: &str) -> ElusionResult<()> {
+        if self.views.remove(name).is_some() {
+            println!("View '{}' droped.", name);
+            Ok(())
+        } else {
+            Err(ElusionError::Custom(format!("View '{}' not found", name)))
+        }
+    }
+
+    pub fn list_views(&self) -> Vec<(String, DateTime<Utc>, Option<u64>)> {
+        let mut result = Vec::new();
+
+        if self.views.is_empty() {
+            return result;
+        }
+
+        for (view_name, view) in &self.views {
+            println!("{}", view.display_info());
+            result.push((view_name.clone(), view.refresh_time, view.ttl));
+        }
+        result
+    }
+
+
+    pub fn get_view_metadata(&self, name: &str) -> Option<(String, DateTime<Utc>, Option<u64>)> {
+        self.views.get(name).map(|view| (
+            view.definition.clone(),
+            view.refresh_time,
+            view.ttl
+        ))
+    }
+}
+
+// Global state for caching and materialized views
+lazy_static! {
+    static ref QUERY_CACHE: Mutex<QueryCache> = Mutex::new(QueryCache::new(100, Some(3600))); // 1 hour TTL
+    static ref MATERIALIZED_VIEW_MANAGER: Mutex<MaterializedViewManager> = Mutex::new(MaterializedViewManager::new(50));
+}
+
+//=============== AZURE
 
 // Azure ULR validator helper function
 fn validate_azure_url(url: &str) -> ElusionResult<()> {
@@ -2022,6 +2273,163 @@ pub struct AliasedDataFrame {
 }
 
 impl CustomDataFrame {
+
+      /// Create a materialized view from the current DataFrame state
+      pub async fn create_view(
+          &self,
+          view_name: &str,
+          ttl_seconds: Option<u64>,
+      ) -> ElusionResult<()> {
+          // Get the SQL that would be executed for this DataFrame
+          let sql = self.construct_sql();
+          
+          // Create a new SessionContext for this operation
+          let ctx = SessionContext::new();
+          
+          // Register necessary tables
+          Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+          
+          for join in &self.joins {
+              Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
+          }
+          
+          // Create the materialized view
+          let mut manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
+          manager.create_view(&ctx, view_name, &sql, ttl_seconds).await
+      }
+      
+      /// Get a DataFrame from a materialized view
+      pub async fn from_materialized_view(view_name: &str) -> ElusionResult<Self> {
+          let ctx = SessionContext::new();
+          let manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
+          
+          let df = manager.get_view_as_dataframe(&ctx, view_name).await?;
+          
+          Ok(CustomDataFrame {
+              df,
+              table_alias: view_name.to_string(),
+              from_table: view_name.to_string(),
+              selected_columns: Vec::new(),
+              alias_map: Vec::new(),
+              aggregations: Vec::new(),
+              group_by_columns: Vec::new(),
+              where_conditions: Vec::new(),
+              having_conditions: Vec::new(),
+              order_by_columns: Vec::new(),
+              limit_count: None,
+              joins: Vec::new(),
+              window_functions: Vec::new(),
+              ctes: Vec::new(),
+              subquery_source: None,
+              set_operations: Vec::new(),
+              query: String::new(),
+              aggregated_df: None,
+              union_tables: None,
+              original_expressions: Vec::new(),
+          })
+      }
+      
+      /// Refresh a materialized view
+      pub async fn refresh_materialized_view(view_name: &str) -> ElusionResult<()> {
+          let ctx = SessionContext::new();
+          let mut manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
+          manager.refresh_materialized_view(&ctx, view_name).await
+      }
+      
+      /// Drop a materialized view
+      pub async fn drop_view(view_name: &str) -> ElusionResult<()> {
+          let mut manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
+          manager.drop_view(view_name)
+      }
+      
+      /// List all materialized views
+      pub async fn list_views() -> Vec<(String, DateTime<Utc>, Option<u64>)> {
+        let manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
+        let views = manager.list_views();
+        
+        if views.is_empty() {
+            println!("There are no materialized views created.");
+        }
+        
+        views
+    }
+      
+      /// Execute query with caching
+      pub async fn elusion_with_cache(&self, alias: &str) -> ElusionResult<Self> {
+          let sql = self.construct_sql();
+          
+          // Try to get from cache first
+          let mut cache = QUERY_CACHE.lock().unwrap();
+          if let Some(cached_result) = cache.get_cached_result(&sql) {
+              println!("✅ Using cached result for query");
+              
+              // Create a DataFrame from the cached result
+              let ctx = SessionContext::new();
+              let schema = cached_result[0].schema();
+              
+              let mem_table = MemTable::try_new(schema.clone(), vec![cached_result])
+                  .map_err(|e| ElusionError::Custom(format!("Failed to create memory table from cache: {}", e)))?;
+              
+              ctx.register_table(alias, Arc::new(mem_table))
+                  .map_err(|e| ElusionError::Custom(format!("Failed to register table from cache: {}", e)))?;
+              
+              let df = ctx.table(alias).await
+                  .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from cache: {}", e)))?;
+              
+              return Ok(CustomDataFrame {
+                  df,
+                  table_alias: alias.to_string(),
+                  from_table: alias.to_string(),
+                  selected_columns: Vec::new(),
+                  alias_map: Vec::new(),
+                  aggregations: Vec::new(),
+                  group_by_columns: Vec::new(),
+                  where_conditions: Vec::new(),
+                  having_conditions: Vec::new(),
+                  order_by_columns: Vec::new(),
+                  limit_count: None,
+                  joins: Vec::new(),
+                  window_functions: Vec::new(),
+                  ctes: Vec::new(),
+                  subquery_source: None,
+                  set_operations: Vec::new(),
+                  query: sql,
+                  aggregated_df: None,
+                  union_tables: None,
+                  original_expressions: self.original_expressions.clone(),
+              });
+          }
+          
+          // Not in cache, execute the query
+          let result = self.elusion(alias).await?;
+          
+          // Cache the result
+          let batches = result.df.clone().collect().await
+              .map_err(|e| ElusionError::Custom(format!("Failed to collect batches: {}", e)))?;
+          
+          cache.cache_query(&sql, batches);
+          
+          Ok(result)
+      }
+      
+      /// Invalidate cache for specific tables
+      pub fn invalidate_cache(table_names: &[String]) {
+          let mut cache = QUERY_CACHE.lock().unwrap();
+          cache.invalidate(table_names);
+      }
+      
+      /// Clear the entire query cache
+      pub fn clear_cache() {
+        let mut cache = QUERY_CACHE.lock().unwrap();
+        let size_before = cache.cached_queries.len();
+        cache.clear();
+        println!("Cache cleared: {} queries removed from cache.", size_before);
+    }
+      
+      /// Modify cache settings
+      pub fn configure_cache(max_size: usize, ttl_seconds: Option<u64>) {
+          *QUERY_CACHE.lock().unwrap() = QueryCache::new(max_size, ttl_seconds);
+      }
 
      /// Helper function to register a DataFrame as a table provider in the given SessionContext
      async fn register_df_as_table(
