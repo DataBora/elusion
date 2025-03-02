@@ -1214,7 +1214,7 @@ customers_df.clone()
     .await?;
 
 // Access the view by name - no recomputation needed
-let customer_count = CustomDataFrame::from_materialized_view("customer_count_view").await?;
+let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
 customer_count.display().await?;
 
 // Example 2: Using query caching with complex joins and aggregations

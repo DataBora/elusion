@@ -2299,7 +2299,7 @@ impl CustomDataFrame {
       }
       
       /// Get a DataFrame from a materialized view
-      pub async fn from_materialized_view(view_name: &str) -> ElusionResult<Self> {
+      pub async fn from_view(view_name: &str) -> ElusionResult<Self> {
           let ctx = SessionContext::new();
           let manager = MATERIALIZED_VIEW_MANAGER.lock().unwrap();
           
