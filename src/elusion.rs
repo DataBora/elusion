@@ -113,17 +113,16 @@ use arrow::array::Int32Builder;
 use arrow::array::BooleanBuilder;
 use chrono::Datelike;
 
-/// A struct to hold materialized view metadata and data
 pub struct MaterializedView {
-    /// Name of the materialized view
+    // Name of the materialized view
     pub(crate) name: String,
-    /// The SQL query that defines this view
+    // The SQL query that defines this view
     definition: String,
-    /// The actual data stored as batches
+    // The actual data stored as batches
     data: Vec<RecordBatch>,
-    /// Time when this view was created/refreshed
+    // Time when this view was created/refreshed
     refresh_time: DateTime<Utc>,
-    /// Optional time-to-live in seconds
+    // Optional time-to-live in seconds
     ttl: Option<u64>,
 }
 
@@ -147,7 +146,6 @@ impl MaterializedView {
     }
 }
 
-/// A cache for storing query results
 pub struct QueryCache {
     cached_queries: HashMap<u64, (Vec<RecordBatch>, DateTime<Utc>)>,
     max_cache_size: usize,
@@ -214,7 +212,6 @@ impl QueryCache {
     }
 }
 
-/// Materialized View Manager
 pub struct MaterializedViewManager {
     views: HashMap<String, MaterializedView>,
     max_views: usize,
@@ -2325,7 +2322,7 @@ impl CustomDataFrame {
         end_date: &str,
         alias: &str
     ) -> ElusionResult<Self> {
-        
+
         let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
             .map_err(|e| ElusionError::InvalidOperation {
                 operation: "Date Parsing".to_string(),
