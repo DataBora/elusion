@@ -122,3 +122,8 @@ pub use std::collections::hash_map::DefaultHasher;
 pub use chrono::{DateTime, Utc};
 pub use std::sync::Mutex;
 pub use lazy_static::lazy_static;
+
+// =========== DATE TABLE BUILDER
+pub use arrow::array::Int32Builder;
+pub use arrow::array::BooleanBuilder;
+pub use chrono::Datelike;
