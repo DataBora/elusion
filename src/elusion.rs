@@ -108,6 +108,11 @@ use chrono::{DateTime, Utc};
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 
+// =========== DATE TABLE BUILDER
+use arrow::array::Int32Builder;
+use arrow::array::BooleanBuilder;
+use chrono::Datelike;
+
 /// A struct to hold materialized view metadata and data
 pub struct MaterializedView {
     /// Name of the materialized view
@@ -2273,7 +2278,242 @@ pub struct AliasedDataFrame {
 }
 
 impl CustomDataFrame {
+    /// Creates an empty DataFrame with a minimal schema and a single row
+    /// This can be used as a base for date tables or other data generation
+    pub async fn empty() -> ElusionResult<Self> {
+        // Create a new session context
+        let ctx = SessionContext::new();
 
+        let sql = "SELECT 1 as dummy";
+        
+        // Execute the SQL to create the single-row DataFrame
+        let df = ctx.sql(sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Single Row Creation".to_string(),
+                reason: format!("Failed to create single-row DataFrame: {}", e),
+                suggestion: "💡 Verify SQL execution capabilities in context.".to_string()
+            })?;
+        
+        // Return a new CustomDataFrame with the single-row DataFrame
+        Ok(CustomDataFrame {
+            df,
+            table_alias: "dummy_table".to_string(),
+            from_table: "dummy_table".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    /// A CustomDataFrame containing a date table with one row per day in the range
+    pub async fn create_date_range_table(
+        start_date: &str,
+        end_date: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        
+        let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Date Parsing".to_string(),
+                reason: format!("Failed to parse start_date '{}': {}", start_date, e),
+                suggestion: "💡 Ensure date format is YYYY-MM-DD".to_string(),
+            })?;
+            
+        let end = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Date Parsing".to_string(),
+                reason: format!("Failed to parse end_date '{}': {}", end_date, e),
+                suggestion: "💡 Ensure date format is YYYY-MM-DD".to_string(),
+            })?;
+            
+        if end < start {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Date Range Validation".to_string(),
+                reason: format!("End date '{}' is before start date '{}'", end_date, start_date),
+                suggestion: "💡 Ensure end_date is after or equal to start_date".to_string(),
+            });
+        }
+        
+        let duration = end.signed_duration_since(start);
+        let days = duration.num_days() as usize + 1; // Include the end date
+
+        let mut date_array = StringBuilder::new();
+        let mut year_array = Int32Builder::new();
+        let mut month_array = Int32Builder::new();
+        let mut day_array = Int32Builder::new();
+        let mut quarter_array = Int32Builder::new();
+        let mut week_num_array = Int32Builder::new();
+        let mut day_of_week_array = Int32Builder::new();
+        let mut day_of_year_array = Int32Builder::new();
+        let mut week_start_array = StringBuilder::new();
+        let mut month_start_array = StringBuilder::new();
+        let mut quarter_start_array = StringBuilder::new();
+        let mut year_start_array = StringBuilder::new();
+        let mut is_weekend_array = BooleanBuilder::new();
+        
+        // Generate data for each day in the range
+        for day_offset in 0..days {
+            let current_date = start + chrono::Duration::days(day_offset as i64);
+            
+            // Date string (YYYY-MM-DD)
+            date_array.append_value(current_date.format("%Y-%m-%d").to_string());
+            
+            // Year
+            year_array.append_value(current_date.year());
+            
+            // Month
+            month_array.append_value(current_date.month() as i32);
+            
+            // Day of month
+            day_array.append_value(current_date.day() as i32);
+            
+            // Quarter
+            let quarter = ((current_date.month() - 1) / 3 + 1) as i32;
+            quarter_array.append_value(quarter);
+            
+            // Week number
+            let week_num = current_date.iso_week().week() as i32;
+            week_num_array.append_value(week_num);
+            
+            // Day of week (0 = Sunday, 6 = Saturday)
+            let day_of_week = current_date.weekday().number_from_sunday() - 1;
+            day_of_week_array.append_value(day_of_week as i32);
+            
+            // Day of year
+            let day_of_year = current_date.ordinal() as i32;
+            day_of_year_array.append_value(day_of_year);
+            
+            // Week start (first day of the week) is sunday
+            let week_start = current_date - chrono::Duration::days(current_date.weekday().number_from_sunday() as i64 - 1);
+            week_start_array.append_value(week_start.format("%Y-%m-%d").to_string());
+            
+            // Month start
+            let month_start = chrono::NaiveDate::from_ymd_opt(current_date.year(), current_date.month(), 1)
+                .unwrap_or(current_date);
+            month_start_array.append_value(month_start.format("%Y-%m-%d").to_string());
+            
+            // Quarter start
+            let quarter_start = chrono::NaiveDate::from_ymd_opt(
+                current_date.year(), 
+                ((quarter - 1) * 3 + 1) as u32, 
+                1
+            ).unwrap_or(current_date);
+            quarter_start_array.append_value(quarter_start.format("%Y-%m-%d").to_string());
+            
+            // Year start
+            let year_start = chrono::NaiveDate::from_ymd_opt(current_date.year(), 1, 1)
+                .unwrap_or(current_date);
+            year_start_array.append_value(year_start.format("%Y-%m-%d").to_string());
+            
+            // Weekend flag (Sunday = 0, Saturday = 6)
+            is_weekend_array.append_value(day_of_week > 4);
+        }
+        
+        // Create a comprehensive schema
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("date", ArrowDataType::Utf8, false),
+            Field::new("year", ArrowDataType::Int32, false),
+            Field::new("month", ArrowDataType::Int32, false),
+            Field::new("day", ArrowDataType::Int32, false),
+            Field::new("quarter", ArrowDataType::Int32, false),
+            Field::new("week_num", ArrowDataType::Int32, false),
+            Field::new("day_of_week", ArrowDataType::Int32, false),
+            Field::new("day_of_year", ArrowDataType::Int32, false),
+            Field::new("week_start", ArrowDataType::Utf8, false),
+            Field::new("month_start", ArrowDataType::Utf8, false),
+            Field::new("quarter_start", ArrowDataType::Utf8, false),
+            Field::new("year_start", ArrowDataType::Utf8, false),
+            Field::new("is_weekend", ArrowDataType::Boolean, false),
+        ]));
+        
+        // Create the record batch with all columns
+        let record_batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(date_array.finish()),
+                Arc::new(year_array.finish()),
+                Arc::new(month_array.finish()),
+                Arc::new(day_array.finish()),
+                Arc::new(quarter_array.finish()),
+                Arc::new(week_num_array.finish()),
+                Arc::new(day_of_week_array.finish()),
+                Arc::new(day_of_year_array.finish()),
+                Arc::new(week_start_array.finish()),
+                Arc::new(month_start_array.finish()),
+                Arc::new(quarter_start_array.finish()),
+                Arc::new(year_start_array.finish()),
+                Arc::new(is_weekend_array.finish()),
+            ]
+        ).map_err(|e| ElusionError::Custom(
+            format!("Failed to create record batch: {}", e)
+        ))?;
+        
+        // Create a session context for SQL execution
+        let ctx = SessionContext::new();
+        
+        // Create a memory table with the date range data
+        let mem_table = MemTable::try_new(schema.clone().into(), vec![vec![record_batch]])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create date table: {}", e),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 This is likely an internal error".to_string(),
+            })?;
+        
+        // Register the date table
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Table Registration".to_string(),
+                reason: format!("Failed to register date table: {}", e),
+                suggestion: "💡 Try a different alias name".to_string(),
+            })?;
+        
+        // Create DataFrame
+        let df = ctx.table(alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "DataFrame Creation".to_string(),
+                reason: format!("Failed to create date table DataFrame: {}", e),
+                suggestion: "💡 Verify table registration succeeded".to_string(),
+            })?;
+        
+        // Return new CustomDataFrame
+        Ok(CustomDataFrame {
+            df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+    
       /// Create a materialized view from the current DataFrame state
       pub async fn create_view(
           &self,
@@ -2734,8 +2974,6 @@ impl CustomDataFrame {
 
      /// Add datetime functions to the SELECT clause
     /// Supports various date/time operations and formats
-    /// Add datetime functions to the SELECT clause
-    /// Update the datetime_functions method to use the new normalization
     pub fn datetime_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
         for expr in expressions.iter() {
             // Add to SELECT clause

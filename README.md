@@ -101,7 +101,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.4.1"
+elusion = "3.5.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -118,7 +118,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.4.1", features = ["odbc"] }
+elusion = { version = "3.5.0", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -160,8 +160,9 @@ async fn main() -> ElusionResult<()> {
 
 ```
 ---
-## LOADING
+## LOADING / CREATING DATA FRAMES
 ### - Loading data into CustomDataFrame can be from:
+#### - Empty() DataFrames
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - ODBC Connectors (databases)
@@ -197,6 +198,118 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
         "data" // alias for registering table
     ).await?;
+```
+---
+## CREATE EMPTY DATA FRAME
+#### Create empty() DataFrame and populate it with data
+```rust
+ let temp_df = CustomDataFrame::empty().await?;
+    
+let date_table = temp_df
+    .datetime_functions([
+        "CURRENT_DATE() as current_date", 
+        "DATE_TRUNC('week', CURRENT_DATE()) AS week_start",
+        "DATE_TRUNC('week', CURRENT_DATE()) + INTERVAL '1 week' AS next_week_start",
+        "DATE_PART('year', CURRENT_DATE()) AS current_year",
+        "DATE_PART('week', CURRENT_DATE()) AS current_week_num",
+    ])
+    .elusion("date_table").await?;
+
+date_table.display().await?;
+
+`RESULT:`
++--------------+---------------------+---------------------+--------------+------------------+
+| current_date | week_start          | next_week_start     | current_year | current_week_num |
++--------------+---------------------+---------------------+--------------+------------------+
+| 2025-03-07   | 2025-03-03T00:00:00 | 2025-03-10T00:00:00 | 2025.0       | 10.0             |
++--------------+---------------------+---------------------+--------------+------------------+
+```
+---
+## CREATE DATE TABLE
+#### Create Date Table from Range of Dates
+```rust
+let date_table = CustomDataFrame::create_date_range_table(
+    "2025-01-01", // start date
+    "2025-12-31", // end date
+    "calendar_2025" // table alias
+).await?;
+
+date_table.display().await?;
+
+`RESULT:`
++------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
+| date       | year | month | day | quarter | week_num | day_of_week | day_of_year | week_start | month_start | quarter_start | year_start | is_weekend |
++------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
+| 2025-01-01 | 2025 | 1     | 1   | 1       | 1        | 3           | 1           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-02 | 2025 | 1     | 2   | 1       | 1        | 4           | 2           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-03 | 2025 | 1     | 3   | 1       | 1        | 5           | 3           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
+| 2025-01-04 | 2025 | 1     | 4   | 1       | 1        | 6           | 4           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
+| 2025-01-05 | 2025 | 1     | 5   | 1       | 1        | 0           | 5           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-06 | 2025 | 1     | 6   | 1       | 2        | 1           | 6           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-07 | 2025 | 1     | 7   | 1       | 2        | 2           | 7           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-08 | 2025 | 1     | 8   | 1       | 2        | 3           | 8           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| .......... | .... | .     | .   | .       | .        | .           | .           | .......... | ..........  | ..........    | .......... | .....      |
++------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
+```
+---
+## CREATE VIEWS and CACHING
+### Materialized Views:
+For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
+### Query Caching:
+For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.
+```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
+// Example 1: Using materialized view for customer count
+// The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
+customers_df.clone()
+    .select(["COUNT(*) as count"])
+    .limit(10)
+    .create_view("customer_count_view", Some(3600)) 
+    .await?;
+
+// Access the view by name - no recomputation needed
+let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
+customer_count.display().await?;
+
+// Example 2: Using query caching with complex joins and aggregations
+// First execution computes and stores the result
+let join_result = sales_df.clone()
+    .join_many([
+        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", true),
+        ("p.ProductName", false)
+    ])
+    .elusion_with_cache("sales_join")
+    .await?;
+
+join_result.display().await?;
+
+// Other useful cache/view management functions:
+CustomDataFrame::invalidate_cache(&["table_name".to_string()]); // Clear cache for specific tables
+CustomDataFrame::clear_cache(); // Clear entire cache
+CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
+CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
+CustomDataFrame::list_views().await; // Get info about all views
 ```
 ---
 ## SELECT
@@ -1189,146 +1302,6 @@ let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
 
 let pg_res = pg_df.elusion("pg_res").await?;
 pg_res.display().await?;
-```
----
-# Views and Caching
-### Materialized Views:
-For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
-### Query Caching:
-For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.
-```rust
-let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
-let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
-let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
-
-let sales_df = CustomDataFrame::new(sales, "s").await?;
-let customers_df = CustomDataFrame::new(customers, "c").await?;
-let products_df = CustomDataFrame::new(products, "p").await?;
-
-// Example 1: Using materialized view for customer count
-// The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
-customers_df.clone()
-    .select(["COUNT(*) as count"])
-    .limit(10)
-    .create_view("customer_count_view", Some(3600)) 
-    .await?;
-
-// Access the view by name - no recomputation needed
-let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
-customer_count.display().await?;
-
-// Example 2: Using query caching with complex joins and aggregations
-// First execution computes and stores the result
-let join_result = sales_df.clone()
-    .join_many([
-        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
-    ])
-    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .agg([
-        "SUM(s.OrderQuantity) AS total_quantity",
-        "AVG(s.OrderQuantity) AS avg_quantity"
-    ])
-    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .having_many([
-        ("total_quantity > 10"),
-        ("avg_quantity < 100")
-    ])
-    .order_by_many([
-        ("total_quantity", true),
-        ("p.ProductName", false)
-    ])
-    .limit(5)
-    .elusion_with_cache("sales_join")
-    .await?;
-
-join_result.display().await?;
-
-// Same query again - results retrieved from cache (much faster)
-// Note: identical queries automatically use the cache
-let cached_result = sales_df.clone()
-    .join_many([
-        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
-    ])
-    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .agg([
-        "SUM(s.OrderQuantity) AS total_quantity",
-        "AVG(s.OrderQuantity) AS avg_quantity"
-    ])
-    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .having_many([
-        ("total_quantity > 10"),
-        ("avg_quantity < 100")
-    ])
-    .order_by_many([
-        ("total_quantity", true),
-        ("p.ProductName", false)
-    ])
-    .limit(5)
-    .elusion_with_cache("sales_join")
-    .await?;
-
-cached_result.display().await?;
-
-// Example 3: String manipulation functions with caching
-// This complex query benefits greatly from caching
-let string_funcs = sales_df
-    .join_many([
-        (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (products_df, ["s.ProductKey = p.ProductKey"], "INNER"),
-    ]) 
-    .select([
-        "c.CustomerKey",
-        "c.FirstName",
-        "c.LastName",
-        "c.EmailAddress",
-        "p.ProductName",
-    ])
-    .string_functions([
-        "TRIM(c.EmailAddress) AS trimmed_email",
-        "LTRIM(c.EmailAddress) AS left_trimmed_email",
-        "RTRIM(c.EmailAddress) AS right_trimmed_email",
-        "UPPER(c.FirstName) AS upper_first_name",
-        "LOWER(c.LastName) AS lower_last_name",
-        "LENGTH(c.EmailAddress) AS email_length",
-        "LEFT(p.ProductName, 10) AS product_start",
-        "RIGHT(p.ProductName, 10) AS product_end",
-        "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
-        "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
-        "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
-        "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
-        "STRPOS(c.EmailAddress, '@') AS email_at_pos",
-        "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
-        "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
-        "REPEAT('*', 5) AS stars",
-        "REVERSE(c.FirstName) AS reversed_name",
-        "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
-        "RPAD(c.FirstName, 20, '.') AS padded_name",
-        "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
-        "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
-    ])
-    .agg([
-        "COUNT(p.ProductKey) AS product_count",
-        "SUM(s.OrderQuantity) AS total_order_quantity",
-    ])
-    .group_by_all()
-    .having_many([("total_order_quantity > 10"), ("product_count >= 1")])  
-    .order_by_many([
-        ("total_order_quantity", true), 
-        ("p.ProductName", false) 
-    ])
-    .elusion_with_cache("string_funcs")
-    .await?;
-
-string_funcs.display().await?;
-
-// Other useful cache/view management functions:
-CustomDataFrame::invalidate_cache(&["table_name".to_string()]); // Clear cache for specific tables
-CustomDataFrame::clear_cache(); // Clear entire cache
-CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
-CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
-CustomDataFrame::list_views().await; // Get info about all views
 ```
 ---
 # AZURE Blob Storage Connector 

@@ -1,3 +1,8 @@
+## [3.5.0] - 2025-03-02
+### Added
+- empty() function that will crate empty dataframe taht can be populated
+- create_date_range_table() function that will create Date Table
+
 ## [3.4.1] - 2025-03-02
 ### Renamed
 - Renamed function from_materialized_view() to from_view()
