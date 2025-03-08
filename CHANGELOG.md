@@ -1,3 +1,7 @@
+## [3.5.1] - 2025-03-08
+### Added
+- create_formatted_date_range_table() function that will create Date Table with custom Formats (ISO, European, HumanReadanle...) and week, month, quarter and year ranges (start -end)
+
 ## [3.5.0] - 2025-03-02
 ### Added
 - empty() function that will crate empty dataframe taht can be populated

@@ -101,7 +101,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.5.0"
+elusion = "3.5.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -118,7 +118,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.5.0", features = ["odbc"] }
+elusion = { version = "3.5.1", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -217,7 +217,7 @@ let date_table = temp_df
 
 date_table.display().await?;
 
-`RESULT:`
+RESULT:
 +--------------+---------------------+---------------------+--------------+------------------+
 | current_date | week_start          | next_week_start     | current_year | current_week_num |
 +--------------+---------------------+---------------------+--------------+------------------+
@@ -236,20 +236,96 @@ let date_table = CustomDataFrame::create_date_range_table(
 
 date_table.display().await?;
 
-`RESULT:`
-+------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
-| date       | year | month | day | quarter | week_num | day_of_week | day_of_year | week_start | month_start | quarter_start | year_start | is_weekend |
-+------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
-| 2025-01-01 | 2025 | 1     | 1   | 1       | 1        | 3           | 1           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| 2025-01-02 | 2025 | 1     | 2   | 1       | 1        | 4           | 2           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| 2025-01-03 | 2025 | 1     | 3   | 1       | 1        | 5           | 3           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
-| 2025-01-04 | 2025 | 1     | 4   | 1       | 1        | 6           | 4           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
-| 2025-01-05 | 2025 | 1     | 5   | 1       | 1        | 0           | 5           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| 2025-01-06 | 2025 | 1     | 6   | 1       | 2        | 1           | 6           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| 2025-01-07 | 2025 | 1     | 7   | 1       | 2        | 2           | 7           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| 2025-01-08 | 2025 | 1     | 8   | 1       | 2        | 3           | 8           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
-| .......... | .... | .     | .   | .       | .        | .           | .           | .......... | ..........  | ..........    | .......... | .....      |
-+------------+------+-------+-----+---------+----------+-------------+-------------+------------+-------------+---------------+------------+------------+
+RESULT:
++------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+---------------+------------+------------+
+| date       | year | month | day | quarter | week_num | day_of_week | day_of_week_name | day_of_year | week_start | month_start | quarter_start | year_start | is_weekend |
++------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+---------------+------------+------------+
+| 2025-01-01 | 2025 | 1     | 1   | 1       | 1        | 3           | Wednesday        | 1           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-02 | 2025 | 1     | 2   | 1       | 1        | 4           | Thursday         | 2           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-03 | 2025 | 1     | 3   | 1       | 1        | 5           | Friday           | 3           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-04 | 2025 | 1     | 4   | 1       | 1        | 6           | Saturday         | 4           | 2024-12-29 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
+| 2025-01-05 | 2025 | 1     | 5   | 1       | 1        | 0           | Sunday           | 5           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | true       |
+| 2025-01-06 | 2025 | 1     | 6   | 1       | 2        | 1           | Monday           | 6           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-07 | 2025 | 1     | 7   | 1       | 2        | 2           | Tuesday          | 7           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-08 | 2025 | 1     | 8   | 1       | 2        | 3           | Wednesday        | 8           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| 2025-01-09 | 2025 | 1     | 9   | 1       | 2        | 4           | Thursday         | 9           | 2025-01-05 | 2025-01-01  | 2025-01-01    | 2025-01-01 | false      |
+| .......... | .... | .     | .   | .       | .        | .           | ................ | ..........  | .......... | ..........  | ............. | ...........| .......... |
++------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+---------------+------------+------------+
+```
+---
+## CREATE DATE TABLE WITH CUSTOM FORMATS
+#### You can create Date Table with Custom formats (ISO, Compact, Human Readable...) and week, month, quarter, year Ranges (start-end)
+```rust
+let date_table = CustomDataFrame::create_formatted_date_range_table(
+    "2025-01-01", // date start
+    "2025-12-31", // date end
+    "calendar_2025", // table alias
+    "date".to_string(), // first column name
+    DateFormat::HumanReadable, // 1 Jan 2025
+    true,  // Include period ranges (start - end)
+    chrono::Weekday::Mon  // Week starts on Monday
+).await?;
+
+date_table.display().await?;
+
+RESULT:
++-------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+-------------+-------------+-------------+---------------+-------------+-------------+-------------+
+| date        | year | month | day | quarter | week_num | day_of_week | day_of_week_name | day_of_year | is_weekend | week_start  | week_end    | month_start | month_end   | quarter_start | quarter_end | year_start  | year_end    |
++-------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+-------------+-------------+-------------+---------------+-------------+-------------+-------------+
+|  1 Jan 2025 | 2025 | 1     | 1   | 1       | 1        | 2           | Wednesday        | 1           | false      | 30 Dec 2024 |  5 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  2 Jan 2025 | 2025 | 1     | 2   | 1       | 1        | 3           | Thursday         | 2           | false      | 30 Dec 2024 |  5 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  3 Jan 2025 | 2025 | 1     | 3   | 1       | 1        | 4           | Friday           | 3           | false      | 30 Dec 2024 |  5 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  4 Jan 2025 | 2025 | 1     | 4   | 1       | 1        | 5           | Saturday         | 4           | true       | 30 Dec 2024 |  5 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  5 Jan 2025 | 2025 | 1     | 5   | 1       | 1        | 6           | Sunday           | 5           | true       | 30 Dec 2024 |  5 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  6 Jan 2025 | 2025 | 1     | 6   | 1       | 2        | 0           | Monday           | 6           | false      |  6 Jan 2025 | 12 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  7 Jan 2025 | 2025 | 1     | 7   | 1       | 2        | 1           | Tuesday          | 7           | false      |  6 Jan 2025 | 12 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  8 Jan 2025 | 2025 | 1     | 8   | 1       | 2        | 2           | Wednesday        | 8           | false      |  6 Jan 2025 | 12 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+|  9 Jan 2025 | 2025 | 1     | 9   | 1       | 2        | 3           | Thursday         | 9           | false      |  6 Jan 2025 | 12 Jan 2025 |  1 Jan 2025 | 31 Jan 2025 |  1 Jan 2025   | 31 Mar 2025 |  1 Jan 2025 | 31 Dec 2025 |
+| ........... | .... | ..    | ..  | .       | .        | .           | .........        | ...         | .....      | ........... |  .......... |  .......... | ........... |  ..........   | ........... |  .......... | ........... |
++-------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+-------------+-------------+-------------+---------------+-------------+-------------+-------------+
+```
+### ALL AVAILABLE DATE FORMATS
+```rust
+IsoDate,            // YYYY-MM-DD
+IsoDateTime,        // YYYY-MM-DD HH:MM:SS
+UsDate,             // MM/DD/YYYY
+EuropeanDate,       // DD.MM.YYYY
+EuropeanDateDash,   // DD-MM-YYYY
+BritishDate,        // DD/MM/YYYY
+HumanReadable,      // 1 Jan 2025
+HumanReadableTime,  // 1 Jan 2025 00:00
+SlashYMD,           // YYYY/MM/DD
+DotYMD,             // YYYY.MM.DD
+CompactDate,        // YYYYMMDD
+YearMonth,          // YYYY-MM
+MonthYear,          // MM-YYYY
+MonthNameYear,      // January 2025
+Custom(String)      // Custom format string
+
+For Custom Date formats some of the common format specifiers:
+%Y - Full year (2025)
+%y - Short year (25)
+%m - Month as number (01-12)
+%b - Abbreviated month name (Jan)
+%B - Full month name (January)
+%d - Day of month (01-31)
+%e - Day of month, space-padded ( 1-31)
+%a - Abbreviated weekday name (Mon)
+%A - Full weekday name (Monday)
+%H - Hour (00-23)
+%I - Hour (01-12)
+%M - Minute (00-59)
+%S - Second (00-59)
+%p - AM/PM
+
+EXAMPLES:
+DateFormat::Custom("%d %b %Y %H:%M".to_string()),  // "01 Jan 2025 00:00"
+// ISO 8601 with T separator and timezone
+DateFormat::Custom("%Y-%m-%dT%H:%M:%S%z".to_string())
+// US date with 12-hour time
+DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
+// Custom format with weekday
+DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
 ## CREATE VIEWS and CACHING
