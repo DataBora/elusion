@@ -3,6 +3,7 @@ pub use crate::PipelineScheduler;
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 pub use crate::{ReportLayout, TableOptions};
+pub use crate::DateFormat;
 
 pub use regex::Regex;
 pub use datafusion::prelude::*;
@@ -126,4 +127,4 @@ pub use lazy_static::lazy_static;
 // =========== DATE TABLE BUILDER
 pub use arrow::array::Int32Builder;
 pub use arrow::array::BooleanBuilder;
-pub use chrono::Datelike;
+pub use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
