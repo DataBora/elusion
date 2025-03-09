@@ -32,8 +32,9 @@ pub use serde_json::{json, Map, Value};
 pub use serde::{Deserialize, Serialize};
 pub use std::collections::{HashMap, HashSet};
 pub use arrow::error::Result as ArrowResult;    
-
 pub use datafusion::arrow::datatypes::TimeUnit;
+//---json writer
+pub use arrow::array::{ListArray,TimestampMicrosecondArray,TimestampMillisecondArray,TimestampSecondArray,LargeBinaryArray,BinaryArray,LargeStringArray,Float32Array,UInt64Array,UInt32Array,BooleanArray};
 
 //delta
 pub use std::result::Result;

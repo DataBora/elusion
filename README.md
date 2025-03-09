@@ -1,6 +1,10 @@
 # Elusion 🦀 DataFrame / Data Engineering / Data Analysis Library for Everybody!
 
+
 ![Elusion Logo](images/elusion.png)
+
+## Best Way to learn Elusion:
+Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
 
 Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
@@ -101,7 +105,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.5.1"
+elusion = "3.7.0"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -118,7 +122,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.5.1", features = ["odbc"] }
+elusion = { version = "3.7.0", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -1012,6 +1016,7 @@ let window_query = df_sales
     .window("MAX(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_max")
     .window("COUNT(s.OrderQuantity) OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS running_count")
     //ranking window functions
+    .window("ROW_NUMBER() OVER (ORDER BY c.CustomerKey) AS customer_index")
     .window("ROW_NUMBER() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) as row_num")
     .window("DENSE_RANK() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS dense_rnk")
     .window("PERCENT_RANK() OVER (PARTITION BY c.CustomerKey ORDER BY s.OrderDate) AS pct_rank")
@@ -1807,6 +1812,16 @@ result_df
     .await?;
 
 ```
+## Writing to JSON File
+
+#### JSON writer can only overwrite, so only 2 arguments needed
+#### 1. Path, 2. If you want pretty-printed JSON or not (true or false)
+```rust
+df.write_to_json(
+    "C:\\Borivoj\\RUST\\Elusion\\date_table.json", // path
+    true // pretty-printed JSON, false for compact JSON
+).await?;
+```
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
 #### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
@@ -1856,6 +1871,25 @@ data.write_parquet_to_azure_with_sas(
     "append",
     url_to_folder,
     sas_write_token
+).await?;
+```
+## Writing JSON to Azure BLOB Storage 
+#### Only can create new or overwrite exisitng file
+#### Threshold file size is 1GB
+```rust
+let df = CustomDataFrame::new(csv_data, "sales").await?; 
+
+let query = df.select(["*"]);
+
+let data = query.elusion("df_sales").await?;
+
+let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/data.json";
+let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
+
+data.write_json_to_azure_with_sas(
+    url_to_folder,
+    sas_write_token,
+    true  // Set to true for pretty-printed JSON, false for compact JSON
 ).await?;
 ```
 ---
