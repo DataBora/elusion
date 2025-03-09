@@ -4,6 +4,7 @@ pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 pub use crate::{ReportLayout, TableOptions};
 pub use crate::DateFormat;
+pub use crate::{extract_row_from_df, extract_value_from_df};
 
 pub use regex::Regex;
 pub use datafusion::prelude::*;

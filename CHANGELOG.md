@@ -1,3 +1,8 @@
+## [3.7.1] - 2025-03-09
+### Added
+- extract_value_from_df() that extracts Value from a DataFrame based on column name and row index
+- extract_row_from_df() that extracts Row from a DataFrame as a HashMap based on row index
+
 ## [3.7.0] - 2025-03-09
 ### Added
 - write_to_json() for writing to local JSON files
