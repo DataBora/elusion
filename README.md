@@ -105,7 +105,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.0"
+elusion = "3.7.1"
 tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -122,7 +122,7 @@ To use ODBC-related features, you need to:
 1. Add the ODBC feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.0", features = ["odbc"] }
+elusion = { version = "3.7.1", features = ["odbc"] }
 ```
 2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
@@ -164,7 +164,8 @@ async fn main() -> ElusionResult<()> {
 
 ```
 ---
-## LOADING / CREATING DATA FRAMES
+# CREATING DATA FRAMES and QUICK EXAMPLES TO GET YOU STARTED
+---
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
@@ -267,7 +268,7 @@ let date_table = CustomDataFrame::create_formatted_date_range_table(
     "date".to_string(), // first column name
     DateFormat::HumanReadable, // 1 Jan 2025
     true,  // Include period ranges (start - end)
-    chrono::Weekday::Mon  // Week starts on Monday
+    Weekday::Mon  // Week starts on Monday
 ).await?;
 
 date_table.display().await?;
@@ -332,6 +333,131 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
+## EXTRACTING VALUES: extract_value_from_df()
+#### Example how you can extract values from DataFrame and use it within REST API
+```rust
+//create calendar dataframe
+ let date_calendar = CustomDataFrame::create_formatted_date_range_table(
+    "2025-01-01", 
+    "2025-12-31", 
+    "dt", 
+    "date".to_string(),
+    DateFormat::HumanReadableTime, 
+    true, 
+    Weekday::Mon
+).await?;
+
+// take columns from Calendar
+let week_range_2025 = date_calendar
+    .select(["DISTINCT(week_start)","week_end", "week_num"])
+    .order_by(["week_num"], [true])
+    .elusion("wr")
+    .await?;
+
+// create empty dataframe
+let temp_df = CustomDataFrame::empty().await?;
+
+//populate empty dataframe with current week number
+let current_week = temp_df
+    .datetime_functions([
+        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
+    ])
+    .elusion("cd").await?;
+
+// join data frames to get range for current week
+let week_for_api = week_range_2025
+    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
+    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
+    .elusion("api_week")
+    .await?;
+
+// Extract Date Value from DataFrame based on column name and Row Index
+let date_from = extract_value_from_df(&week_for_api, "datefrom", 0).await?;
+let date_to = extract_value_from_df(&week_for_api, "dateto", 0).await?;
+
+//PRINT results for preview
+week_for_api.display().await?;
+
+println!("Date from: {}", date_from);
+println!("Date to: {}", date_to);
+
+RESULT:
++------------------+------------------+
+| datefrom         | dateto           |
++------------------+------------------+
+| 3 Mar 2025 00:00 | 9 Mar 2025 00:00 |
++------------------+------------------+
+
+Date from: 3 Mar 2025 00:00
+Date to: 9 Mar 2025 00:00
+
+NOW WE CAN USE THESE EXTRACTED VALUES:
+
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts",  // url
+    &date_from,  // date from
+    &date_to,  // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\rest_api_data.json",  // path where json will be stored
+).await?;
+```
+## EXTRACTING ROWS: extract_row_from_df()
+#### Example how you can extract Row from DataFrame and use it within REST API.
+```rust
+//create calendar dataframe
+ let date_calendar = CustomDataFrame::create_formatted_date_range_table(
+    "2025-01-01", 
+    "2025-12-31", 
+    "dt", 
+    "date".to_string(),
+    DateFormat::IsoDate, 
+    true, 
+    Weekday::Mon
+).await?;
+//take columns from calendar
+let week_range_2025 = date_calendar
+    .select(["DISTINCT(week_start)","week_end", "week_num"])
+    .order_by(["week_num"], [true])
+    .elusion("wr")
+    .await?;
+
+// create empty dataframe
+let temp_df = CustomDataFrame::empty().await?;
+
+//populate empty dataframe with current week number
+let current_week = temp_df
+    .datetime_functions([
+        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
+    ])
+    .elusion("cd").await?;
+
+// join data frames to ge range for current week
+let week_for_api = week_range_2025
+    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
+    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
+    .elusion("api_week")
+    .await?;
+
+// Extract Row Values from DataFrame based on Row Index
+let row_values = extract_row_from_df(&week_for_api, 0).await?;
+
+// PRINT row for preview
+println!("DataFrame row: {:?}", row_values);
+
+RESULT:
+DataFrame row: {"datefrom": "2025-03-03", "dateto": "2025-03-09"}
+
+NOW WE CAN USE THESE EXTRACTED ROW:
+
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts", // url
+    row_values.get("datefrom").unwrap_or(&String::new()), // date from
+    row_values.get("dateto").unwrap_or(&String::new()), // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\extraction_df2.json",  // path where json will be stored
+).await?;
+```
+---
 ## CREATE VIEWS and CACHING
 ### Materialized Views:
 For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
@@ -391,6 +517,8 @@ CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized vie
 CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
 CustomDataFrame::list_views().await; // Get info about all views
 ```
+---
+# DATAFRAME WRANGLING (lets start from scratch...)
 ---
 ## SELECT
 ### ALIAS column names in SELECT() function (AS is case insensitive)
