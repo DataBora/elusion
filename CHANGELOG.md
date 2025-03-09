@@ -1,3 +1,8 @@
+## [3.7.0] - 2025-03-09
+### Added
+- write_to_json() for writing to local JSON files
+- write_json_to_azure_with_sas() for writing JSON to Azure Blob Storage with SAS token
+
 ## [3.5.1] - 2025-03-08
 ### Added
 - create_formatted_date_range_table() function that will create Date Table with custom Formats (ISO, European, HumanReadanle...) and week, month, quarter and year ranges (start -end)
