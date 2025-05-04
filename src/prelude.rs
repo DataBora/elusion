@@ -2,7 +2,14 @@ pub use crate::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
+
+
 pub use crate::{ReportLayout, TableOptions};
+// #[cfg(not(feature = "dashboard"))]
+// pub struct ReportLayout;
+// #[cfg(not(feature = "dashboard"))]
+// pub struct TableOptions;
+
 pub use crate::DateFormat;
 pub use crate::{extract_row_from_df, extract_value_from_df};
 
@@ -72,19 +79,66 @@ pub struct Environment;
 pub struct ConnectionOptions;
 #[cfg(not(feature = "odbc"))]
 pub struct OdbcReaderBuilder;
+
 // PIVOT
 pub use arrow::compute;
 pub use arrow::array::StringArray;
 
 //PLOTTING
+#[cfg(feature = "dashboard")]
 pub use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
+#[cfg(feature = "dashboard")]
 pub use plotly::common::{Mode, Line, Marker, Orientation};
+#[cfg(feature = "dashboard")]
 pub use plotly::layout::{Axis, Layout};
+#[cfg(feature = "dashboard")]
 pub use plotly::color::Rgb;
+#[cfg(feature = "dashboard")]
 pub use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
+#[cfg(feature = "dashboard")]
 pub use plotly::layout::{DragMode, RangeSlider};
+
 pub use arrow::array::{Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
+#[cfg(feature = "dashboard")]
 pub use std::cmp::Ordering;
+
+#[cfg(not(feature = "dashboard"))]
+pub struct Plot;
+#[cfg(not(feature = "dashboard"))]
+pub struct Scatter;
+#[cfg(not(feature = "dashboard"))]
+pub struct Bar;
+#[cfg(not(feature = "dashboard"))]
+pub struct Histogram;
+#[cfg(not(feature = "dashboard"))]
+pub struct BoxPlot;
+#[cfg(not(feature = "dashboard"))]
+pub struct Pie;
+#[cfg(not(feature = "dashboard"))]
+pub struct Mode;
+#[cfg(not(feature = "dashboard"))]
+pub struct Line;
+#[cfg(not(feature = "dashboard"))]
+pub struct Marker;
+#[cfg(not(feature = "dashboard"))]
+pub struct Orientation;
+#[cfg(not(feature = "dashboard"))]
+pub struct Axis;
+#[cfg(not(feature = "dashboard"))]
+pub struct Layout;
+#[cfg(not(feature = "dashboard"))]
+pub struct Rgb;
+#[cfg(not(feature = "dashboard"))]
+pub struct Button;
+#[cfg(not(feature = "dashboard"))]
+pub struct UpdateMenu;
+#[cfg(not(feature = "dashboard"))]
+pub struct UpdateMenuDirection;
+#[cfg(not(feature = "dashboard"))]
+pub struct DragMode;
+#[cfg(not(feature = "dashboard"))]
+pub struct RangeSlider;
+
 
 // STATISTICS
 pub use datafusion::common::ScalarValue;
@@ -115,9 +169,16 @@ pub use std::future::Future;
 pub use tokio_cron_scheduler::{JobScheduler, Job};
 
 // ======== From API
+#[cfg(feature = "api")]
 pub use reqwest::Client;
+#[cfg(feature = "api")]
 pub use urlencoding::encode;
+
 pub use crate::ElusionApi;
+
+#[cfg(not(feature = "api"))]
+pub struct Client;
+
 
 // ========= VIEWS and CAche
 pub use std::hash::{Hash, Hasher};

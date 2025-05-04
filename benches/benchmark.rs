@@ -642,32 +642,32 @@ fn benchmark_database_queries(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_api_operations(c: &mut Criterion) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let mut group = c.benchmark_group("API_Operations");
+// fn benchmark_api_operations(c: &mut Criterion) {
+//     let rt = tokio::runtime::Runtime::new().unwrap();
+//     let mut group = c.benchmark_group("API_Operations");
  
-    group.bench_function("api_with_params", |b| b.iter(|| {
-        rt.block_on(async {
-            let mut params = HashMap::new();
-            params.insert("brandid", "Elusion");
-            params.insert("password", "pass");
-            params.insert("siteid", "993");
-            params.insert("Datefrom", "01 jan 2023 06:00");
-            params.insert("Dateto", "31 jan 2023 06:00");
-            params.insert("user", "borivoj");
+//     group.bench_function("api_with_params", |b| b.iter(|| {
+//         rt.block_on(async {
+//             let mut params = HashMap::new();
+//             params.insert("brandid", "Elusion");
+//             params.insert("password", "pass");
+//             params.insert("siteid", "993");
+//             params.insert("Datefrom", "01 jan 2023 06:00");
+//             params.insert("Dateto", "31 jan 2023 06:00");
+//             params.insert("user", "borivoj");
         
-            let api = ElusionApi::new();
-            api.from_api_with_params(
-                "https://salesapi.dotnet.co.rs/SQLDATA/api/data_items",
-                params,
-                "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2023.json"
+//             let api = ElusionApi::new();
+//             api.from_api_with_params(
+//                 "https://salesapi.dotnet.co.rs/SQLDATA/api/data_items",
+//                 params,
+//                 "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2023.json"
                 
-            ).await.unwrap()
-        })
-    }));
+//             ).await.unwrap()
+//         })
+//     }));
  
-    group.finish();
- }
+//     group.finish();
+//  }
 
 
 criterion_group!(
@@ -682,6 +682,6 @@ criterion_group!(
     benchmark_string_functions,
     benchmark_appending,
     benchmark_database_queries,
-    benchmark_api_operations
+    // benchmark_api_operations
 );
 criterion_main!(benches);
