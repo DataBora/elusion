@@ -105,26 +105,49 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.1"
-tokio = { version = "1.42.0", features = ["rt-multi-thread"] }
+elusion = "3.7.2"
+tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
 ```toml
 >= 1.81
 ```
 ---
-## ODBC Support
-Elusion now provides ODBC functionality behind an optional feature flag to keep the core library lightweight and provide flexibility for users.
-### Enabling ODBC Support
+## Feature Flags
+Elusion uses Cargo feature flags to keep the library lightweight and modular. 
+You can enable only the features you need, which helps reduce dependencies and compile time.
 
-To use ODBC-related features, you need to:
+### Available Features
+##### odbc: 
+Enables database connectivity through ODBC. This adds the arrow-odbc dependency.
+##### dashboard: 
+Enables data visualization and dashboard creation capabilities. This adds the plotly dependency.
+#### api: 
+Enables HTTP API integration for fetching data from web services. This adds the reqwest and urlencoding dependencies.
+##### all: 
+Enables all available features.
 
-1. Add the ODBC feature when specifying the dependency:
+Usage:
+- In your Cargo.toml, specify which features you want to enable:
+1. Add the DASHBOARD feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.1", features = ["odbc"] }
+elusion = { version = "3.7.2", features = ["dashboard"] }
 ```
-2. Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
+#### When building your project, use the DASHBOARD feature:
+```rust
+cargo build --features dashboard
+```
+```rust
+cargo run --features dashboard  
+```
+
+2. Add the ODBC feature when specifying the dependency:
+```toml
+[dependencies]
+elusion = { version = "3.7.2", features = ["odbc"] }
+```
+- Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
 Ubuntu/Debian: 
 ```toml
 sudo apt-get install unixodbc-dev
@@ -140,6 +163,62 @@ cargo build --features odbc
 ```rust
 cargo run --features odbc  
 ```
+
+3. Add the API feature when specifying the dependency:
+```rust
+toml[dependencies]
+elusion = { version = "3.7.2", features = ["api"] }
+```
+This enables HTTP client functionality to fetch data from APIs:
+```rust
+cargo build --features api
+```
+```rust
+cargo run --features api
+```
+
+4.Using NO Features (minimal dependencies):
+```rust
+[dependencies]
+elusion = "3.7.2"
+```
+
+5. Using multiple specific features:
+```rust
+toml[dependencies]
+elusion = { version = "3.7.2", features = ["dashboard", "api"] }
+```
+Or build with multiple features:
+```rust
+cargo build --features "dashboard api"
+```
+```rust
+cargo run --features "dashboard api"
+```
+
+6. Using all features:
+```rust
+[dependencies]
+elusion = { version = "3.7.2", features = ["all"] }
+```
+
+### Feature Implications
+When a feature is not enabled, the corresponding methods will still be available in your code, but they will return an error indicating that the feature needs to be enabled. This approach ensures API compatibility regardless of which features you choose to enable.
+
+For example, if you try to use API functions without the "api" feature enabled:
+```rust
+rustlet api = ElusionApi::new();
+let result = api.from_api("https://example.com/data", "data.json").await;
+```
+You'll receive an error:
+Error: API feature not enabled. Recompile with --features api
+
+### Compilation Benefits
+Faster Compilation: Only compile the dependencies you need
+Reduced Binary Size: Final executable only includes the code you use
+Fewer Dependencies: Minimize dependency tree complexity
+Customized Build: Tailor the library to your specific needs
+
 ---
 ## NORMALIZATION
 #### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")

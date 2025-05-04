@@ -53,14 +53,25 @@ use arrow::compute;
 use arrow::array::StringArray;
 
 // ======== PLOTTING
+#[cfg(feature = "dashboard")]
 use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
+#[cfg(feature = "dashboard")]
 use plotly::common::{Mode, Line, Marker, Orientation};
+#[cfg(feature = "dashboard")]
 use plotly::layout::{Axis, Layout};
+#[cfg(feature = "dashboard")]
 use plotly::color::Rgb;
+#[cfg(feature = "dashboard")]
 use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
+#[cfg(feature = "dashboard")]
 use plotly::layout::{DragMode, RangeSlider};
+
 use arrow::array::{Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
+#[cfg(feature = "dashboard")]
 use std::cmp::Ordering;
+#[cfg(not(feature = "dashboard"))]
+pub struct Plot;
+
 
 // ======== STATISTICS
 use datafusion::common::ScalarValue;
@@ -98,6 +109,7 @@ use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
 // ======== From API
+#[cfg(feature = "api")]
 use reqwest::Client;
 
 //========== VIEWS
@@ -907,7 +919,7 @@ pub fn extract_alias_from_sql(_query: &str, _db_type: DatabaseType) -> Option<St
 }
 
 //======= Ploting Helper functions
-
+#[cfg(feature = "dashboard")]
 fn convert_to_f64_vec(array: &dyn Array) -> ElusionResult<Vec<f64>> {
     match array.data_type() {
         ArrowDataType::Float64 => {
@@ -945,6 +957,7 @@ fn convert_to_f64_vec(array: &dyn Array) -> ElusionResult<Vec<f64>> {
     }
 }
 
+#[cfg(feature = "dashboard")]
 fn convert_to_string_vec(array: &dyn Array) -> ElusionResult<Vec<String>> {
     match array.data_type() {
         ArrowDataType::Utf8 => {
@@ -964,6 +977,7 @@ fn convert_to_string_vec(array: &dyn Array) -> ElusionResult<Vec<String>> {
     }
 }
 
+#[cfg(feature = "dashboard")]
 fn convert_date32_to_timestamps(array: &Date32Array) -> Vec<f64> {
     array.values()
         .iter()
@@ -978,6 +992,7 @@ fn convert_date32_to_timestamps(array: &Date32Array) -> Vec<f64> {
 }
 
 // Helper function to sort date-value pairs
+#[cfg(feature = "dashboard")]
 fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let mut pairs: Vec<(f64, f64)> = x_values.iter()
         .cloned()
@@ -992,6 +1007,7 @@ fn sort_by_date(x_values: &[f64], y_values: &[f64]) -> (Vec<f64>, Vec<f64>) {
 }
 
 //helper funciton for converting dates for dashboard
+#[cfg(feature = "dashboard")]
 fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
     // Try different date formats
     let formats = [
@@ -7173,6 +7189,7 @@ impl CustomDataFrame {
 
 // -------------------- PLOTING -------------------------- //
     ///Create line plot
+     #[cfg(feature = "dashboard")]
     pub async fn plot_linee(
         &self, 
         x_col: &str, 
@@ -7244,7 +7261,9 @@ impl CustomDataFrame {
         Ok(plot)
     }
 
+
     /// Create time series Plot
+    #[cfg(feature = "dashboard")]
     pub async fn plot_time_seriess(
         &self,
         date_col: &str,
@@ -7312,6 +7331,7 @@ impl CustomDataFrame {
     }
 
     /// Create a scatter plot from two columns
+    #[cfg(feature = "dashboard")]
     pub async fn plot_scatterr(
         &self,
         x_col: &str,
@@ -7349,6 +7369,7 @@ impl CustomDataFrame {
     }
 
     /// Create a bar chart from two columns
+    #[cfg(feature = "dashboard")]
     pub async fn plot_barr(
         &self,
         x_col: &str,
@@ -7396,6 +7417,7 @@ impl CustomDataFrame {
     }
 
     /// Create a histogram from a single column
+    #[cfg(feature = "dashboard")]
     pub async fn plot_histogramm(
         &self,
         col: &str,
@@ -7427,6 +7449,7 @@ impl CustomDataFrame {
     }
 
     /// Create a box plot from a column
+    #[cfg(feature = "dashboard")]
     pub async fn plot_boxx(
         &self,
         value_col: &str,
@@ -7478,6 +7501,7 @@ impl CustomDataFrame {
     }
 
      /// Create a pie chart from two columns: labels and values
+     #[cfg(feature = "dashboard")]
      pub async fn plot_piee(
         &self,
         label_col: &str,
@@ -7516,6 +7540,7 @@ impl CustomDataFrame {
     }
 
     /// Create a donut chart (pie chart with a hole)
+    #[cfg(feature = "dashboard")]
     pub async fn plot_donutt(
         &self,
         label_col: &str,
@@ -7554,6 +7579,7 @@ impl CustomDataFrame {
     }
 
     // -------------Interactive Charts
+    #[cfg(feature = "dashboard")]
     pub async fn plot_line(
         &self,
         date_col: &str,
@@ -7616,7 +7642,22 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_line(
+        &self,
+        _date_col: &str,
+        _value_col: &str,
+        _show_markers: bool,
+        _title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
+
      /// Create an enhanced time series plot with range selector buttons
+     #[cfg(feature = "dashboard")]
      pub async fn plot_time_series(
         &self,
         date_col: &str,
@@ -7680,7 +7721,20 @@ impl CustomDataFrame {
         Ok(plot)
     }
 
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_time_series(
+        &self,
+        _date_col: &str,
+        _value_col: &str,
+        _show_markers: bool,
+        _title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     /// Create an enhanced bar chart with sort buttons
+    #[cfg(feature = "dashboard")]
     pub async fn plot_bar(
         &self,
         x_col: &str,
@@ -7727,8 +7781,19 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_bar(
+        &self,
+        _x_col: &str,
+        _y_col: &str,
+        _title: Option<&str>,
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
 
     /// Create an enhanced scatter plot with zoom and selection modes
+    #[cfg(feature = "dashboard")]
     pub async fn plot_scatter(
         &self,
         x_col: &str,
@@ -7773,7 +7838,20 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_scatter(
+        &self,
+        _x_col: &str,
+        _y_col: &str,
+        _marker_size: Option<usize>,
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     ///Interactive histogram plot
+    #[cfg(feature = "dashboard")]
     pub async fn plot_histogram(
         &self,
         col: &str,
@@ -7815,7 +7893,19 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_histogram(
+        &self,
+        _col: &str,
+        _title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     ///Interactive Box plot
+    #[cfg(feature = "dashboard")]
     pub async fn plot_box(
         &self,
         value_col: &str,
@@ -7852,7 +7942,20 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_box(
+        &self,
+        _value_col: &str,
+        _group_by_col: Option<&str>,
+        _title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     ///Interactive Pie Plot
+    #[cfg(feature = "dashboard")]
     pub async fn plot_pie(
         &self,
         label_col: &str,
@@ -7895,7 +7998,20 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_pie(
+        &self,
+        _label_col: &str,
+        _value_col: &str,
+        _title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     ///Interactive Donut Plot
+    #[cfg(feature = "dashboard")]
     pub async fn plot_donut(
         &self,
         label_col: &str,
@@ -7938,7 +8054,20 @@ impl CustomDataFrame {
         plot.set_layout(layout);
         Ok(plot)
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_donut(
+        &self,
+        _label_col: &str,
+        _value_col: &str,
+        _title: Option<&str>
+    ) -> ElusionResult<Plot> {
+        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        Ok(Plot)
+    }
+
     /// Create an enhanced report with interactive features
+    #[cfg(feature = "dashboard")]
     pub async fn create_report(
         plots: Option<&[(&Plot, &str)]>,
         tables: Option<&[(&CustomDataFrame, &str)]>,
@@ -8428,6 +8557,18 @@ impl CustomDataFrame {
         println!("✅ Interactive Dashboard created at {}", file_path_str);
         Ok(())
     }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn create_report(
+        _plots: Option<&[(&Plot, &str)]>,
+        _tables: Option<&[(&CustomDataFrame, &str)]>,
+        _report_title: &str,
+        _filename: &str,
+        _layout_config: Option<ReportLayout>,
+        _table_options: Option<TableOptions>,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("Dashboard feature not enabled. Recompile with --features dashboard".to_string()))
+    }
     
 }
 // ============== PIPELINE SCHEDULER
@@ -8540,11 +8681,13 @@ impl PipelineScheduler {
 #[derive(Clone)]
 pub struct ElusionApi;
 
+#[cfg(feature = "api")]
 enum JsonType {
     Array,
     Object,
 }
 
+#[cfg(feature = "api")]
 fn validate_https_url(url: &str) -> ElusionResult<()> {
     if !url.starts_with("https://") {
         return Err(ElusionError::Custom("URL must start with 'https://'".to_string()));
@@ -8559,6 +8702,7 @@ impl ElusionApi{
     }
 
 /// Create a JSON from a REST API endpoint that returns JSON
+#[cfg(feature = "api")]
 pub async fn from_api(
     &self,  
     url: &str,
@@ -8580,7 +8724,17 @@ pub async fn from_api(
     Self::save_json_to_file(content, file_path).await
 }
 
+#[cfg(not(feature = "api"))]
+pub async fn from_api(
+    &self,  
+    _url: &str,
+    _file_path: &str
+) -> ElusionResult<()> {
+    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+}
+
 /// Create a JSON from a REST API endpoint with custom headers
+#[cfg(feature = "api")]
 pub async fn from_api_with_headers(
     &self,
     url: &str, 
@@ -8607,8 +8761,18 @@ pub async fn from_api_with_headers(
 
     Self::save_json_to_file(content, file_path).await
 }
+#[cfg(not(feature = "api"))]
+    pub async fn from_api_with_headers(
+        &self,
+        _url: &str, 
+        _headers: HashMap<String, String>,
+        _file_path: &str
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    }
 
 /// Create JSON from API with custom query parameters
+#[cfg(feature = "api")]
 pub async fn from_api_with_params(
     &self,
     base_url: &str, 
@@ -8638,8 +8802,18 @@ pub async fn from_api_with_params(
 
     Self::from_api( &self, &url, file_path).await
 }
+#[cfg(not(feature = "api"))]
+pub async fn from_api_with_params(
+    &self,
+    _base_url: &str, 
+    _params: HashMap<&str, &str>,
+    _file_path: &str
+) -> ElusionResult<()> {
+    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+}
 
 /// Create JSON from API with parameters and headers
+#[cfg(feature = "api")]
 pub async fn from_api_with_params_and_headers(
     &self,
     base_url: &str,
@@ -8672,7 +8846,19 @@ pub async fn from_api_with_params_and_headers(
     Self::from_api_with_headers( &self, &url, headers, file_path).await
 }
 
+#[cfg(not(feature = "api"))]
+    pub async fn from_api_with_params_and_headers(
+        &self,
+        _base_url: &str,
+        _params: HashMap<&str, &str>,
+        _headers: HashMap<String, String>,
+        _file_path: &str
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    }
+
 /// Create JSON from API with date range parameters
+#[cfg(feature = "api")]
 pub async fn from_api_with_dates(
     &self,
     base_url: &str, 
@@ -8689,8 +8875,19 @@ pub async fn from_api_with_dates(
 
     Self::from_api( &self, &url, file_path).await
 }
+#[cfg(not(feature = "api"))]
+pub async fn from_api_with_dates(
+    &self,
+    _base_url: &str, 
+    _from_date: &str, 
+    _to_date: &str,
+    _file_path: &str
+) -> ElusionResult<()> {
+    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+}
 
 /// Create JSON from API with pagination
+#[cfg(feature = "api")]
 pub async fn from_api_with_pagination(
     &self,
     base_url: &str,
@@ -8703,7 +8900,19 @@ pub async fn from_api_with_pagination(
     Self::from_api( &self, &url, file_path).await
 }
 
+#[cfg(not(feature = "api"))]
+pub async fn from_api_with_pagination(
+    &self,
+    _base_url: &str,
+    _page: u32,
+    _per_page: u32,
+    _file_path: &str
+) -> ElusionResult<()> {
+    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+}
+
 /// Create JSON from API with sorting
+#[cfg(feature = "api")]
 pub async fn from_api_with_sort(
     &self,
     base_url: &str,
@@ -8719,8 +8928,19 @@ pub async fn from_api_with_sort(
 
     Self::from_api( &self, &url, file_path).await
 }
+#[cfg(not(feature = "api"))]
+pub async fn from_api_with_sort(
+    &self,
+    _base_url: &str,
+    _sort_field: &str,
+    _order: &str,
+    _file_path: &str
+) -> ElusionResult<()> {
+    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+}
 
 /// Create JSON from API with sorting and headers
+#[cfg(feature = "api")]
 pub async fn from_api_with_headers_and_sort(
     &self,
     base_url: &str,
@@ -8739,8 +8959,20 @@ pub async fn from_api_with_headers_and_sort(
 
     Self::from_api_with_headers(&self, &url, headers, file_path).await
 }
+#[cfg(not(feature = "api"))]
+    pub async fn from_api_with_headers_and_sort(
+        &self,
+        _base_url: &str,
+        _headers: HashMap<String, String>,
+        _sort_field: &str,
+        _order: &str,
+        _file_path: &str
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    }
 
 /// Process JSON response into JSON 
+#[cfg(feature = "api")]
 async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()> {
 
     if content.is_empty() {
@@ -8893,10 +9125,16 @@ async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()>
     }
 
     Ok(())
-}
 
 }
 
+
+
+}
+
+
+// ReportLayout with all fields when dashboard feature is enabled
+#[cfg(feature = "dashboard")]
 #[derive(Debug, Clone)]
 pub struct ReportLayout {
     pub grid_columns: usize,     // Number of columns in the grid
@@ -8906,6 +9144,7 @@ pub struct ReportLayout {
     pub table_height: usize,     // Height of each table
 }
 
+#[cfg(feature = "dashboard")]
 impl Default for ReportLayout {
     fn default() -> Self {
         Self {
@@ -8918,6 +9157,19 @@ impl Default for ReportLayout {
     }
 }
 
+// ReportLayout stub with all the same fields when dashboard feature is not enabled
+#[cfg(not(feature = "dashboard"))]
+#[derive(Debug, Clone)]
+pub struct ReportLayout {
+    pub grid_columns: usize,
+    pub grid_gap: usize, 
+    pub max_width: usize,
+    pub plot_height: usize,
+    pub table_height: usize,
+}
+
+
+#[cfg(feature = "dashboard")]
 #[derive(Debug, Clone)]
 pub struct TableOptions {
     pub pagination: bool,
@@ -8928,6 +9180,7 @@ pub struct TableOptions {
     pub theme: String,           // "ag-theme-alpine", "ag-theme-balham", etc.
 }
 
+#[cfg(feature = "dashboard")]
 impl Default for TableOptions {
     fn default() -> Self {
         Self {
@@ -8941,6 +9194,18 @@ impl Default for TableOptions {
     }
 }
 
+#[cfg(not(feature = "dashboard"))]
+#[derive(Debug, Clone)]
+pub struct TableOptions {
+    pub pagination: bool,
+    pub page_size: usize,
+    pub enable_sorting: bool,
+    pub enable_filtering: bool,
+    pub enable_column_menu: bool,
+    pub theme: String,
+}
+
+#[cfg(feature = "dashboard")]
 fn generate_controls(has_plots: bool, has_tables: bool) -> String {
     let mut controls = Vec::new();
     
@@ -8960,6 +9225,7 @@ fn generate_controls(has_plots: bool, has_tables: bool) -> String {
     controls.join("\n")
 }
 
+#[cfg(feature = "dashboard")]
 fn generate_javascript(has_plots: bool, has_tables: bool, grid_columns: usize) -> String {
     let mut js = String::new();
     

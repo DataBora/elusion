@@ -1,3 +1,9 @@
+## [3.7.2] - 2025-05-04
+### Added
+- Moved Dashboards/Reporting and APIs behind feature flag
+### Dependency update
+- Tokio `1.42.0` to `1.42.1`
+
 ## [3.7.1] - 2025-03-09
 ### Added
 - extract_value_from_df() that extracts Value from a DataFrame based on column name and row index
