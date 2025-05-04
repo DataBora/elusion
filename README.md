@@ -166,7 +166,7 @@ cargo run --features odbc
 
 3. Add the API feature when specifying the dependency:
 ```rust
-toml[dependencies]
+[dependencies]
 elusion = { version = "3.7.2", features = ["api"] }
 ```
 This enables HTTP client functionality to fetch data from APIs:
@@ -185,7 +185,7 @@ elusion = "3.7.2"
 
 5. Using multiple specific features:
 ```rust
-toml[dependencies]
+[dependencies]
 elusion = { version = "3.7.2", features = ["dashboard", "api"] }
 ```
 Or build with multiple features:
