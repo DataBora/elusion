@@ -4714,6 +4714,166 @@ impl CustomDataFrame {
         self
     }
 
+    /// Extract JSON properties from a column containing JSON strings
+    pub fn json<'a, const N: usize>(mut self, columns: [&'a str; N]) -> Self {
+        let mut json_expressions = Vec::new();
+        
+        for expr in columns.iter() {
+            // Parse the expression: "column.'$jsonPath' AS alias"
+            let parts: Vec<&str> = expr.split(" AS ").collect();
+            if parts.len() != 2 {
+                continue; // skip invalid expressions, will be checked at .elusion() 
+            }
+            
+            let path_part = parts[0].trim();
+            let alias = parts[1].trim().to_lowercase();
+            
+
+            if !path_part.contains(".'$") {
+                continue; // Skip invalid expressions
+            }
+            
+            let col_path_parts: Vec<&str> = path_part.split(".'$").collect();
+            let column_name = col_path_parts[0].trim();
+            let json_path = col_path_parts[1].trim_end_matches('\'');
+            
+            let search_pattern = format!("\"{}\":", json_path);
+            
+            let sql_expr = format!(
+                "CASE 
+                    WHEN POSITION('{}' IN {}) > 0 THEN
+                        TRIM(BOTH '\"' FROM 
+                            SUBSTRING(
+                                {}, 
+                                POSITION('{}' IN {}) + {}, 
+                                CASE
+                                    WHEN POSITION(',\"' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) > 0 THEN
+                                        POSITION(',\"' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) - 1
+                                    WHEN POSITION('}}' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) > 0 THEN
+                                        POSITION('}}' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) - 1
+                                    ELSE 100 -- arbitrary large value
+                                END
+                            )
+                        )
+                    ELSE NULL
+                 END as \"{}\"",
+                search_pattern, column_name,
+                column_name, 
+                search_pattern, column_name, search_pattern.len(),
+                column_name, search_pattern, column_name, search_pattern.len(),
+                column_name, search_pattern, column_name, search_pattern.len(),
+                column_name, search_pattern, column_name, search_pattern.len(),
+                column_name, search_pattern, column_name, search_pattern.len(),
+                alias
+            );
+            
+            json_expressions.push(sql_expr);
+        }
+
+        self.selected_columns.extend(json_expressions);
+        
+        self
+    }
+
+    /// JSON extraction with OPENJSON-like functionality (cross apply)
+    // pub fn json_openjson<'a, const N: usize>(
+    //     mut self,
+    //     json_column: &str,
+    //     json_path: Option<&str>,
+    //     columns: &[&'a str; N]
+    // ) -> Self {
+    //     // Find the actual column name from schema
+    //     let actual_column = match self.find_actual_column_name(json_column) {
+    //         Some(col) => col,
+    //         None => json_column.to_string(), // Will be checked at .elusion() time
+    //     };
+        
+    //     // Process path
+    //     let path_expr = if let Some(path) = json_path {
+    //         if !path.starts_with("$.") {
+    //             format!("$.{}", path.trim_start_matches('$'))
+    //         } else {
+    //             path.to_string()
+    //         }
+    //     } else {
+    //         "$".to_string()
+    //     };
+        
+    //     // Build column selections
+    //     let mut select_parts = Vec::new();
+        
+    //     // Add "t.*" to include original columns
+    //     select_parts.push("t.*".to_string());
+        
+    //     // Parse column definitions and add to SQL
+    //     for col_def in columns.iter() {
+    //         // Format: "name type 'json_path'"
+    //         let parts: Vec<&str> = col_def.split_whitespace().collect();
+    //         if parts.len() < 3 {
+    //             continue; // Skip invalid definitions, will be checked at .elusion() time
+    //         }
+            
+    //         let col_name = parts[0];
+    //         let col_type = parts[1];
+            
+    //         // Extract JSON path (it might contain spaces if quoted)
+    //         let json_path_str = if parts[2].starts_with('\'') {
+    //             // Find the closing quote
+    //             let path_start = col_def.find('\'').unwrap_or(0);
+    //             let path_end = col_def[path_start + 1..].find('\'').unwrap_or(col_def.len() - path_start - 1);
+    //             &col_def[path_start + 1..path_start + path_end + 1]
+    //         } else {
+    //             parts[2]
+    //         };
+            
+    //         let normalized_path = if !json_path_str.starts_with("$.") {
+    //             format!("$.{}", json_path_str.trim_start_matches('$'))
+    //         } else {
+    //             json_path_str.to_string()
+    //         };
+            
+    //         let cast_expr = match col_type.to_lowercase().as_str() {
+    //             "int" | "integer" => 
+    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS INTEGER) as \"{}\"", normalized_path, col_name),
+    //             "float" | "double" =>
+    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS DOUBLE) as \"{}\"", normalized_path, col_name),
+    //             "boolean" | "bool" =>
+    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS BOOLEAN) as \"{}\"", normalized_path, col_name),
+    //             "date" =>
+    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS DATE) as \"{}\"", normalized_path, col_name),
+    //             "json" =>
+    //                 format!(", json_extract(jt.value, '{}') as \"{}\"", normalized_path, col_name),
+    //             _ => // default to varchar
+    //                 format!(", json_extract_scalar(jt.value, '{}') as \"{}\"", normalized_path, col_name),
+    //         };
+            
+    //         select_parts.push(cast_expr);
+    //     }
+        
+    //     let subquery = format!(
+    //         "(SELECT {} FROM \"{}\" t CROSS JOIN LATERAL (
+    //             SELECT json_extract(t.{}, '{}') as json_array
+    //         ) ja,
+    //         UNNEST(
+    //             CASE 
+    //                 WHEN json_typeof(ja.json_array) = 'array' THEN json_array_elements(ja.json_array)
+    //                 WHEN json_typeof(ja.json_array) = 'object' THEN ARRAY[ja.json_array]
+    //                 ELSE NULL 
+    //             END
+    //         ) AS jt(value)
+    //         WHERE jt.value IS NOT NULL)",
+    //         select_parts.join(" "), 
+    //         self.table_alias,
+    //         actual_column, 
+    //         path_expr
+    //     );
+        
+    //     self.from_table = subquery.clone();
+    //     self.subquery_source = Some(subquery);
+        
+    //     self
+    // }
+
     /// Construct the SQL query based on the current state, including joins
     fn construct_sql(&self) -> String {
         let mut query = String::new();
