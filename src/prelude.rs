@@ -3,12 +3,7 @@ pub use crate::PipelineScheduler;
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 
-
 pub use crate::{ReportLayout, TableOptions};
-// #[cfg(not(feature = "dashboard"))]
-// pub struct ReportLayout;
-// #[cfg(not(feature = "dashboard"))]
-// pub struct TableOptions;
 
 pub use crate::DateFormat;
 pub use crate::{extract_row_from_df, extract_value_from_df};
@@ -57,28 +52,10 @@ pub use futures::StreamExt;
 pub use deltalake::storage::object_store::local::LocalFileSystem;
 // use object_store::path::Path as ObjectStorePath;
 
-
 // =========== ERRROR
 
 pub use std::fmt::{self, Debug};
 pub use std::error::Error;
-
-// ================ DATABASE
-// Conditionally import and re-export ODBC-related items
-#[cfg(feature = "odbc")]
-pub use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
-#[cfg(feature = "odbc")]
-pub use arrow_odbc::OdbcReaderBuilder;
-#[cfg(feature = "odbc")]
-pub use lazy_static::lazy_static;
-
-// Optional: Provide stub types when ODBC is not enabled
-#[cfg(not(feature = "odbc"))]
-pub struct Environment;
-#[cfg(not(feature = "odbc"))]
-pub struct ConnectionOptions;
-#[cfg(not(feature = "odbc"))]
-pub struct OdbcReaderBuilder;
 
 // PIVOT
 pub use arrow::compute;
@@ -139,13 +116,15 @@ pub struct DragMode;
 #[cfg(not(feature = "dashboard"))]
 pub struct RangeSlider;
 
-
 // STATISTICS
 pub use datafusion::common::ScalarValue;
 
 // ========== AZURE
+#[cfg(feature = "azure")]
 pub use azure_storage_blobs::prelude::*;
+#[cfg(feature = "azure")]
 pub use azure_storage::StorageCredentials;
+#[cfg(feature = "azure")]
 pub use azure_storage::CloudLocation;
 pub use futures::stream;
 pub use std::io::BufReader;
@@ -154,6 +133,7 @@ pub use csv::ReaderBuilder;
 pub use csv::Trim::All;
 pub use serde_json::Deserializer;
 // ==== pisanje
+#[cfg(feature = "azure")]
 pub use azure_storage_blobs::blob::{BlockList, BlobBlockType};
 pub use bytes::Bytes;
 pub use datafusion::parquet::basic::Compression;

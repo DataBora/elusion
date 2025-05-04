@@ -7,7 +7,7 @@
 Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
 
-Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for ODBC Database Connections for MySQL and PostgreSQL, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
+Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -36,7 +36,6 @@ Async Support: Built on tokio for non-blocking operations.
 
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
-- Database Connectors: ODBC support for seamless data access from MySQL and PostgreSQL databases.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
 ### 🚀 High-Performance DataFrame Query Operations
@@ -105,7 +104,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.2"
+elusion = "3.7.3"
 tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -118,8 +117,8 @@ Elusion uses Cargo feature flags to keep the library lightweight and modular.
 You can enable only the features you need, which helps reduce dependencies and compile time.
 
 ### Available Features
-##### odbc: 
-Enables database connectivity through ODBC. This adds the arrow-odbc dependency.
+##### azure: 
+Enables Azure BLOB storage connectivity.
 ##### dashboard: 
 Enables data visualization and dashboard creation capabilities. This adds the plotly dependency.
 #### api: 
@@ -132,7 +131,7 @@ Usage:
 1. Add the DASHBOARD feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.2", features = ["dashboard"] }
+elusion = { version = "3.7.3", features = ["dashboard"] }
 ```
 #### When building your project, use the DASHBOARD feature:
 ```rust
@@ -142,32 +141,24 @@ cargo build --features dashboard
 cargo run --features dashboard  
 ```
 
-2. Add the ODBC feature when specifying the dependency:
+2. Add the AZURE feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.2", features = ["odbc"] }
+elusion = { version = "3.7.3", features = ["azure"] }
 ```
-- Make sure to install ODBC Driver(unixodbc) on Ubuntu and macOS
-Ubuntu/Debian: 
-```toml
-sudo apt-get install unixodbc-dev
-```
-macOS: 
-```toml
-brew install unixodbc
-```
-#### When building your project, use the ODBC feature:
+
+#### When building your project, use the AZURE feature:
 ```rust
-cargo build --features odbc
+cargo build --features azure
 ```
 ```rust
-cargo run --features odbc  
+cargo run --features azure  
 ```
 
 3. Add the API feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.7.2", features = ["api"] }
+elusion = { version = "3.7.3", features = ["api"] }
 ```
 This enables HTTP client functionality to fetch data from APIs:
 ```rust
@@ -180,13 +171,13 @@ cargo run --features api
 4.Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.7.2"
+elusion = "3.7.3"
 ```
 
 5. Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.2", features = ["dashboard", "api"] }
+elusion = { version = "3.7.3", features = ["dashboard", "api"] }
 ```
 Or build with multiple features:
 ```rust
@@ -199,7 +190,7 @@ cargo run --features "dashboard api"
 6. Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.2", features = ["all"] }
+elusion = { version = "3.7.3", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -249,7 +240,6 @@ async fn main() -> ElusionResult<()> {
 #### - Empty() DataFrames
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
-#### - ODBC Connectors (databases)
 
 #### -> NEXT is example for reading data from local files, 
 #### down bellow are examples for Azure Blob Storage, ODBC
@@ -1546,86 +1536,6 @@ df.display_correlation_matrix(&[
 | double_billable |            1.00 |            0.98 |            1.00 |            1.00 |
 | percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
 -------------------------------------------------------------------------------------------
-```
----
-# DATABASE Connectors 
-### ODBC connectors available for MySQL and PostgreSQL
-#### Requirements: You need to install Driver for you database ODBC connector
-##### For ODBC connectivity on Ubuntu and macOS you need to install unixodbc:
-##### Ubuntu/Debian: sudo apt-get install unixodbc-dev
-##### macOS: brew install unixodbc
-##### Windows: ODBC drivers are typically included with the OS
-
-#### Don't forget that you can always load tables from Database into DataFrames and work with DataFrame API, but for better performance you should aggregate data in SQL server than push it into dataframe. 
-
-### MySQL example
-```rust
-let connection_string = "
-    Driver={MySQL ODBC 9.1 Unicode Driver};\ 
-    Server=127.0.0.1;\
-    Port=3306;\
-    Database=your_database_name;\
-    User=your_user_name;\
-    Password=your_password";
-    
-let sql_query = "
-    SELECT 
-        b.beer_style,
-        b.location,
-        c.color,
-        AVG(b.fermentation_time) AS avg_fermentation_time,
-        ROUND(AVG(b.temperature), 2) AS avg_temperature,
-        ROUND(AVG(b.quality_score), 2) AS avg_quality,
-        ROUND(AVG(b.brewhouse_efficiency), 2) AS avg_efficiency,
-        SUM(b.volume_produced) AS total_volume,
-        ROUND(AVG(b.loss_during_brewing), 2) AS avg_brewing_loss,
-        ROUND(AVG(b.loss_during_fermentation), 2) AS avg_fermentation_loss,
-        ROUND(SUM(b.total_sales), 2) AS total_sales,
-        ROUND(AVG(b.brewhouse_efficiency - (b.loss_during_brewing + b.loss_during_fermentation)), 2) AS net_efficiency
-    FROM brewery_data b
-    JOIN colors c ON b.color = c.color_number
-    WHERE volume_produced > 1000
-    GROUP BY b.beer_style, b.location, c.color
-    HAVING avg_quality > 8
-    ORDER BY total_sales DESC, avg_quality DESC
-    LIMIT 20
-";
-
-let mysql_df = CustomDataFrame::from_db(
-    connection_string,
-    sql_query
-).await?;
-
-let analysis_df = mysql_df.elusion("brewing_analysis").await?;
-analysis_df.display().await?;
-```
-### PostgreSQL example
-```rust
-let pg_connection = "\
-        Driver={PostgreSQL UNICODE};\
-        Servername=127.0.0.1;\
-        Port=5433;\
-        Database=your_database_name;\
-        UID=your_user_name;\
-        PWD=your_password;\
-    ";
-
-let sql_query = "
-    SELECT 
-        c.name,
-        c.email,
-        SUM(s.quantity * s.price) as total_sales,
-        COUNT(*) as number_of_purchases
-    FROM sales s
-    JOIN customers c ON s.customer_id = c.id
-    GROUP BY c.id, c.name, c.email
-    ORDER BY total_sales DESC
-";
-
-let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
-
-let pg_res = pg_df.elusion("pg_res").await?;
-pg_res.display().await?;
 ```
 ---
 # AZURE Blob Storage Connector 
