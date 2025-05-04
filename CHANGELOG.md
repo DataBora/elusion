@@ -1,3 +1,7 @@
+## [3.7.3] - 2025-05-04
+### Added
+- json() function for parsing json values from DataFrame columns
+
 ## [3.7.2] - 2025-05-04
 ### Added
 - Moved Dashboards/Reporting and APIs behind feature flag

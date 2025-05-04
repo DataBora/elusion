@@ -207,7 +207,7 @@ When a feature is not enabled, the corresponding methods will still be available
 
 For example, if you try to use API functions without the "api" feature enabled:
 ```rust
-rustlet api = ElusionApi::new();
+let api = ElusionApi::new();
 let result = api.from_api("https://example.com/data", "data.json").await;
 ```
 You'll receive an error:
@@ -1252,6 +1252,42 @@ let rollin_query = df_sales
 
 let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
+```
+---
+### JSON functions
+#### .json() function only parses simple JSON row values that can be extracted based on the KEY 
+#### example json column values: [{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
+#### ***write AS with capital letters
+```rust
+let path = "C:\\Borivoj\\RUST\\Elusion\\jsonFile.csv";
+let json_df = CustomDataFrame::new(path, "j").await?;
+
+let df_extracted = json_df.json([
+    "ColumnName.'$Key1' AS column_name_1",
+    "ColumnName.'$Key2' AS column_name_2",
+    "ColumnName.'$Key3' AS column_name_3"
+])
+.select(["some_column1", "some_column2"])
+.elusion("json_extract").await?;
+
+df_extracted.display().await?;
+```
+```rust
+RESULT:
++---------------+---------------+---------------+---------------+---------------+
+| column_name_1 | column_name_2 | column_name_3 | some_column1  | some_column2  |
++---------------+---------------+---------------+---------------+---------------+
+| registrations | 2022-09-15    | CustomerCode  | 779-0009E3370 | 646443D134762 |
+| registrations | 2023-09-11    | CustomerCode  | 770-00009ED61 | 463497C334762 |
+| registrations | 2017-10-01    | CustomerCode  | 889-000049C9E | 634697C134762 |
+| registrations | 2019-03-26    | CustomerCode  | 000-00006C4D5 | 446397D134762 |
+| registrations | 2021-08-31    | CustomerCode  | 779-0009E3370 | 463643D134762 |
+| registrations | 2019-05-09    | CustomerCode  | 770-00009ED61 | 634697C934762 |
+| registrations | 2005-10-24    | CustomerCode  | 889-000049C9E | 123397C334762 |
+| registrations | 2023-02-14    | CustomerCode  | 000-00006C4D5 | 932393D134762 |
+| registrations | 2021-01-20    | CustomerCode  | 779-0009E3370 | 323297C334762 |
+| registrations | 2018-07-17    | CustomerCode  | 000-00006C4D5 | 322097C921462 |
++---------------+---------------+---------------+---------------+---------------+
 ```
 ---
 ## APPEND, APPEND_MANY
