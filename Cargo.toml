@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.7.2"
+version = "3.7.3"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -25,10 +25,9 @@ serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.134"
 object_store = "0.11.2"
 plotly = { version = "0.12.1", optional = true }
-arrow-odbc = { version = "14.1.0", optional = true }
 lazy_static = "1.5.0"
-azure_storage_blobs = "0.21.0"
-azure_storage = "0.21.0"
+azure_storage_blobs = { version = "0.21.0", optional = true }
+azure_storage = { version = "0.21.0", optional = true }
 base64 = "0.22.1"
 csv = "1.1"
 tokio-cron-scheduler = "0.13.0"
@@ -41,10 +40,10 @@ ring = ">=0.17.12"
 
 [features]
 default = []
-odbc = ["dep:arrow-odbc"]
 dashboard = ["dep:plotly"]
 api = ["dep:reqwest", "dep:urlencoding"]
-all = ["odbc", "dashboard", "api"]
+azure = ["dep:azure_storage_blobs", "dep:azure_storage"]
+all = ["dashboard", "api"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

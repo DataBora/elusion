@@ -1,6 +1,10 @@
 ## [3.7.3] - 2025-05-04
+### BREAKING CHANGE
+- Removed ODBC features
 ### Added
 - json() function for parsing json values from DataFrame columns
+- Moved Azure Blob Storage behind feature flag
+
 
 ## [3.7.2] - 2025-05-04
 ### Added

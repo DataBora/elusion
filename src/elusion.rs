@@ -72,38 +72,46 @@ use std::cmp::Ordering;
 #[cfg(not(feature = "dashboard"))]
 pub struct Plot;
 
-
 // ======== STATISTICS
 use datafusion::common::ScalarValue;
 
-// ============ DATABASE
-#[cfg(feature = "odbc")]
-use arrow_odbc::odbc_api::{Environment, ConnectionOptions};
-#[cfg(feature = "odbc")]
-use arrow_odbc::OdbcReaderBuilder;
-#[cfg(feature = "odbc")]
-use lazy_static::lazy_static;
-
 // ========== AZURE
+#[cfg(feature = "azure")]
 use azure_storage_blobs::prelude::*;
+#[cfg(feature = "azure")]
 use azure_storage::StorageCredentials;
+#[cfg(feature = "azure")]
 use azure_storage::CloudLocation;
+#[cfg(feature = "azure")]
 use futures::stream;
 use std::io::BufReader;
+#[cfg(feature = "azure")]
 use futures::pin_mut;
+#[cfg(feature = "azure")]
 use csv::ReaderBuilder;
+#[cfg(feature = "azure")]
 use csv::Trim::All;
+#[cfg(feature = "azure")]
 use serde_json::Deserializer;
 // ==== pisanje
+#[cfg(feature = "azure")]
 use azure_storage_blobs::blob::{BlockList, BlobBlockType};
+#[cfg(feature = "azure")]
 use bytes::Bytes;
+#[cfg(feature = "azure")]
 use datafusion::parquet::basic::Compression;
+#[cfg(feature = "azure")]
 use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
+#[cfg(feature = "azure")]
 use datafusion::parquet::arrow::ArrowWriter;
+#[cfg(feature = "azure")]
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+#[cfg(feature = "azure")]
 use futures::TryStreamExt;
+#[cfg(feature = "azure")]
 use tempfile::Builder;
+
 //  ==================== Pipeline Scheduler
 use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
@@ -163,7 +171,6 @@ impl DateFormat {
         }
     }
 }
-
 pub struct MaterializedView {
     // Name of the materialized view
     pub(crate) name: String,
@@ -408,6 +415,7 @@ lazy_static! {
 //=============== AZURE
 
 // Azure ULR validator helper function
+#[cfg(feature = "azure")]
 fn validate_azure_url(url: &str) -> ElusionResult<()> {
     if !url.starts_with("https://") {
         return Err(ElusionError::Custom("Bad url format. Expected format: https://{account}.{endpoint}.core.windows.net/{container}/{blob}".to_string()));
@@ -431,6 +439,7 @@ pub enum AzureWriteMode {
 }
 
 // Optimized JSON processing function using streaming parser
+#[cfg(feature = "azure")]
 fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Value>>> {
     let reader = BufReader::new(content);
     let stream = Deserializer::from_reader(reader).into_iter::<Value>();
@@ -505,6 +514,7 @@ fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Val
     Ok(results)
 }
 
+#[cfg(feature = "azure")]
 async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
     // Create a CSV reader directly from the bytes
     let mut reader = ReaderBuilder::new()
@@ -850,12 +860,7 @@ fn array_value_to_json(array: &Arc<dyn Array>, index: usize) -> ElusionResult<se
 }
 
 // ===== struct to manage ODBC DB connections
-#[cfg(feature = "odbc")]
-lazy_static!{
-    static ref DB_ENV: Environment = {
-        Environment::new().expect("Failed to create odbc environment")
-    };
-}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum DatabaseType {
@@ -864,58 +869,6 @@ pub enum DatabaseType {
     MongoDB,
     SQLServer,
     Unknown
-}
-#[cfg(feature = "odbc")]
-// ========== Database helper functions
-fn detect_database(connection_string: &str) -> DatabaseType {
-    if connection_string.contains("MySQL") {
-        DatabaseType::MySQL
-    } else if connection_string.contains("PostgreSQL") {
-        DatabaseType::PostgreSQL
-    } else if connection_string.contains("MongoDB") {
-        DatabaseType::MongoDB
-    } else if connection_string.contains("SQL Server") {
-        DatabaseType::SQLServer
-    } else {
-        DatabaseType::Unknown
-    }
- }
-
- #[cfg(feature = "odbc")]
- fn extract_alias_from_sql(query: &str, db_type: DatabaseType) -> Option<String> {
-    let lower_query = query.to_lowercase();
-    if let Some(from_idx) = lower_query.find(" from ") {
-        let after_from = &query[from_idx + 6..];
-        let parts: Vec<&str> = after_from.split_whitespace().collect();
-        
-        if parts.len() >= 3 && (parts[1].eq_ignore_ascii_case("as") || parts[1].eq_ignore_ascii_case("")) {
-            let alias = parts[2];
-            match db_type {
-                DatabaseType::SQLServer => {
-                    Some(alias.to_string())
-                },
-                DatabaseType::MySQL => Some(alias.trim_matches('`').to_string()),
-                DatabaseType::PostgreSQL => Some(alias.trim_matches('"').to_string()),
-                DatabaseType::MongoDB => Some(alias.to_string()),
-                DatabaseType::Unknown => Some(alias.trim_matches(|c| c == '`' || c == '"').to_string()),
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
-// Provide stub implementations when ODBC is not enabled
-#[cfg(not(feature = "odbc"))]
-pub fn detect_database(_connection_string: &str) -> DatabaseType {
-    DatabaseType::Unknown
-}
-
-#[cfg(not(feature = "odbc"))]
-pub fn extract_alias_from_sql(_query: &str, _db_type: DatabaseType) -> Option<String> {
-    None
 }
 
 //======= Ploting Helper functions
@@ -4775,7 +4728,8 @@ impl CustomDataFrame {
         self
     }
 
-    /// JSON extraction with OPENJSON-like functionality (cross apply)
+    
+    // /// JSON extraction with OPENJSON-like functionality (cross apply)
     // pub fn json_openjson<'a, const N: usize>(
     //     mut self,
     //     json_column: &str,
@@ -6195,6 +6149,7 @@ impl CustomDataFrame {
     }
 
     // ========= AZURE WRITING
+    #[cfg(feature = "azure")]
     fn setup_azure_client(&self, url: &str, sas_token: &str) -> ElusionResult<(ContainerClient, String)> {
         // Validate URL format and parse components
         let url_parts: Vec<&str> = url.split('/').collect();
@@ -6261,6 +6216,7 @@ impl CustomDataFrame {
     }
 
     /// Function to write PARQUET to Azure BLOB Storage with overwrite and append modes
+    #[cfg(feature = "azure")]
     pub async fn write_parquet_to_azure_with_sas(
         &self,
         mode: &str,
@@ -6448,7 +6404,18 @@ impl CustomDataFrame {
         Ok(())
     }
 
+    #[cfg(not(feature = "azure"))]
+    pub async fn write_parquet_to_azure_with_sas(
+        &self,
+        _mode: &str,
+        _url: &str,
+        _sas_token: &str,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
+    }
+
     // Helper method for uploading data to Azure
+    #[cfg(feature = "azure")]
     async fn upload_to_azure(&self, blob_client: &BlobClient, buffer: Vec<u8>) -> ElusionResult<()> {
         let content = Bytes::from(buffer);
         let content_length = content.len();
@@ -6482,6 +6449,7 @@ impl CustomDataFrame {
     }
 
     /// Function to write JSON to Azure BLOB Storage 
+    #[cfg(feature = "azure")]
     pub async fn write_json_to_azure_with_sas(
         &self,
         url: &str,
@@ -6611,8 +6579,19 @@ impl CustomDataFrame {
         
         Ok(())
     }
+
+    #[cfg(not(feature = "azure"))]
+    pub async fn write_json_to_azure_with_sas(
+        &self,
+        _url: &str,
+        _sas_token: &str,
+        _pretty: bool
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
+    }
     
     // Helper method for uploading JSON data to Azure
+    #[cfg(feature = "azure")]
     async fn upload_json_to_azure(&self, blob_client: &BlobClient, content: Bytes) -> ElusionResult<()> {
         let content_length = content.len();
     
@@ -6947,196 +6926,9 @@ impl CustomDataFrame {
         })
     }
 
-    //stub for odbc
-    #[cfg(not(feature = "odbc"))]
-    pub async fn load_db(
-        _connection_string: &str,
-        _query: &str,
-        _alias: &str,
-    ) -> ElusionResult<AliasedDataFrame> {
-        Err(ElusionError::InvalidOperation {
-            operation: "Database Connection".to_string(),
-            reason: "ODBC support is not compiled. Recompile with --features odbc".to_string(),
-            suggestion: "Compile with ODBC feature enabled to use database loading".to_string(),
-        })
-    }
-
-    #[cfg(not(feature = "odbc"))]
-    pub async fn from_db(
-        _connection_string: &str, 
-        _query: &str
-    ) -> ElusionResult<Self> {
-        Err(ElusionError::InvalidOperation {
-            operation: "Database Connection".to_string(),
-            reason: "ODBC support is not compiled. Recompile with --features odbc".to_string(),
-            suggestion: "Compile with ODBC feature enabled to use database loading".to_string(),
-        })
-    }
-
-    #[cfg(feature = "odbc")]
-    pub async fn load_db(
-        connection_string: &str,
-        query: &str,
-        alias: &str,
-    ) -> ElusionResult<AliasedDataFrame> {
-        // println!("Debug - Query: {}", query);
-
-        let connection = DB_ENV
-            .connect_with_connection_string(connection_string, ConnectionOptions::default())
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "Database Connection".to_string(),
-                reason: format!("Failed to connect to database: {}", e),
-                suggestion: "💡 Check your connection string and ensure database is accessible".to_string()
-            })?;
-
-        // Execute query and get owned cursor
-        let owned_cursor = connection
-            .into_cursor(query, ())
-            .map_err(|e| e.error)
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "Query Execution".to_string(),
-                reason: format!("Query execution failed: {}", e),
-                suggestion: "💡 Verify SQL syntax and table permissions".to_string()
-            })?
-            .ok_or_else(|| ElusionError::InvalidOperation {
-                operation: "Query Result".to_string(),
-                reason: "Query did not produce a result set".to_string(),
-                suggestion: "💡 Ensure query returns data (e.g., SELECT statement)".to_string()
-            })?;
-
-        // Configure ODBC reader for optimal performance
-        let reader = OdbcReaderBuilder::new()
-            .with_max_num_rows_per_batch(50000)
-            .with_max_bytes_per_batch(1024 * 1024 * 1024)
-            .with_fallibale_allocations(true)
-            .build(owned_cursor)
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "ODBC Reader Setup".to_string(),
-                reason: format!("Failed to create ODBC reader: {}", e),
-                suggestion: "💡 Check ODBC driver configuration and memory settings".to_string()
-            })?;
-
-        //  concurrent reader for better performance
-        let concurrent_reader = reader.into_concurrent()
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "Concurrent Reader Creation".to_string(),
-                reason: format!("Failed to create concurrent reader: {}", e),
-                suggestion: "💡 Try reducing batch size or memory allocation".to_string()
-            })?;
-
-        //  all batches
-        let mut all_batches = Vec::new();
-        for batch_result in concurrent_reader {
-            let batch = batch_result.map_err(|e| ElusionError::InvalidOperation {
-                operation: "Batch Reading".to_string(),
-                reason: format!("Failed to read data batch: {}", e),
-                suggestion: "💡 Check for data type mismatches or invalid values".to_string()
-            })?;
-            all_batches.push(batch);
-        }
-        // Create DataFrame from batches
-        let ctx = SessionContext::new();
-        if let Some(first_batch) = all_batches.first() {
-            let schema = first_batch.schema();
-            let mem_table = MemTable::try_new(schema.clone(), vec![all_batches])
-                .map_err(|e| ElusionError::SchemaError {
-                    message: format!("Failed to create in-memory table: {}", e),
-                    schema: Some(schema.to_string()),
-                    suggestion: "💡 Validate data types and schema compatibility".to_string()
-                })?;
-
-            let normalized_alias = normalize_alias_write(alias);
-            ctx.register_table(&normalized_alias, Arc::new(mem_table))
-                .map_err(|e| ElusionError::InvalidOperation {
-                    operation: "Table Registration".to_string(),
-                    reason: format!("Failed to register table: {}", e),
-                    suggestion: "💡 Try using a different alias or check table name validity".to_string()
-                })?;
-
-            let df = ctx.table(&normalized_alias).await
-                .map_err(|e| ElusionError::InvalidOperation {
-                    operation: "DataFrame Creation".to_string(),
-                    reason: format!("Failed to create DataFrame: {}", e),
-                    suggestion: "💡 Verify table registration and schema".to_string()
-                })?;
-            
-            let df = lowercase_column_names(df).await
-                .map_err(|e| ElusionError::InvalidOperation {
-                    operation: "Column Normalization".to_string(),
-                    reason: format!("Failed to normalize column names: {}", e),
-                    suggestion: "💡 Check column names and schema compatibility".to_string()
-                })?;
-
-            Ok(AliasedDataFrame {
-                dataframe: df,
-                alias: alias.to_string(),
-            })
-        } else {
-            Err(ElusionError::InvalidOperation {
-                operation: "Data Retrieval".to_string(),
-                reason: "No data returned from query".to_string(),
-                suggestion: "💡 Check if query returns any rows or modify WHERE conditions".to_string()
-            })
-        }
-    }
-
-    #[cfg(feature = "odbc")]
-    // Constructor for database sources
-    pub async fn from_db(
-        connection_string: &str, 
-        query: &str
-    ) -> ElusionResult<Self> {
-        let db_type = detect_database(connection_string);
-        let db_name = connection_string
-        .split(';')
-        .find(|s| s.trim().starts_with("Database="))
-        .and_then(|s| s.split('=').nth(1).map(str::trim))
-        .unwrap_or("default");
-
-        // Extract alias from SQL if present
-        let table_alias = if db_type == DatabaseType::SQLServer {
-            "SQLServerTable".to_string()
-        } else {
-            extract_alias_from_sql(query, db_type.clone())
-                .unwrap_or_else(|| db_name.to_string())
-        };
-
-        let aliased_df = Self::load_db(connection_string, query, &table_alias).await?;
-
-        if aliased_df.dataframe.schema().fields().is_empty() {
-            return Err(ElusionError::SchemaError {
-                message: "Query returned empty schema".to_string(),
-                schema: None,
-                suggestion: "💡 Verify query returns expected columns".to_string()
-            });
-        }
-        
-        Ok(CustomDataFrame {
-            df: aliased_df.dataframe,
-            table_alias: aliased_df.alias.clone(),
-            from_table: aliased_df.alias,
-            selected_columns: Vec::new(),
-            alias_map: Vec::new(),
-            aggregations: Vec::new(),
-            group_by_columns: Vec::new(),
-            where_conditions: Vec::new(),
-            having_conditions: Vec::new(),
-            order_by_columns: Vec::new(),
-            limit_count: None,
-            joins: Vec::new(),
-            window_functions: Vec::new(),
-            ctes: Vec::new(),
-            subquery_source: None,
-            set_operations: Vec::new(),
-            query: String::new(),
-            aggregated_df: None,
-            union_tables: None,
-            original_expressions: Vec::new(),
-        })
-    }
-
     // ================= AZURE 
     /// Aazure function that connects to Azure blob storage
+    #[cfg(feature = "azure")]
     pub async fn from_azure_with_sas_token(
         url: &str,
         sas_token: &str,
@@ -7300,6 +7092,16 @@ impl CustomDataFrame {
             union_tables: None,
             original_expressions: Vec::new(),
         })
+    }
+
+    #[cfg(not(feature = "azure"))]
+    pub async fn from_azure_with_sas_token(
+        _url: &str,
+        _sas_token: &str,
+        _filter_keyword: Option<&str>, 
+        _alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
     }
 
     /// Unified load function that determines the file type based on extension
