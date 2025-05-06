@@ -1,3 +1,7 @@
+## [3.7.5] - 2025-06-04
+### Fixed
+- Fixing features behind the Flag
+
 ## [3.7.4] - 2025-06-04
 ### Added
 - json_array() function for parsing json values from DataFrame columns

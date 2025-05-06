@@ -104,7 +104,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.4"
+elusion = "3.7.5"
 tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -131,66 +131,37 @@ Usage:
 1. Add the DASHBOARD feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.4", features = ["dashboard"] }
-```
-#### When building your project, use the DASHBOARD feature:
-```rust
-cargo build --features dashboard
-```
-```rust
-cargo run --features dashboard  
+elusion = { version = "3.7.5", features = ["dashboard"] }
 ```
 
 2. Add the AZURE feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.4", features = ["azure"] }
-```
-
-#### When building your project, use the AZURE feature:
-```rust
-cargo build --features azure
-```
-```rust
-cargo run --features azure  
+elusion = { version = "3.7.5", features = ["azure"] }
 ```
 
 3. Add the API feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.7.4", features = ["api"] }
-```
-This enables HTTP client functionality to fetch data from APIs:
-```rust
-cargo build --features api
-```
-```rust
-cargo run --features api
+elusion = { version = "3.7.5", features = ["api"] }
 ```
 
 4.Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.7.4"
+elusion = "3.7.5"
 ```
 
 5. Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.4", features = ["dashboard", "api"] }
-```
-Or build with multiple features:
-```rust
-cargo build --features "dashboard api"
-```
-```rust
-cargo run --features "dashboard api"
+elusion = { version = "3.7.5", features = ["dashboard", "api"] }
 ```
 
 6. Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.4", features = ["all"] }
+elusion = { version = "3.7.5", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -242,7 +213,7 @@ async fn main() -> ElusionResult<()> {
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 
 #### -> NEXT is example for reading data from local files, 
-#### down bellow are examples for Azure Blob Storage, ODBC
+#### down bellow are examples for Azure Blob Storage
 ---
 ### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
@@ -2283,7 +2254,7 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
-, Appache Arrow, Arrow ODBC, Tokio Cron Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
+, Appache Arrow, Tokio Cron Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 ## Where you can find me:
 
