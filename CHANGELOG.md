@@ -1,3 +1,7 @@
+## [3.7.4] - 2025-06-04
+### Added
+- json_array() function for parsing json values from DataFrame columns
+
 ## [3.7.3] - 2025-05-04
 ### BREAKING CHANGE
 - Removed ODBC features

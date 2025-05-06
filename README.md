@@ -11,7 +11,7 @@ Elusion is a high-performance DataFrame / Data Engineering / Data Analysis libra
 
 All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Database operations are built atop Arrow ODBC, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. Report Creation is built atop Plotly and AG GRID. (scroll down for examples)
+DataFrame operations are built atop the DataFusion SQL query engine, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. Report Creation is built atop Plotly and AG GRID. (scroll down for examples)
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently. It also has Integrated Plotting and Interactive Dashboard features.
 
@@ -104,7 +104,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.3"
+elusion = "3.7.4"
 tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -131,7 +131,7 @@ Usage:
 1. Add the DASHBOARD feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.3", features = ["dashboard"] }
+elusion = { version = "3.7.4", features = ["dashboard"] }
 ```
 #### When building your project, use the DASHBOARD feature:
 ```rust
@@ -144,7 +144,7 @@ cargo run --features dashboard
 2. Add the AZURE feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.3", features = ["azure"] }
+elusion = { version = "3.7.4", features = ["azure"] }
 ```
 
 #### When building your project, use the AZURE feature:
@@ -158,7 +158,7 @@ cargo run --features azure
 3. Add the API feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.7.3", features = ["api"] }
+elusion = { version = "3.7.4", features = ["api"] }
 ```
 This enables HTTP client functionality to fetch data from APIs:
 ```rust
@@ -171,13 +171,13 @@ cargo run --features api
 4.Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.7.3"
+elusion = "3.7.4"
 ```
 
 5. Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.3", features = ["dashboard", "api"] }
+elusion = { version = "3.7.4", features = ["dashboard", "api"] }
 ```
 Or build with multiple features:
 ```rust
@@ -190,7 +190,7 @@ cargo run --features "dashboard api"
 6. Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.3", features = ["all"] }
+elusion = { version = "3.7.4", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1244,10 +1244,13 @@ let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
 ```
 ---
-### JSON functions
-#### .json() function only parses simple JSON row values that can be extracted based on the KEY 
-#### example json column values: [{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
-#### ***write AS with capital letters
+## JSON functions
+### .json() 
+#### function works with Columns that only have simple JSON values
+#### ***NOTE: make sure to write AS with capital letters
+
+#### example json structure: [{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
+#### example usage
 ```rust
 let path = "C:\\Borivoj\\RUST\\Elusion\\jsonFile.csv";
 let json_df = CustomDataFrame::new(path, "j").await?;
@@ -1278,6 +1281,56 @@ RESULT:
 | registrations | 2021-01-20    | CustomerCode  | 779-0009E3370 | 323297C334762 |
 | registrations | 2018-07-17    | CustomerCode  | 000-00006C4D5 | 322097C921462 |
 +---------------+---------------+---------------+---------------+---------------+
+```
+### .json_array() 
+#### function works with Columns that has Array of objects with pathern "column.'$ValueField:IdField=IdValue' AS column_alias"
+The function parameters:
+column: The column containing the JSON array
+ValueField: The field to extract from matching objects
+IdField: The field to use as identifier
+IdValue: The value to match on the identifier field
+column_alias: The output column name
+
+#### example json structure
+```rust
+[
+  {"Id":"Date","Value":"2022-09-15","ValueKind":"Date"},
+  {"Id":"MadeBy","Value":"Borivoj Grujicic","ValueKind":"Text"},
+  {"Id":"Timeline","Value":1.0,"ValueKind":"Number"},
+  {"Id":"ETR_1","Value":1.0,"ValueKind":"Number"}
+]
+```
+#### example usage
+```rust
+let multiple_values = df_json.json_array([
+    "Value.'$Value:Id=Date' AS date",
+    "Value.'$Value:Id=MadeBy' AS made_by",
+    "Value.'$Value:Id=Timeline' AS timeline",
+    "Value.'$Value:Id=ETR_1' AS psc_1",
+    "Value.'$Value:Id=ETR_2' AS psc_2", 
+    "Value.'$Value:Id=ETR_3' AS psc_3"
+    ])
+.select(["Id"])
+.elusion("multiple_values")
+.await?;
+
+multiple_values.display().await?;
+
+RESULT:
++-----------------+-------------------+----------+-------+-------+-------+--------+
+| date            | made_by           | timeline | etr_1 | etr_2 | etr_3 | id     |
++-----------------+-------------------+----------+-------+-------+-------+--------+
+| 2022-09-15      | Borivoj Grujicic  | 1.0      | 1.0   | 1.0   | 1.0   | 77E10C |
+| 2023-09-11      |                   | 5.0      |       |       |       | 770C24 |
+| 2017-10-01      |                   |          |       |       |       | 7795FA |
+| 2019-03-26      |                   | 1.0      |       |       |       | 77F2E6 |
+| 2021-08-31      |                   | 5.0      |       |       |       | 77926E |
+| 2019-05-09      |                   |          |       |       |       | 77CC0F |
+| 2005-10-24      |                   |          |       |       |       | 7728BA |
+| 2023-02-14      |                   |          |       |       |       | 77F7F8 |
+| 2021-01-20      |                   |          |       |       |       | 7731F6 |
+| 2018-07-17      |                   | 3.0      |       |       |       | 77FB18 |
++-----------------+-------------------+----------+-------+-------+-------+--------+
 ```
 ---
 ## APPEND, APPEND_MANY
