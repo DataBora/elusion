@@ -4704,7 +4704,7 @@ impl CustomDataFrame {
                                         POSITION(',\"' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) - 1
                                     WHEN POSITION('}}' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) > 0 THEN
                                         POSITION('}}' IN SUBSTRING({}, POSITION('{}' IN {}) + {})) - 1
-                                    ELSE 100 -- arbitrary large value
+                                    ELSE 300 -- arbitrary large value
                                 END
                             )
                         )
@@ -4728,6 +4728,96 @@ impl CustomDataFrame {
         self
     }
 
+    /// Extract values from JSON array objects using regexp_like and string functions
+    pub fn json_array<'a, const N: usize>(mut self, columns: [&'a str; N]) -> Self {
+        let mut json_expressions = Vec::new();
+        
+        for expr in columns.iter() {
+            // Parse the expression: "column.'$ValueField:IdField=IdValue' AS alias"
+            let parts: Vec<&str> = expr.split(" AS ").collect();
+            if parts.len() != 2 {
+                continue; // skip invalid expressions
+            }
+            
+            let path_part = parts[0].trim();
+            let alias = parts[1].trim().to_lowercase();
+            
+            if !path_part.contains(".'$") {
+                continue; // Skip invalid expressions
+            }
+            
+            let col_path_parts: Vec<&str> = path_part.split(".'$").collect();
+            let column_name = col_path_parts[0].trim();
+            let filter_expr = col_path_parts[1].trim_end_matches('\'');
+         
+            let filter_parts: Vec<&str> = filter_expr.split(':').collect();
+            
+            let sql_expr: String;
+            
+            if filter_parts.len() == 2 {
+                // Format: "column.'$ValueField:IdField=IdValue' AS alias"
+                let value_field = filter_parts[0].trim();
+                let condition = filter_parts[1].trim();
+                
+                let condition_parts: Vec<&str> = condition.split('=').collect();
+                if condition_parts.len() != 2 {
+                    continue; // Skip invalid expressions
+                }
+                
+                let id_field = condition_parts[0].trim();
+                let id_value = condition_parts[1].trim();
+      
+                sql_expr = format!(
+                    "CASE 
+                        WHEN regexp_like({}, '\\{{\"{}\":\"{}\",[^\\}}]*\"{}\":(\"[^\"]*\"|[0-9.]+|true|false)', 'i') THEN
+                            CASE
+                                WHEN regexp_like(
+                                    regexp_match(
+                                        {},
+                                        '\\{{\"{}\":\"{}\",[^\\}}]*\"{}\":(\"[^\"]*\")',
+                                        'i'
+                                    )[1],
+                                    '\"[^\"]*\"'
+                                ) THEN
+                                    -- Handle string values by removing quotes
+                                    regexp_replace(
+                                        regexp_match(
+                                            {},
+                                            '\\{{\"{}\":\"{}\",[^\\}}]*\"{}\":\"([^\"]*)\"',
+                                            'i'
+                                        )[1],
+                                        '\"',
+                                        ''
+                                    )
+                                ELSE
+                                    -- Handle numeric and boolean values
+                                    regexp_match(
+                                        {},
+                                        '\\{{\"{}\":\"{}\",[^\\}}]*\"{}\":([0-9.]+|true|false)',
+                                        'i'
+                                    )[1]
+                            END
+                        ELSE NULL
+                    END as \"{}\"",
+                    column_name, id_field, id_value, value_field,
+                    column_name, id_field, id_value, value_field,
+                    column_name, id_field, id_value, value_field,
+                    column_name, id_field, id_value, value_field,
+                    alias
+                );
+            } else {
+                // For simple case: "column.'$FieldName' AS alias"
+                // Require explicit value:id=name format instead of hardcoding
+                continue; // Skip expressions that don't use the explicit format
+            }
+            
+            json_expressions.push(sql_expr);
+        }
+    
+        self.selected_columns.extend(json_expressions);
+        
+        self
+    }
     
     // /// JSON extraction with OPENJSON-like functionality (cross apply)
     // pub fn json_openjson<'a, const N: usize>(
