@@ -91,12 +91,11 @@ use futures::pin_mut;
 use csv::ReaderBuilder;
 #[cfg(feature = "azure")]
 use csv::Trim::All;
-#[cfg(feature = "azure")]
 use serde_json::Deserializer;
 // ==== pisanje
 #[cfg(feature = "azure")]
 use azure_storage_blobs::blob::{BlockList, BlobBlockType};
-#[cfg(feature = "azure")]
+#[cfg(any(feature = "api", feature = "azure"))]
 use bytes::Bytes;
 #[cfg(feature = "azure")]
 use datafusion::parquet::basic::Compression;
@@ -117,7 +116,7 @@ use std::future::Future;
 use tokio_cron_scheduler::{JobScheduler, Job};
 
 // ======== From API
-#[cfg(feature = "api")]
+#[cfg(any(feature = "api", feature = "azure"))]
 use reqwest::Client;
 
 //========== VIEWS
@@ -6832,7 +6831,7 @@ impl CustomDataFrame {
             })?.len() as usize;
                 
             let reader = BufReader::with_capacity(32 * 1024, file); // 32KB buffer
-            let stream = serde_json::Deserializer::from_reader(reader).into_iter::<Value>();
+            let stream = Deserializer::from_reader(reader).into_iter::<Value>();
             
             let mut all_data = Vec::with_capacity(file_size / 3); // Pre-allocate with estimated size
             
