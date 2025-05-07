@@ -1,3 +1,9 @@
+## [3.8.1] - 2025-05-07
+### Fixed
+- Client import clash from API (reqwest::Client) and POSTGRES (tokio_postgres::Client) features
+### Updated
+- tokio from `1.41.1` to `1.45.0`
+
 ## [3.8.0] - 2025-05-07
 ### Added
 - POSTGRES Database connectivity

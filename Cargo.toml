@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.8.0"
+version = "3.8.1"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -17,7 +17,7 @@ datafusion = "43.0.0"
 deltalake = "0.23.0"
 arrow = "=53.2.0"
 chrono = "=0.4.38"
-tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 futures = "0.3.31"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
