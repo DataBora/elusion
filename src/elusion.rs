@@ -133,7 +133,7 @@ use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
 
 //================ POSTGRES
 #[cfg(feature = "postgres")]
-use tokio_postgres::{Client,NoTls, Error as PgError, Row};
+use tokio_postgres::{Client as PostgresClient,NoTls, Error as PgError, Row};
 #[cfg(feature = "postgres")]
 use tokio_postgres::types::{Type, ToSql};
 #[cfg(feature = "postgres")]
@@ -159,7 +159,7 @@ impl Default for PostgresConfig {
     fn default() -> Self {
         Self {
             host: "localhost".to_string(),
-            port: 5432,
+            port: 5433,
             user: "postgres".to_string(),
             password: String::new(),
             database: "postgres".to_string(),
@@ -236,7 +236,7 @@ impl PostgresConfig {
 #[cfg(feature = "postgres")]
 pub struct PostgresConnection {
     config: PostgresConfig,
-    client_pool: Arc<PostgresMutex<Vec<Client>>>,
+    client_pool: Arc<PostgresMutex<Vec<PostgresClient>>>,
 }
 
 #[cfg(not(feature = "postgres"))]
@@ -283,7 +283,7 @@ impl PostgresConnection {
     }
 
     /// Get a client from the pool
-    async fn get_client(&self) -> Result<Client, PgError> {
+    async fn get_client(&self) -> Result<PostgresClient, PgError> {
         let mut pool = self.client_pool.lock().await;
         
         if let Some(client) = pool.pop() {
@@ -304,7 +304,7 @@ impl PostgresConnection {
     }
 
     /// Return a client to the pool
-    async fn return_client(&self, client: Client) {
+    async fn return_client(&self, client: PostgresClient) {
         let mut pool = self.client_pool.lock().await;
         
         if pool.len() < self.config.pool_size.unwrap_or(5) {

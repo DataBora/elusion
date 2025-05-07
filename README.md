@@ -82,7 +82,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.8.0"
+elusion = "3.8.1"
 tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -111,43 +111,43 @@ Usage:
 1. Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.8.0", features = ["postgres"] }
+elusion = { version = "3.8.1", features = ["postgres"] }
 ```
 
 2. Add the AZURE feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.8.0", features = ["azure"] }
+elusion = { version = "3.8.1", features = ["azure"] }
 ```
 
 3. Add the API feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.8.0", features = ["api"] }
+elusion = { version = "3.8.1", features = ["api"] }
 ```
 
 4. Add the DASHBOARD feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.8.0", features = ["dashboard"] }
+elusion = { version = "3.8.1", features = ["dashboard"] }
 ```
 
 5.Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.8.0"
+elusion = "3.8.1"
 ```
 
 6. Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.8.0", features = ["dashboard", "api"] }
+elusion = { version = "3.8.1", features = ["dashboard", "api"] }
 ```
 
 7. Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.8.0", features = ["all"] }
+elusion = { version = "3.8.1", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -181,7 +181,6 @@ async fn main() -> ElusionResult<()> {
 
     Ok(())
 }
-
 ```
 ---
 # CREATING DATA FRAMES
