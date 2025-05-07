@@ -131,6 +131,237 @@ use arrow::array::Int32Builder;
 use arrow::array::BooleanBuilder;
 use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
 
+//================ POSTGRES
+#[cfg(feature = "postgres")]
+use tokio_postgres::{Client,NoTls, Error as PgError, Row};
+#[cfg(feature = "postgres")]
+use tokio_postgres::types::{Type, ToSql};
+#[cfg(feature = "postgres")]
+use tokio::sync::Mutex as PostgresMutex;
+#[cfg(feature = "postgres")]
+use rust_decimal::Decimal;
+#[cfg(feature = "postgres")]
+use rust_decimal::prelude::ToPrimitive;
+
+/// PostgreSQL connection configuration options
+#[cfg(feature = "postgres")]
+#[derive(Debug, Clone)]
+pub struct PostgresConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    pub pool_size: Option<usize>,
+}
+#[cfg(feature = "postgres")]
+impl Default for PostgresConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 5432,
+            user: "postgres".to_string(),
+            password: String::new(),
+            database: "postgres".to_string(),
+            pool_size: Some(5),
+        }
+    }
+}
+#[cfg(feature = "postgres")]
+impl PostgresConfig {
+    /// Create a new PostgresConfig with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build a connection string from the configuration
+    pub fn connection_string(&self) -> String {
+        let mut params = Vec::new();
+        
+        params.push(format!("host={}", self.host));
+        params.push(format!("port={}", self.port));
+        params.push(format!("user={}", self.user));
+        params.push(format!("dbname={}", self.database));
+        
+        if !self.password.is_empty() {
+            params.push(format!("password={}", self.password));
+        }
+        
+        // Add sslmode=prefer for better compatibility
+        params.push("sslmode=prefer".to_string());
+        
+        params.join(" ")
+    }
+}
+
+#[cfg(not(feature = "postgres"))]
+#[derive(Debug, Clone)]
+pub struct PostgresConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    pub pool_size: Option<usize>,
+}
+
+#[cfg(not(feature = "postgres"))]
+impl Default for PostgresConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 5432,
+            user: "postgres".to_string(),
+            password: String::new(),
+            database: "postgres".to_string(),
+            pool_size: Some(5),
+        }
+    }
+}
+
+#[cfg(not(feature = "postgres"))]
+impl PostgresConfig {
+    /// Create a new PostgresConfig with default values (stub)
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build a connection string from the configuration (stub)
+    pub fn connection_string(&self) -> String {
+        String::new()
+    }
+}
+
+/// PostgreSQL connection manager that supports connection pooling
+#[cfg(feature = "postgres")]
+pub struct PostgresConnection {
+    config: PostgresConfig,
+    client_pool: Arc<PostgresMutex<Vec<Client>>>,
+}
+
+#[cfg(not(feature = "postgres"))]
+pub struct PostgresConnection {
+}
+
+#[cfg(feature = "postgres")]
+impl PostgresConnection {
+    /// Create a new PostgreSQL connection manager
+    pub async fn new(config: PostgresConfig) -> Result<Self, PgError> {
+        let pool_size = config.pool_size.unwrap_or(5);
+        let mut clients = Vec::with_capacity(pool_size);
+
+        // Create initial connection
+        let conn_str = config.connection_string();
+        let (client, connection) = tokio_postgres::connect(&conn_str, NoTls).await?;
+        
+        // Spawn the connection task
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("Connection error: {}", e);
+            }
+        });
+        
+        clients.push(client);
+        
+        // Create pool of connections
+        for _ in 1..pool_size {
+            let (client, connection) = tokio_postgres::connect(&conn_str, NoTls).await?;
+            
+            tokio::spawn(async move {
+                if let Err(e) = connection.await {
+                    eprintln!("Connection error: {}", e);
+                }
+            });
+            
+            clients.push(client);
+        }
+
+        Ok(Self {
+            config,
+            client_pool: Arc::new(PostgresMutex::new(clients)),
+        })
+    }
+
+    /// Get a client from the pool
+    async fn get_client(&self) -> Result<Client, PgError> {
+        let mut pool = self.client_pool.lock().await;
+        
+        if let Some(client) = pool.pop() {
+            Ok(client)
+        } else {
+            // If pool is empty, create a new connection
+            let conn_str = self.config.connection_string();
+            let (client, connection) = tokio_postgres::connect(&conn_str, NoTls).await?;
+            
+            tokio::spawn(async move {
+                if let Err(e) = connection.await {
+                    eprintln!("Connection error: {}", e);
+                }
+            });
+            
+            Ok(client)
+        }
+    }
+
+    /// Return a client to the pool
+    async fn return_client(&self, client: Client) {
+        let mut pool = self.client_pool.lock().await;
+        
+        if pool.len() < self.config.pool_size.unwrap_or(5) {
+            pool.push(client);
+        }
+        // If pool is at capacity, client will be dropped
+    }
+
+    /// Execute a query that returns rows
+    pub async fn query(&self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>, PgError> {
+        let client = self.get_client().await?;
+        
+        let result = client.query(query, params).await;
+        
+        self.return_client(client).await;
+        
+        result
+    }
+
+    /// Check if the connection is valid
+    pub async fn ping(&self) -> Result<(), PgError> {
+        let client = self.get_client().await?;
+        
+        let result = client.execute("SELECT 1", &[]).await;
+        
+        self.return_client(client).await;
+        
+        result.map(|_| ())
+    }
+
+}
+
+#[cfg(not(feature = "postgres"))]
+impl PostgresConnection {
+    /// Create a new PostgreSQL connection manager (stub)
+    pub async fn new(_config: PostgresConfig) -> Result<Self, ElusionError> {
+        Err(ElusionError::Custom("*** Warning ***: Postgres feature not enabled. Add feature under [dependencies]".to_string()))
+    }
+
+    /// Execute a query that returns rows (stub)
+    pub async fn query(&self, _query: &str, _params: &[&str]) -> Result<Vec<()>, ElusionError> {
+        Err(ElusionError::Custom("*** Warning ***: Postgres feature not enabled. Add feature under [dependencies]".to_string()))
+    }
+
+    /// Check if the connection is valid (stub)
+    pub async fn ping(&self) -> Result<(), ElusionError> {
+        Err(ElusionError::Custom("*** Warning ***: Postgres feature not enabled. Add feature under [dependencies]".to_string()))
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl From<tokio_postgres::error::Error> for ElusionError {
+    fn from(err: tokio_postgres::error::Error) -> Self {
+        ElusionError::Custom(format!("PostgreSQL error: {}", err))
+    }
+}
+
 pub enum DateFormat {
     IsoDate,            // YYYY-MM-DD
     IsoDateTime,        // YYYY-MM-DD HH:MM:SS
@@ -560,7 +791,7 @@ async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec
                 results.push(map);
             }
             Err(e) => {
-                println!("Warning: Error reading CSV record: {}", e);
+                println!("*** Warning ***: Error reading CSV record: {}", e);
                 continue;
             }
         }
@@ -3339,6 +3570,278 @@ impl CustomDataFrame {
         Ok(())
     }
 
+    // ====== POSTGRESS
+
+    /// Create a DataFrame from a PostgreSQL query
+    #[cfg(feature = "postgres")]
+    pub async fn from_postgres(
+        conn: &PostgresConnection,
+        query: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        let rows = conn.query(query, &[])
+            .await
+            .map_err(|e| ElusionError::Custom(format!("PostgreSQL query error: {}", e)))?;
+
+        if rows.is_empty() {
+            return Err(ElusionError::Custom("Query returned no rows".to_string()));
+        }
+
+        // Extract column info from the first row
+        let first_row = &rows[0];
+        let columns = first_row.columns();
+        
+        // Create schema from column metadata
+        let mut fields = Vec::with_capacity(columns.len());
+        for column in columns {
+            let column_name = column.name();
+            let pg_type = column.type_();
+            
+            // Map PostgreSQL types to Arrow types
+            let arrow_type = match *pg_type {
+                Type::BOOL => ArrowDataType::Boolean,
+                Type::INT2 | Type::INT4 => ArrowDataType::Int64,
+                Type::INT8 => ArrowDataType::Int64,
+                Type::FLOAT4 => ArrowDataType::Float32,
+                Type::FLOAT8 => ArrowDataType::Float64,
+                Type::TEXT | Type::VARCHAR | Type::CHAR | Type::NAME | Type::UNKNOWN => ArrowDataType::Utf8,
+                Type::NUMERIC => ArrowDataType::Float64, 
+                Type::TIMESTAMP | Type::TIMESTAMPTZ => ArrowDataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+                Type::DATE => ArrowDataType::Date32,
+                Type::TIME | Type::TIMETZ => ArrowDataType::Time64(arrow::datatypes::TimeUnit::Microsecond),
+                Type::UUID | Type::JSON | Type::JSONB => ArrowDataType::Utf8, 
+                _ => ArrowDataType::Utf8, // Fallback for unsupported types
+            };
+            
+            fields.push(Field::new(column_name, arrow_type, true));
+        }
+        
+        let schema = Arc::new(Schema::new(fields));
+        
+        // Build arrays for each column
+        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(columns.len());
+        
+        for col_idx in 0..columns.len() {
+            // let column = &columns[col_idx];
+            let field = schema.field(col_idx);
+            
+            match field.data_type() {
+                ArrowDataType::Boolean => {
+                    let mut builder = BooleanBuilder::new();
+                    for row in &rows {
+                        match row.try_get::<_, Option<bool>>(col_idx) {
+                            Ok(Some(value)) => builder.append_value(value),
+                            Ok(None) => builder.append_null(),
+                            Err(_) => builder.append_null(),
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                ArrowDataType::Int32 => {
+                    let mut builder = Int64Builder::new();
+                    for row in &rows {
+                        match row.try_get::<_, Option<i32>>(col_idx) {
+                            Ok(Some(value)) => builder.append_value(value as i64),
+                            Ok(None) => builder.append_null(),
+                            Err(_) => builder.append_null(),
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                ArrowDataType::Int64 => {
+                    let mut builder = Int64Builder::new();
+                    for row in &rows {
+                        // Try multiple approaches to get the integer value
+                        if let Ok(Some(value)) = row.try_get::<_, Option<i64>>(col_idx) {
+                            builder.append_value(value);
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<i32>>(col_idx) {
+                            builder.append_value(value as i64);
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<i16>>(col_idx) {
+                            builder.append_value(value as i64);
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                ArrowDataType::Float64 => {
+                    let mut builder = Float64Builder::new();
+                    for row in &rows {
+                        // First try to get as Decimal 
+                        if let Ok(Some(decimal)) = row.try_get::<_, Option<Decimal>>(col_idx) {
+                            if let Some(float_val) = decimal.to_f64() {
+                                builder.append_value(float_val);
+                            } else {
+                                builder.append_null();
+                            }
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<f64>>(col_idx) {
+                            builder.append_value(value);
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<f32>>(col_idx) {
+                            builder.append_value(value as f64);
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<i64>>(col_idx) {
+                            builder.append_value(value as f64);
+                        } else if let Ok(Some(value)) = row.try_get::<_, Option<i32>>(col_idx) {
+                            builder.append_value(value as f64);
+                        } else if let Ok(Some(value_str)) = row.try_get::<_, Option<String>>(col_idx) {
+                            if let Ok(num) = value_str.parse::<f64>() {
+                                builder.append_value(num);
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                ArrowDataType::Float32 => {
+                    let mut builder = Float64Builder::new();
+                    for row in &rows {
+                        match row.try_get::<_, Option<f64>>(col_idx) {
+                            Ok(Some(value)) => builder.append_value(value),
+                            Ok(None) => builder.append_null(),
+                            Err(_) => match row.try_get::<_, Option<f32>>(col_idx) {
+                                Ok(Some(value)) => builder.append_value(value as f64),
+                                Ok(None) => builder.append_null(),
+                                Err(_) => builder.append_null(),
+                            },
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                ArrowDataType::Utf8 => {
+                    let mut builder = StringBuilder::new();
+                    for row in &rows {
+                        match row.try_get::<_, Option<String>>(col_idx) {
+                            Ok(Some(value)) => builder.append_value(value),
+                            Ok(None) => builder.append_null(),
+                            Err(_) => {
+                                // Try as &str if String fails
+                                match row.try_get::<_, Option<&str>>(col_idx) {
+                                    Ok(Some(value)) => builder.append_value(value),
+                                    Ok(None) => builder.append_null(),
+                                    Err(_) => {
+                                        // Instead of trying to use serde_json::Value which doesn't implement FromSql,
+                                        // we'll use a simple generic way to get the value as a string
+                                        if let Ok(value) = row.try_get::<_, Option<f64>>(col_idx) {
+                                            if let Some(num) = value {
+                                                builder.append_value(num.to_string());
+                                            } else {
+                                                builder.append_null();
+                                            }
+                                        } else if let Ok(value) = row.try_get::<_, Option<i64>>(col_idx) {
+                                            if let Some(num) = value {
+                                                builder.append_value(num.to_string());
+                                            } else {
+                                                builder.append_null();
+                                            }
+                                        } else if let Ok(value) = row.try_get::<_, Option<bool>>(col_idx) {
+                                            if let Some(b) = value {
+                                                builder.append_value(b.to_string());
+                                            } else {
+                                                builder.append_null();
+                                            }
+                                        } else {
+                                            // Last resort: use a placeholder
+                                            builder.append_value(format!("?column?_{}", col_idx));
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+                // Handle other types as strings for now
+                _ => {
+                    let mut builder = StringBuilder::new();
+                    for row in &rows {
+                        // Get the value as text representation
+                        match row.try_get::<_, Option<String>>(col_idx) {
+                            Ok(Some(value)) => builder.append_value(value),
+                            Ok(None) => builder.append_null(),
+                            Err(_) => {
+                                // Try common types that implement FromSql
+                                if let Ok(value) = row.try_get::<_, Option<f64>>(col_idx) {
+                                    if let Some(num) = value {
+                                        builder.append_value(num.to_string());
+                                    } else {
+                                        builder.append_null();
+                                    }
+                                } else if let Ok(value) = row.try_get::<_, Option<i64>>(col_idx) {
+                                    if let Some(num) = value {
+                                        builder.append_value(num.to_string());
+                                    } else {
+                                        builder.append_null();
+                                    }
+                                } else if let Ok(value) = row.try_get::<_, Option<bool>>(col_idx) {
+                                    if let Some(b) = value {
+                                        builder.append_value(b.to_string());
+                                    } else {
+                                        builder.append_null();
+                                    }
+                                } else {
+                                    // Last resort: use a placeholder
+                                    builder.append_value(format!("?column?_{}", col_idx));
+                                }
+                            },
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()));
+                },
+            }
+        }
+        
+        // Create a record batch
+        let batch = RecordBatch::try_new(schema.clone(), arrays)
+            .map_err(|e| ElusionError::Custom(format!("Failed to create record batch: {}", e)))?;
+        
+        // Create a DataFusion DataFrame
+        let ctx = SessionContext::new();
+        let mem_table = MemTable::try_new(schema, vec![vec![batch]])
+            .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
+        
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+        
+        let df = ctx.table(alias).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
+        
+        // Return CustomDataFrame
+        Ok(Self {
+            df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    #[cfg(not(feature = "postgres"))]
+    pub async fn from_postgres(
+        _conn: &PostgresConnection,
+        _query: &str,
+        _alias: &str
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: Postgres feature not enabled. Add feature = [\"postgres\"] under [dependencies]".to_string()))
+    }
+
+    // ==========NEW instance
     /// NEW method for loading and schema definition
     pub async fn new<'a>(
         file_path: &'a str,
@@ -5659,7 +6162,7 @@ impl CustomDataFrame {
         println!("✅ Data successfully written to '{}'", path);
         
         if rows_written == 0 {
-            println!("⚠️  Warning: No rows were written to the file. Check if this is expected.");
+            println!("*** Warning ***: No rows were written to the file. Check if this is expected.");
         } else {
             println!("✅ Wrote {} rows to JSON file", rows_written);
         }
@@ -6500,7 +7003,7 @@ impl CustomDataFrame {
         _url: &str,
         _sas_token: &str,
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
     // Helper method for uploading data to Azure
@@ -6661,7 +7164,7 @@ impl CustomDataFrame {
         println!("✅ Successfully wrote JSON data to Azure blob: {}", url);
         
         if rows_written == 0 {
-            println!("⚠️  Warning: No rows were written to the blob. Check if this is expected.");
+            println!("*** Warning ***: No rows were written to the blob. Check if this is expected.");
         } else {
             println!("✅ Wrote {} rows to JSON blob", rows_written);
         }
@@ -6676,7 +7179,7 @@ impl CustomDataFrame {
         _sas_token: &str,
         _pretty: bool
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
     
     // Helper method for uploading JSON data to Azure
@@ -7190,7 +7693,7 @@ impl CustomDataFrame {
         _filter_keyword: Option<&str>, 
         _alias: &str,
     ) -> ElusionResult<Self> {
-        Err(ElusionError::Custom("Azure feature not enabled. Recompile with --features azure".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
     /// Unified load function that determines the file type based on extension
@@ -7702,7 +8205,7 @@ impl CustomDataFrame {
         _show_markers: bool,
         _title: Option<&str>,
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -7780,7 +8283,7 @@ impl CustomDataFrame {
         _show_markers: bool,
         _title: Option<&str>,
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -7839,7 +8342,7 @@ impl CustomDataFrame {
         _y_col: &str,
         _title: Option<&str>,
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -7897,7 +8400,7 @@ impl CustomDataFrame {
         _y_col: &str,
         _marker_size: Option<usize>,
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -7951,7 +8454,7 @@ impl CustomDataFrame {
         _col: &str,
         _title: Option<&str>
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -8001,7 +8504,7 @@ impl CustomDataFrame {
         _group_by_col: Option<&str>,
         _title: Option<&str>
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -8057,7 +8560,7 @@ impl CustomDataFrame {
         _value_col: &str,
         _title: Option<&str>
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -8113,7 +8616,7 @@ impl CustomDataFrame {
         _value_col: &str,
         _title: Option<&str>
     ) -> ElusionResult<Plot> {
-        println!("Warning: Dashboard feature not enabled. Recompile with --features dashboard");
+        println!("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]");
         Ok(Plot)
     }
 
@@ -8618,7 +9121,7 @@ impl CustomDataFrame {
         _layout_config: Option<ReportLayout>,
         _table_options: Option<TableOptions>,
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("Dashboard feature not enabled. Recompile with --features dashboard".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled. Add feature under [dependencies]".to_string()))
     }
     
 }
@@ -8781,7 +9284,7 @@ pub async fn from_api(
     _url: &str,
     _file_path: &str
 ) -> ElusionResult<()> {
-    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
 }
 
 /// Create a JSON from a REST API endpoint with custom headers
@@ -8819,7 +9322,7 @@ pub async fn from_api_with_headers(
         _headers: HashMap<String, String>,
         _file_path: &str
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
 /// Create JSON from API with custom query parameters
@@ -8860,7 +9363,7 @@ pub async fn from_api_with_params(
     _params: HashMap<&str, &str>,
     _file_path: &str
 ) -> ElusionResult<()> {
-    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
 }
 
 /// Create JSON from API with parameters and headers
@@ -8905,7 +9408,7 @@ pub async fn from_api_with_params_and_headers(
         _headers: HashMap<String, String>,
         _file_path: &str
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
 /// Create JSON from API with date range parameters
@@ -8934,7 +9437,7 @@ pub async fn from_api_with_dates(
     _to_date: &str,
     _file_path: &str
 ) -> ElusionResult<()> {
-    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
 }
 
 /// Create JSON from API with pagination
@@ -8959,7 +9462,7 @@ pub async fn from_api_with_pagination(
     _per_page: u32,
     _file_path: &str
 ) -> ElusionResult<()> {
-    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
 }
 
 /// Create JSON from API with sorting
@@ -8987,7 +9490,7 @@ pub async fn from_api_with_sort(
     _order: &str,
     _file_path: &str
 ) -> ElusionResult<()> {
-    Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+    Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
 }
 
 /// Create JSON from API with sorting and headers
@@ -9019,7 +9522,7 @@ pub async fn from_api_with_headers_and_sort(
         _order: &str,
         _file_path: &str
     ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("API feature not enabled. Recompile with --features api".to_string()))
+        Err(ElusionError::Custom("*** Warning ***: API feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
 /// Process JSON response into JSON 
@@ -9172,7 +9675,7 @@ async fn save_json_to_file(content: Bytes, file_path: &str) -> ElusionResult<()>
     println!("✅ Successfully created {} with {} items", file_path, items_written);
     
     if items_written == 0 {
-        println!("⚠️  Warning: No items were written to the file. Check if this is expected.");
+        println!("*** Warning ***: No items were written to the file. Check if this is expected.");
     }
 
     Ok(())
