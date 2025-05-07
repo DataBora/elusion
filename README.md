@@ -380,7 +380,7 @@ let products_df = CustomDataFrame::new(products, "p").await?;
 
 // Example 1: Using materialized view for customer count
 // The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
-customers_df.clone()
+customers_df
     .select(["COUNT(*) as count"])
     .limit(10)
     .create_view("customer_count_view", Some(3600)) 
@@ -388,11 +388,10 @@ customers_df.clone()
 
 // Access the view by name - no recomputation needed
 let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
-customer_count.display().await?;
 
 // Example 2: Using query caching with complex joins and aggregations
 // First execution computes and stores the result
-let join_result = sales_df.clone()
+let join_result = sales_df
     .join_many([
         (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
         (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
@@ -411,7 +410,7 @@ let join_result = sales_df.clone()
         ("total_quantity", true),
         ("p.ProductName", false)
     ])
-    .elusion_with_cache("sales_join")
+    .elusion_with_cache("sales_join") // caching query with DataFrame alias 
     .await?;
 
 join_result.display().await?;
