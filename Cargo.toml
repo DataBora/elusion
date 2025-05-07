@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.7.5"
+version = "3.8.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -37,13 +37,16 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 urlencoding = {version = "2.1.3", optional = true}
 tempfile = "3.16.0"
 ring = ">=0.17.12"
+tokio-postgres = { version = "0.7.13", optional = true }
+rust_decimal = { version = "1.32", features = ["db-postgres"], optional = true }
 
 [features]
 default = []
 dashboard = ["dep:plotly"]
 api = ["dep:reqwest", "dep:urlencoding"]
 azure = ["dep:azure_storage_blobs", "dep:azure_storage"]
-all = ["dashboard", "api", "azure"]
+postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
+all = ["dashboard", "api", "azure", "postgres"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

@@ -7,18 +7,18 @@
 Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
 
-Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, as well as for creating JSON files from REST API's which can be forwarded to DataFrame.
+Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, and for creating JSON files from REST API's which can be forwarded to DataFrame.
+Additionally you can easily create Reports and Dashboard.
 
-All of the DataFrame operations, Reading and Writing can be placed in PipelineScheduler for automated Data Engineering Pipelines.
+All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
-DataFrame operations are built atop the DataFusion SQL query engine, Azure BLOB HTTPS operations are built atop Azure Storage with BLOB and DFS (Data Lake Storage Gen2) endpoints available, Pipeline Scheduling is built atop Tokio Cron Scheduler, REST API is build atop Reqwest. Report Creation is built atop Plotly and AG GRID. (scroll down for examples)
-
-Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently. It also has Integrated Plotting and Interactive Dashboard features.
+Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently, as well as Integrated Plotting and Interactive Dashboard features.
 
 ## Core Philosophy
 Elusion wants you to be you!
 
-Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in any sequence that best fits your logic, writing functions in a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
+Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in ANY SEQUENCE THAT BEST FITS YOUR LOGIC, writing functions in ANY ORDER or a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
+### ALL DataFrame OPERATIONS AND EXAMPLES, that you will need, are bellow.
 
 ## Platform Compatibility
 Tested for MacOS, Linux and Windows
@@ -44,29 +44,7 @@ SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FU
 
 ### 🚀 Caching and Views
 The caching and views functionality offer several significant advantages over regular querying:
-#### Reduced Computation Time:
-Complex queries (especially with joins, aggregations, and string functions) only need to be computed once
-Subsequent requests use pre-computed results, which can be 10-100x faster
-#### Memory Management:
-Large intermediate results are managed better in cached form (prevents stack overflow)
-The query execution plan doesn't need to be rebuilt each time
-Memory allocation patterns become more predictable
-#### Query Optimization:
-Results are stored in an optimized format (Arrow RecordBatches)
-Repeated access doesn't require re-parsing SQL or rebuilding execution plans
-#### Interactive Analysis:
-Data scientists can explore data interactively without waiting for the same queries to execute repeatedly
-Makes iterative analysis practical even with large datasets
-#### Dashboards and Reports:
-Multiple visualizations can share the same underlying data without redundant computation
-Refresh only when needed (TTL-based expiration)
-#### Resource Utilization:
-Reduced CPU usage for repeated queries
-Less I/O pressure for file-based data sources
-More efficient use of memory (prevent re-allocations)
-#### Concurrency:
-Multiple users/processes can access the same cached results
-Reduces contention for system resources
+#### Reduced Computation Time, Memory Management, Query Optimization, Interactive Analysis, Multiple visualizations for Dashboards and Reports, Resource Utilization, Concurrency
 
 ### 📉 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
@@ -90,7 +68,7 @@ Export Tables data to EXCEL and CSV
 
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
-Advanced Query Support: Utilize Common Table Expressions (CTEs), subqueries, and set operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
+Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
 
 ### 🛠️ Easy-to-Use API
 Chainable Interface: Build queries using a chainable and intuitive API for streamlined development.
@@ -104,7 +82,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.7.5"
+elusion = "3.8.0"
 tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -116,52 +94,60 @@ tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
 Elusion uses Cargo feature flags to keep the library lightweight and modular. 
 You can enable only the features you need, which helps reduce dependencies and compile time.
 
-### Available Features
-##### azure: 
+## Available Features
+### postgres: 
+Enables Postgres Database connectivity.
+### azure: 
 Enables Azure BLOB storage connectivity.
-##### dashboard: 
+### dashboard: 
 Enables data visualization and dashboard creation capabilities. This adds the plotly dependency.
-#### api: 
+### api: 
 Enables HTTP API integration for fetching data from web services. This adds the reqwest and urlencoding dependencies.
-##### all: 
+### all: 
 Enables all available features.
 
 Usage:
 - In your Cargo.toml, specify which features you want to enable:
-1. Add the DASHBOARD feature when specifying the dependency:
+1. Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.5", features = ["dashboard"] }
+elusion = { version = "3.8.0", features = ["postgres"] }
 ```
 
 2. Add the AZURE feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.7.5", features = ["azure"] }
+elusion = { version = "3.8.0", features = ["azure"] }
 ```
 
 3. Add the API feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = { version = "3.7.5", features = ["api"] }
+elusion = { version = "3.8.0", features = ["api"] }
 ```
 
-4.Using NO Features (minimal dependencies):
+4. Add the DASHBOARD feature when specifying the dependency:
 ```rust
 [dependencies]
-elusion = "3.7.5"
+elusion = { version = "3.8.0", features = ["dashboard"] }
 ```
 
-5. Using multiple specific features:
+5.Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = { version = "3.7.5", features = ["dashboard", "api"] }
+elusion = "3.8.0"
 ```
 
-6. Using all features:
+6. Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.7.5", features = ["all"] }
+elusion = { version = "3.8.0", features = ["dashboard", "api"] }
+```
+
+7. Using all features:
+```rust
+[dependencies]
+elusion = { version = "3.8.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -173,14 +159,7 @@ let api = ElusionApi::new();
 let result = api.from_api("https://example.com/data", "data.json").await;
 ```
 You'll receive an error:
-Error: API feature not enabled. Recompile with --features api
-
-### Compilation Benefits
-Faster Compilation: Only compile the dependencies you need
-Reduced Binary Size: Final executable only includes the code you use
-Fewer Dependencies: Minimize dependency tree complexity
-Customized Build: Tailor the library to your specific needs
-
+Error: ***Warning***: API feature not enabled. Add feature under [dependencies]
 ---
 ## NORMALIZATION
 #### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
@@ -205,37 +184,45 @@ async fn main() -> ElusionResult<()> {
 
 ```
 ---
-# CREATING DATA FRAMES and QUICK EXAMPLES TO GET YOU STARTED
+# CREATING DATA FRAMES
 ---
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
+#### - Postgres Database SQL Queries
 
 #### -> NEXT is example for reading data from local files, 
-#### down bellow are examples for Azure Blob Storage
+#### at the end are examples for Azure Blob Storage and Postgres Database
 ---
 ### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
 #### - All you have to do is to provide path to your file
-```rust
-let csv_data = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
-let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
-let json_path = "C:\\Borivoj\\RUST\\Elusion\\db_data.json";
-let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
-```
-### Creating CustomDataFrame
+
+## Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
 
+### LOADING data from CSV into CustomDataFrame
 ```rust
-let df_sales = CustomDataFrame::new(csv_data, "sales").await?; 
-let df_customers = CustomDataFrame::new(parquet_path, "customers").await?;
+let csv_path = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
+let df = CustomDataFrame::new(csv_path, "sales").await?; 
 ```
-### LOADING data from Databases into CustomDataFrame (scroll down for full example)
+### LOADING data from PARQUET into CustomDataFrame
 ```rust
-let pg_df = CustomDataFrame::from_db(pg_connection, sql_query).await?;
+let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
+let df = CustomDataFrame::new(parquet_path, "prod_data").await?;
 ```
-### LOADING data from Azure BLOB Storage into CustomDataFrame (scroll down for full example)
+### LOADING data from JSON into CustomDataFrame
+```rust
+let json_path = "C:\\Borivoj\\RUST\\Elusion\\mongo_data.json";
+let df = CustomDataFrame::new(json_path, "mongo_df").await?;
+```
+### LOADING data from DELTA table into CustomDataFrame
+```rust
+let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
+let df = CustomDataFrame::new(delta_path, "delta_df").await?;
+```
+### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
 let df = CustomDataFrame::from_azure_with_sas_token(
         blob_url, 
@@ -243,6 +230,10 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
         "data" // alias for registering table
     ).await?;
+```
+### LOADING data from POSTGRES into CustomDataFrame (**scroll till the end for FULL example with conn, config and query**)
+```rust
+let df = CustomDataFrame::from_postgres(&conn, query, "sales").await?;
 ```
 ---
 ## CREATE EMPTY DATA FRAME
@@ -373,131 +364,6 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
-## EXTRACTING VALUES: extract_value_from_df()
-#### Example how you can extract values from DataFrame and use it within REST API
-```rust
-//create calendar dataframe
- let date_calendar = CustomDataFrame::create_formatted_date_range_table(
-    "2025-01-01", 
-    "2025-12-31", 
-    "dt", 
-    "date".to_string(),
-    DateFormat::HumanReadableTime, 
-    true, 
-    Weekday::Mon
-).await?;
-
-// take columns from Calendar
-let week_range_2025 = date_calendar
-    .select(["DISTINCT(week_start)","week_end", "week_num"])
-    .order_by(["week_num"], [true])
-    .elusion("wr")
-    .await?;
-
-// create empty dataframe
-let temp_df = CustomDataFrame::empty().await?;
-
-//populate empty dataframe with current week number
-let current_week = temp_df
-    .datetime_functions([
-        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
-    ])
-    .elusion("cd").await?;
-
-// join data frames to get range for current week
-let week_for_api = week_range_2025
-    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
-    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
-    .elusion("api_week")
-    .await?;
-
-// Extract Date Value from DataFrame based on column name and Row Index
-let date_from = extract_value_from_df(&week_for_api, "datefrom", 0).await?;
-let date_to = extract_value_from_df(&week_for_api, "dateto", 0).await?;
-
-//PRINT results for preview
-week_for_api.display().await?;
-
-println!("Date from: {}", date_from);
-println!("Date to: {}", date_to);
-
-RESULT:
-+------------------+------------------+
-| datefrom         | dateto           |
-+------------------+------------------+
-| 3 Mar 2025 00:00 | 9 Mar 2025 00:00 |
-+------------------+------------------+
-
-Date from: 3 Mar 2025 00:00
-Date to: 9 Mar 2025 00:00
-
-NOW WE CAN USE THESE EXTRACTED VALUES:
-
-let post_df = ElusionApi::new();
-post_df.from_api_with_dates(
-    "https://jsonplaceholder.typicode.com/posts",  // url
-    &date_from,  // date from
-    &date_to,  // date to
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\rest_api_data.json",  // path where json will be stored
-).await?;
-```
-## EXTRACTING ROWS: extract_row_from_df()
-#### Example how you can extract Row from DataFrame and use it within REST API.
-```rust
-//create calendar dataframe
- let date_calendar = CustomDataFrame::create_formatted_date_range_table(
-    "2025-01-01", 
-    "2025-12-31", 
-    "dt", 
-    "date".to_string(),
-    DateFormat::IsoDate, 
-    true, 
-    Weekday::Mon
-).await?;
-//take columns from calendar
-let week_range_2025 = date_calendar
-    .select(["DISTINCT(week_start)","week_end", "week_num"])
-    .order_by(["week_num"], [true])
-    .elusion("wr")
-    .await?;
-
-// create empty dataframe
-let temp_df = CustomDataFrame::empty().await?;
-
-//populate empty dataframe with current week number
-let current_week = temp_df
-    .datetime_functions([
-        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
-    ])
-    .elusion("cd").await?;
-
-// join data frames to ge range for current week
-let week_for_api = week_range_2025
-    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
-    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
-    .elusion("api_week")
-    .await?;
-
-// Extract Row Values from DataFrame based on Row Index
-let row_values = extract_row_from_df(&week_for_api, 0).await?;
-
-// PRINT row for preview
-println!("DataFrame row: {:?}", row_values);
-
-RESULT:
-DataFrame row: {"datefrom": "2025-03-03", "dateto": "2025-03-09"}
-
-NOW WE CAN USE THESE EXTRACTED ROW:
-
-let post_df = ElusionApi::new();
-post_df.from_api_with_dates(
-    "https://jsonplaceholder.typicode.com/posts", // url
-    row_values.get("datefrom").unwrap_or(&String::new()), // date from
-    row_values.get("dateto").unwrap_or(&String::new()), // date to
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\extraction_df2.json",  // path where json will be stored
-).await?;
-```
----
 ## CREATE VIEWS and CACHING
 ### Materialized Views:
 For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
@@ -558,7 +424,7 @@ CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
 CustomDataFrame::list_views().await; // Get info about all views
 ```
 ---
-# DATAFRAME WRANGLING (lets start from scratch...)
+# DATAFRAME WRANGLING
 ---
 ## SELECT
 ### ALIAS column names in SELECT() function (AS is case insensitive)
@@ -1561,6 +1427,183 @@ df.display_correlation_matrix(&[
 | percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
 -------------------------------------------------------------------------------------------
 ```
+---
+## EXTRACTING VALUES: extract_value_from_df()
+#### Example how you can extract values from DataFrame and use it within REST API
+```rust
+//create calendar dataframe
+ let date_calendar = CustomDataFrame::create_formatted_date_range_table(
+    "2025-01-01", 
+    "2025-12-31", 
+    "dt", 
+    "date".to_string(),
+    DateFormat::HumanReadableTime, 
+    true, 
+    Weekday::Mon
+).await?;
+
+// take columns from Calendar
+let week_range_2025 = date_calendar
+    .select(["DISTINCT(week_start)","week_end", "week_num"])
+    .order_by(["week_num"], [true])
+    .elusion("wr")
+    .await?;
+
+// create empty dataframe
+let temp_df = CustomDataFrame::empty().await?;
+
+//populate empty dataframe with current week number
+let current_week = temp_df
+    .datetime_functions([
+        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
+    ])
+    .elusion("cd").await?;
+
+// join data frames to get range for current week
+let week_for_api = week_range_2025
+    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
+    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
+    .elusion("api_week")
+    .await?;
+
+// Extract Date Value from DataFrame based on column name and Row Index
+let date_from = extract_value_from_df(&week_for_api, "datefrom", 0).await?;
+let date_to = extract_value_from_df(&week_for_api, "dateto", 0).await?;
+
+//PRINT results for preview
+week_for_api.display().await?;
+
+println!("Date from: {}", date_from);
+println!("Date to: {}", date_to);
+
+RESULT:
++------------------+------------------+
+| datefrom         | dateto           |
++------------------+------------------+
+| 3 Mar 2025 00:00 | 9 Mar 2025 00:00 |
++------------------+------------------+
+
+Date from: 3 Mar 2025 00:00
+Date to: 9 Mar 2025 00:00
+
+NOW WE CAN USE THESE EXTRACTED VALUES:
+
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts",  // url
+    &date_from,  // date from
+    &date_to,  // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\rest_api_data.json",  // path where json will be stored
+).await?;
+```
+## EXTRACTING ROWS: extract_row_from_df()
+#### Example how you can extract Row from DataFrame and use it within REST API.
+```rust
+//create calendar dataframe
+ let date_calendar = CustomDataFrame::create_formatted_date_range_table(
+    "2025-01-01", 
+    "2025-12-31", 
+    "dt", 
+    "date".to_string(),
+    DateFormat::IsoDate, 
+    true, 
+    Weekday::Mon
+).await?;
+//take columns from calendar
+let week_range_2025 = date_calendar
+    .select(["DISTINCT(week_start)","week_end", "week_num"])
+    .order_by(["week_num"], [true])
+    .elusion("wr")
+    .await?;
+
+// create empty dataframe
+let temp_df = CustomDataFrame::empty().await?;
+
+//populate empty dataframe with current week number
+let current_week = temp_df
+    .datetime_functions([
+        "CAST(DATE_PART('week', CURRENT_DATE()) as INT) AS current_week_num",
+    ])
+    .elusion("cd").await?;
+
+// join data frames to ge range for current week
+let week_for_api = week_range_2025
+    .join(current_week,["wr.week_num == cd.current_week_num"], "INNER")
+    .select(["TRIM(wr.week_start) AS datefrom", "TRIM(wr.week_end) AS dateto"])
+    .elusion("api_week")
+    .await?;
+
+// Extract Row Values from DataFrame based on Row Index
+let row_values = extract_row_from_df(&week_for_api, 0).await?;
+
+// PRINT row for preview
+println!("DataFrame row: {:?}", row_values);
+
+RESULT:
+DataFrame row: {"datefrom": "2025-03-03", "dateto": "2025-03-09"}
+
+NOW WE CAN USE THESE EXTRACTED ROW:
+
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts", // url
+    row_values.get("datefrom").unwrap_or(&String::new()), // date from
+    row_values.get("dateto").unwrap_or(&String::new()), // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\extraction_df2.json",  // path where json will be stored
+).await?;
+```
+---
+# Postgres Database Connector 
+### You can easily create dataframe from Postgres SQL Query
+```rust
+ let pg_config = PostgresConfig {
+        host: "localhost".to_string(),
+        port: 5433,
+        user: "postgres".to_string(),
+        password: "pass123".to_string(),
+        database: "db_test".to_string(),
+        pool_size: Some(5), 
+    };
+
+let conn = PostgresConnection::new(pg_config).await?;
+
+Option2: You can use map_err()
+
+let conn = PostgresConnection::new(pg_config).await
+    .map_err(|e| ElusionError::Custom(format!("PostgreSQL connection error: {}", e)))?;
+```
+### Postgres Query Example
+```rust
+let query = "
+    SELECT 
+        c.id, 
+        c.name, 
+        s.product_name,
+        SUM(s.quantity * s.price) as total_revenue
+    FROM customers c
+    LEFT JOIN sales s ON c.id = s.customer_id
+    GROUP BY c.id, c.name, s.product_name
+    ORDER BY total_revenue DESC
+";
+
+let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "sales_by_customer").await?;
+
+sales_by_customer_df.display().await?;
+
+RESULT:
++----+------------+--------------+---------------+
+| id | name       | product_name | total_revenue |
++----+------------+--------------+---------------+
+| 2  | Jane Smith | Product B    | 82.0          |
+| 1  | John Doe   | Product C    | 78.75         |
+| 3  | Bob Wilson | Product A    | 65.94         |
+| 2  | Jane Smith | Product C    | 63.0          |
+| 3  | Bob Wilson | Product B    | 61.5          |
+| 1  | John Doe   | Product A    | 54.95         |
+| 1  | John Doe   | Product B    | 41.0          |
++----+------------+--------------+---------------+
+```
+---
 ---
 # AZURE Blob Storage Connector 
 ## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided

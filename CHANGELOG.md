@@ -1,12 +1,16 @@
-## [3.7.5] - 2025-06-04
+## [3.8.0] - 2025-05-07
+### Added
+- POSTGRES Database connectivity
+
+## [3.7.5] - 2025-05-06
 ### Fixed
 - Fixing features behind the Flag
 
-## [3.7.4] - 2025-06-04
+## [3.7.4] - 2025-05-06
 ### Added
 - json_array() function for parsing json values from DataFrame columns
 
-## [3.7.3] - 2025-05-04
+## [3.7.3] - 2025-05-06
 ### BREAKING CHANGE
 - Removed ODBC features
 ### Added

@@ -2,7 +2,9 @@ pub use crate::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
-
+//====== postgres
+pub use crate::{PostgresConfig, PostgresConnection};
+//====== dashboard
 pub use crate::{ReportLayout, TableOptions};
 
 pub use crate::DateFormat;
