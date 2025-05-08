@@ -203,7 +203,7 @@ dependencies = [
  "chrono",
  "comfy-table",
  "half",
- "lexical-core 1.0.5",
+ "lexical-core 1.0.0",
  "num",
  "ryu",
 ]
@@ -223,7 +223,7 @@ dependencies = [
  "csv",
  "csv-core",
  "lazy_static",
- "lexical-core 1.0.5",
+ "lexical-core 1.0.0",
  "regex",
 ]
 
@@ -268,7 +268,7 @@ dependencies = [
  "chrono",
  "half",
  "indexmap 2.9.0",
- "lexical-core 1.0.5",
+ "lexical-core 1.0.0",
  "num",
  "serde",
  "serde_json",
@@ -1728,8 +1728,8 @@ dependencies = [
  "encoding_rs",
  "futures",
  "lazy_static",
- "lexical 7.0.4",
- "lexical-core 1.0.5",
+ "lexical 7.0.0",
+ "lexical-core 1.0.0",
  "mysql_async",
  "num_cpus",
  "object_store",
@@ -2632,11 +2632,11 @@ dependencies = [
 
 [[package]]
 name = "lexical"
-version = "7.0.4"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70ed980ff02623721dc334b9105150b66d0e1f246a92ab5a2eca0335d54c48f6"
+checksum = "1c0fd622f86601d95bec44aa3625b29649b741683e74253bd7643ff5663e4acd"
 dependencies = [
- "lexical-core 1.0.5",
+ "lexical-core 1.0.0",
 ]
 
 [[package]]
@@ -2654,9 +2654,9 @@ dependencies = [
 
 [[package]]
 name = "lexical-core"
-version = "1.0.5"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b765c31809609075565a70b4b71402281283aeda7ecaf4818ac14a7b2ade8958"
+checksum = "c26c7da389462e0173a0e9580b3cf7b6a10074e93df78b2768d3ee9fa6d54fc4"
 dependencies = [
  "lexical-parse-float 1.0.5",
  "lexical-parse-integer 1.0.5",
