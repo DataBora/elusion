@@ -1,6 +1,9 @@
 ## [3.9.0] - 2025-05-08
 ### Added
 - MYSQL Database connectivity
+## Fixed
+- Filter lowercasing column name
+- AS case insensitivity for .json() and .json_array()
 
 ## [3.8.1] - 2025-05-07
 ### Fixed

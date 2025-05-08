@@ -2354,7 +2354,12 @@ fn normalize_condition_filter(condition: &str) -> String {
     // let re = Regex::new(r"(\b\w+)\.(\w+\b)").unwrap();
     let re = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
     
-    re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string()
+    // re.replace_all(condition.trim(), "\"$1\".\"$2\"").to_string()
+    re.replace_all(condition.trim(), |caps: &regex::Captures| {
+        let table = &caps[1];
+        let column = &caps[2];
+        format!("\"{}\".\"{}\"", table, column.to_lowercase())
+    }).to_string()
 }
 
 /// Normalizes an expression by properly quoting table aliases and column names.
@@ -5576,7 +5581,10 @@ impl CustomDataFrame {
         
         for expr in columns.iter() {
             // Parse the expression: "column.'$jsonPath' AS alias"
-            let parts: Vec<&str> = expr.split(" AS ").collect();
+            // let parts: Vec<&str> = expr.split(" AS ").collect();
+            let re = Regex::new(r"(?i)\s+AS\s+").unwrap();
+            let parts: Vec<&str> = re.split(expr).collect();
+
             if parts.len() != 2 {
                 continue; // skip invalid expressions, will be checked at .elusion() 
             }
@@ -5637,7 +5645,10 @@ impl CustomDataFrame {
         
         for expr in columns.iter() {
             // Parse the expression: "column.'$ValueField:IdField=IdValue' AS alias"
-            let parts: Vec<&str> = expr.split(" AS ").collect();
+            // let parts: Vec<&str> = expr.split(" AS ").collect();
+            let re = Regex::new(r"(?i)\s+AS\s+").unwrap();
+            let parts: Vec<&str> = re.split(expr).collect();
+
             if parts.len() != 2 {
                 continue; // skip invalid expressions
             }
