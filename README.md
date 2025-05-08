@@ -456,8 +456,7 @@ let num_ops_sales = sales_order_df
 let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
 num_ops_res.display().await?;
 ```
-### FILTER (used before aggregations)
-#### Filter doesnt lower-case column names, make sure to write column names lowercase. Conditions write as you like/need.
+### FILTER (evaluated before aggregations)
 ```rust
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
@@ -494,7 +493,7 @@ let filter_query = sales_order_df
         ("max_abs_billable", true), // Then by max_abs_billable ascending
     ])
 ```
-### HAVING (used after aggregations)
+### HAVING (evaluated after aggregations)
 ```rust
 //Example 1 with aggregatied column names
  let example1 = sales_df
@@ -1079,8 +1078,6 @@ rollin_df.display().await?;
 ## JSON functions
 ### .json() 
 #### function works with Columns that only have simple JSON values
-#### ***NOTE: make sure to write AS with capital letters
-
 #### example json structure: [{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
 #### example usage
 ```rust
@@ -1138,9 +1135,9 @@ let multiple_values = df_json.json_array([
     "Value.'$Value:Id=Date' AS date",
     "Value.'$Value:Id=MadeBy' AS made_by",
     "Value.'$Value:Id=Timeline' AS timeline",
-    "Value.'$Value:Id=ETR_1' AS psc_1",
-    "Value.'$Value:Id=ETR_2' AS psc_2", 
-    "Value.'$Value:Id=ETR_3' AS psc_3"
+    "Value.'$Value:Id=ETR_1' AS etr_1",
+    "Value.'$Value:Id=ETR_2' AS etr_2", 
+    "Value.'$Value:Id=ETR_3' AS etr_3"
     ])
 .select(["Id"])
 .elusion("multiple_values")
