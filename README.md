@@ -97,32 +97,32 @@ You can enable only the features you need, which helps reduce dependencies and c
 ## Available Features
 ### postgres: 
 ```rust 
-{["postgres"]}
+["postgres"]
 ```
 Enables Postgres Database connectivity.
 ### mysql:
 ```rust 
-{["mysql"]}
+["mysql"]
 ```
 Enables MySql Database connectivity
 ### azure:
 ```rust 
-{["azure"]}
+["azure"]
 ``` 
 Enables Azure BLOB storage connectivity.
 ### api: 
 ```rust 
-{["api"]}
+["api"]
 ```
 Enables HTTP API integration for fetching data from web services.
 ### dashboard: 
 ```rust 
-{["dashboard"]}
+["dashboard"]
 ```
 Enables data visualization and dashboard creation capabilities.
 ### all: 
 ```rust 
-{["all"]}
+["all"]
 ```
 Enables all available features.
 
