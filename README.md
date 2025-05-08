@@ -456,7 +456,8 @@ let num_ops_sales = sales_order_df
 let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
 num_ops_res.display().await?;
 ```
-### FILTER  (used before aggregations)
+### FILTER (used before aggregations)
+#### Filter doesnt lower-case column names, make sure to write column names lowercase. Conditions write as you like/need.
 ```rust
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
@@ -869,7 +870,7 @@ let string_functions_df = df_sales
         "COUNT(*) AS total_records",
         "STRING_AGG(p.ProductName, ', ') AS all_products"
     ])
-    .filter("c.EmailAddress IS NOT NULL")
+    .filter("c.emailaddress IS NOT NULL")
     .group_by_all()
     .having("COUNT(*) > 1")
     .order_by(["c.CustomerKey"], [true]);   
