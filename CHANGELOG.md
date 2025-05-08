@@ -1,3 +1,7 @@
+## [3.9.0] - 2025-05-08
+### Added
+- MYSQL Database connectivity
+
 ## [3.8.1] - 2025-05-07
 ### Fixed
 - Client import clash from API (reqwest::Client) and POSTGRES (tokio_postgres::Client) features
