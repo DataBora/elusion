@@ -1728,8 +1728,6 @@ dependencies = [
  "encoding_rs",
  "futures",
  "lazy_static",
- "lexical 7.0.0",
- "lexical-core 1.0.0",
  "mysql_async",
  "num_cpus",
  "object_store",
@@ -2631,15 +2629,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lexical"
-version = "7.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c0fd622f86601d95bec44aa3625b29649b741683e74253bd7643ff5663e4acd"
-dependencies = [
- "lexical-core 1.0.0",
-]
-
-[[package]]
 name = "lexical-core"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2981,7 +2970,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "lazy_static",
- "lexical 6.1.1",
+ "lexical",
  "num-bigint",
  "num-traits",
  "rand 0.8.5",

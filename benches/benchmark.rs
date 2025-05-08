@@ -6,7 +6,7 @@ async fn setup_test_dataframes() -> ElusionResult<(CustomDataFrame, CustomDataFr
     let sales_path = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
     let customer_path = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
     let products_path = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
-    let sales_order_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
+    let sales_order_path = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report2.csv";
    
     let sales_df = CustomDataFrame::new(sales_path, "se").await?;
     let customers_df = CustomDataFrame::new(customer_path, "c").await?;
@@ -334,7 +334,7 @@ fn benchmark_string_functions(c: &mut Criterion) {
                     "COUNT(*) AS total_records",
                     "STRING_AGG(p.ProductName, ', ') AS all_products"
                 ])
-                .filter("c.EmailAddress IS NOT NULL")
+                .filter("c.emailaddress IS NOT NULL")
                 .group_by_all()
                 .having("COUNT(*) > 1")
                 .order_by(["c.CustomerKey"], [true])
@@ -514,33 +514,127 @@ pub fn benchmark_appending(c: &mut Criterion) {
     group.finish();
 }
 
-// fn benchmark_api_operations(c: &mut Criterion) {
-//     let rt = tokio::runtime::Runtime::new().unwrap();
-//     let mut group = c.benchmark_group("API_Operations");
- 
-//     group.bench_function("api_with_params", |b| b.iter(|| {
-//         rt.block_on(async {
-//             let mut params = HashMap::new();
-//             params.insert("brandid", "Elusion");
-//             params.insert("password", "pass");
-//             params.insert("siteid", "993");
-//             params.insert("Datefrom", "01 jan 2023 06:00");
-//             params.insert("Dateto", "31 jan 2023 06:00");
-//             params.insert("user", "borivoj");
-        
-//             let api = ElusionApi::new();
-//             api.from_api_with_params(
-//                 "https://salesapi.dotnet.co.rs/SQLDATA/api/data_items",
-//                 params,
-//                 "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2023.json"
-                
-//             ).await.unwrap()
-//         })
-//     }));
- 
-//     group.finish();
-//  }
+fn benchmark_mysql_operations(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    
+    let mut group = c.benchmark_group("MySQL_Operations");
+    group.sample_size(10); // Reduce sample size for database operations
+    
+    // Benchmark basic MySQL query
+    group.bench_function("basic_mysql_query", |b| b.iter(|| {
+        rt.block_on(async {
+            let mysql_config = MySqlConfig {
+                host: "localhost".to_string(),
+                port: 3306,
+                user: "databora".to_string(),
+                password: "!Djavolak1".to_string(),
+                database: "brewery".to_string(),
+                pool_size: Some(5),
+            };
+            
+            let conn = MySqlConnection::new(mysql_config).await.unwrap();
+            
+            // Simple query
+            let query = "SELECT * FROM brewery_data LIMIT 10";
+            let df = CustomDataFrame::from_mysql(&conn, query, "basic_mysql_data").await.unwrap();
+            let _ = df.limit(10).elusion("basic_result").await.unwrap();
 
+        })
+    }));
+    
+    // Benchmark complex MySQL query with CTE, JOINS and window functions
+    group.bench_function("complex_mysql_query", |b| b.iter(|| {
+        rt.block_on(async {
+            let mysql_config = MySqlConfig {
+                host: "localhost".to_string(),
+                port: 3306,
+                user: "databora".to_string(),
+                password: "!Djavolak1".to_string(),
+                database: "brewery".to_string(),
+                pool_size: Some(5),
+            };
+            
+            let conn = MySqlConnection::new(mysql_config).await.unwrap();
+            
+            // Complex query with CTE, JOIN, and window functions
+            let mysql_query = "
+                WITH ranked_sales AS (
+                    SELECT 
+                        c.color AS brew_color, 
+                        bd.beer_style, 
+                        bd.location, 
+                        SUM(bd.total_sales) AS total_sales
+                    FROM 
+                        brewery_data bd
+                    JOIN 
+                        colors c ON bd.Color = c.color_number
+                    WHERE 
+                        bd.brew_date >= '2020-01-01' AND bd.brew_date <= '2020-03-01'
+                    GROUP BY 
+                        c.color, bd.beer_style, bd.location
+                )
+                SELECT 
+                    brew_color, 
+                    beer_style, 
+                    location, 
+                    total_sales,
+                    ROW_NUMBER() OVER (PARTITION BY brew_color ORDER BY total_sales DESC) AS ranked
+                FROM 
+                    ranked_sales
+                ORDER BY 
+                brew_color, total_sales DESC";
+                
+            let df = CustomDataFrame::from_mysql(&conn, mysql_query, "mysql_data").await.unwrap();
+            let _ = df.limit(100).elusion("complex_result").await.unwrap();
+            
+        })
+    }));
+    
+    // Benchmark MySQL query with post-processing
+    group.bench_function("mysql_with_processing", |b| b.iter(|| {
+        rt.block_on(async {
+            let mysql_config = MySqlConfig {
+                host: "localhost".to_string(),
+                port: 3306,
+                user: "databora".to_string(),
+                password: "!Djavolak1".to_string(),
+                database: "brewery".to_string(),
+                pool_size: Some(5),
+            };
+            
+            let conn = MySqlConnection::new(mysql_config).await.unwrap();
+
+            let query = "SELECT * FROM brewery_data";
+            let df = CustomDataFrame::from_mysql(&conn, query, "process_mysql_data").await.unwrap();
+            // Apply additional processing with Elusion
+            let _ = df
+                .select([
+                    "brew_date", 
+                    "beer_style", 
+                    "location", 
+                    "total_sales"
+                ])
+                .filter("total_sales > 1000")
+                .agg([
+                    "SUM(total_sales) AS total_revenue",
+                    "AVG(total_sales) AS avg_revenue",
+                    "COUNT(*) AS sale_count"
+                ])
+                .group_by([
+                    "beer_style", 
+                    "location"
+                ])
+                .order_by(["total_revenue"], [false])  // DESC order
+                .limit(20)
+                .elusion("processed_result")
+                .await
+                .unwrap();
+            
+        })
+    }));
+    
+    group.finish();
+}
 
 criterion_group!(
     benches,
@@ -553,6 +647,6 @@ criterion_group!(
     benchmark_unpivot,
     benchmark_string_functions,
     benchmark_appending,
-    // benchmark_api_operations
+    benchmark_mysql_operations
 );
 criterion_main!(benches);

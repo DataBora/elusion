@@ -41,8 +41,6 @@ ring = ">=0.17.12"
 tokio-postgres = { version = "0.7.13", optional = true }
 rust_decimal = { version = "1.32", features = ["db-postgres"], optional = true }
 mysql_async = { version = "0.32.2", default-features = false, features = ["minimal"], optional = true}
-lexical = "=7.0.0" #security fix
-lexical-core = "=1.0.0" #security fix
 
 [features]
 default = []
