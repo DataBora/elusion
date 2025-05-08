@@ -7,8 +7,8 @@
 Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
 
-Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, and for creating JSON files from REST API's which can be forwarded to DataFrame.
-Additionally you can easily create Reports and Dashboard.
+Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
+Additionally you can easily create Reports and Dashboard by passing DataFrame results.
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -82,8 +82,8 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.8.1"
-tokio = { version = "1.42.1", features = ["rt-multi-thread"] }
+elusion = "3.9.0"
+tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
 ```toml
@@ -97,68 +97,46 @@ You can enable only the features you need, which helps reduce dependencies and c
 ## Available Features
 ### postgres: 
 Enables Postgres Database connectivity.
+### mysql:
+Enables MySql Database connectivity
 ### azure: 
 Enables Azure BLOB storage connectivity.
-### dashboard: 
-Enables data visualization and dashboard creation capabilities. This adds the plotly dependency.
 ### api: 
-Enables HTTP API integration for fetching data from web services. This adds the reqwest and urlencoding dependencies.
+Enables HTTP API integration for fetching data from web services.
+### dashboard: 
+Enables data visualization and dashboard creation capabilities.
 ### all: 
 Enables all available features.
 
 Usage:
 - In your Cargo.toml, specify which features you want to enable:
-1. Add the POSTGRES feature when specifying the dependency:
+
+- Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.8.1", features = ["postgres"] }
+elusion = { version = "3.9.0", features = ["postgres"] }
 ```
 
-2. Add the AZURE feature when specifying the dependency:
-```toml
-[dependencies]
-elusion = { version = "3.8.1", features = ["azure"] }
-```
-
-3. Add the API feature when specifying the dependency:
+- Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = { version = "3.8.1", features = ["api"] }
+elusion = "3.9.0"
 ```
 
-4. Add the DASHBOARD feature when specifying the dependency:
+- Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.8.1", features = ["dashboard"] }
+elusion = { version = "3.9.0", features = ["dashboard", "api", "mysql"] }
 ```
 
-5.Using NO Features (minimal dependencies):
+- Using all features:
 ```rust
 [dependencies]
-elusion = "3.8.1"
-```
-
-6. Using multiple specific features:
-```rust
-[dependencies]
-elusion = { version = "3.8.1", features = ["dashboard", "api"] }
-```
-
-7. Using all features:
-```rust
-[dependencies]
-elusion = { version = "3.8.1", features = ["all"] }
+elusion = { version = "3.9.0", features = ["all"] }
 ```
 
 ### Feature Implications
-When a feature is not enabled, the corresponding methods will still be available in your code, but they will return an error indicating that the feature needs to be enabled. This approach ensures API compatibility regardless of which features you choose to enable.
-
-For example, if you try to use API functions without the "api" feature enabled:
-```rust
-let api = ElusionApi::new();
-let result = api.from_api("https://example.com/data", "data.json").await;
-```
-You'll receive an error:
+When a feature is not enabled, You'll receive an error:
 Error: ***Warning***: API feature not enabled. Add feature under [dependencies]
 ---
 ## NORMALIZATION
@@ -190,9 +168,11 @@ async fn main() -> ElusionResult<()> {
 #### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - Postgres Database SQL Queries
+#### - MySQL Database Queries
+#### - REST API -> json -> DataFrame
 
 #### -> NEXT is example for reading data from local files, 
-#### at the end are examples for Azure Blob Storage and Postgres Database
+#### at the end are examples for Azure Blob Storage, Postgres and MySQL Databases
 ---
 ### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
@@ -230,9 +210,13 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         "data" // alias for registering table
     ).await?;
 ```
-### LOADING data from POSTGRES into CustomDataFrame (**scroll till the end for FULL example with conn, config and query**)
+### LOADING data from POSTGRES into CustomDataFrame (**scroll till the end for FULL example with config, conn and query**)
 ```rust
-let df = CustomDataFrame::from_postgres(&conn, query, "sales").await?;
+let df = CustomDataFrame::from_postgres(&conn, query, "df_alias").await?;
+```
+### LOADING data from MySQL into CustomDataFrame (**scroll till the end for FULL example with config, conn and query**)
+```rust
+let df = CustomDataFrame::from_mysql(&conn, query, "df_alias").await?;
 ```
 ---
 ## CREATE EMPTY DATA FRAME
@@ -1552,12 +1536,12 @@ post_df.from_api_with_dates(
 ```
 ---
 # Postgres Database Connector 
-### You can easily create dataframe from Postgres SQL Query
+### Create Config, Conn and Query, and pass it to from_postgres() function.
 ```rust
  let pg_config = PostgresConfig {
         host: "localhost".to_string(),
         port: 5433,
-        user: "postgres".to_string(),
+        user: "borivoj".to_string(),
         password: "pass123".to_string(),
         database: "db_test".to_string(),
         pool_size: Some(5), 
@@ -1566,12 +1550,9 @@ post_df.from_api_with_dates(
 let conn = PostgresConnection::new(pg_config).await?;
 
 Option2: You can use map_err()
-
 let conn = PostgresConnection::new(pg_config).await
     .map_err(|e| ElusionError::Custom(format!("PostgreSQL connection error: {}", e)))?;
-```
-### Postgres Query Example
-```rust
+
 let query = "
     SELECT 
         c.id, 
@@ -1584,24 +1565,55 @@ let query = "
     ORDER BY total_revenue DESC
 ";
 
-let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "sales_by_customer").await?;
+let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "postgres_df").await?;
 
 sales_by_customer_df.display().await?;
-
-RESULT:
-+----+------------+--------------+---------------+
-| id | name       | product_name | total_revenue |
-+----+------------+--------------+---------------+
-| 2  | Jane Smith | Product B    | 82.0          |
-| 1  | John Doe   | Product C    | 78.75         |
-| 3  | Bob Wilson | Product A    | 65.94         |
-| 2  | Jane Smith | Product C    | 63.0          |
-| 3  | Bob Wilson | Product B    | 61.5          |
-| 1  | John Doe   | Product A    | 54.95         |
-| 1  | John Doe   | Product B    | 41.0          |
-+----+------------+--------------+---------------+
 ```
----
+# MySQL Database Connector 
+### Create Config, Conn and Query, and pass it to from_mysql() function.
+```rust
+let mysql_config = MySqlConfig {
+    host: "localhost".to_string(),
+    port: 3306,
+    user: "borivoj".to_string(),
+    password: "pass123".to_string(),
+    database: "brewery".to_string(),
+    pool_size: Some(5),
+};
+
+let conn = MySqlConnection::new(mysql_config).await?;
+
+let mysql_query = "
+    WITH ranked_sales AS (
+        SELECT 
+            c.color AS brew_color, 
+            bd.beer_style, 
+            bd.location, 
+            SUM(bd.total_sales) AS total_sales
+        FROM 
+            brewery_data bd
+        JOIN 
+            colors c ON bd.Color = c.color_number
+        WHERE 
+            bd.brew_date >= '2020-01-01' AND bd.brew_date <= '2020-03-01'
+        GROUP BY 
+            c.color, bd.beer_style, bd.location
+    )
+    SELECT 
+        brew_color, 
+        beer_style, 
+        location, 
+        total_sales,
+        ROW_NUMBER() OVER (PARTITION BY brew_color ORDER BY total_sales DESC) AS ranked
+    FROM 
+        ranked_sales
+    ORDER BY 
+    brew_color, total_sales DESC";
+
+let df = CustomDataFrame::from_mysql(&conn, mysql_query, "mysql_df").await?;
+
+result.display().await?;
+```
 ---
 # AZURE Blob Storage Connector 
 ## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided
@@ -2295,9 +2307,7 @@ For full details, see the [LICENSE.txt file](LICENSE.txt).
 
 ### Acknowledgments
 This library leverages the power of Rust's type system and libraries like [DataFusion](https://datafusion.apache.org/)
-, Appache Arrow, Tokio Cron Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
+,Appache Arrow, Tokio Cron Scheduler, Tokio... for efficient query processing. Special thanks to the open-source community for making this project possible.
 
 ## Where you can find me:
-
-LindkedIn - [LinkedIn](https://www.linkedin.com/in/borivojgrujicic/ )
-YouTube channel - [YouTube](https://www.youtube.com/@RustyBiz)
+borivoj.grujicic@gmail.com

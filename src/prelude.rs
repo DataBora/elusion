@@ -4,6 +4,8 @@ pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 //====== postgres
 pub use crate::{PostgresConfig, PostgresConnection};
+//========= mysql
+pub use crate::{MySqlConfig, MySqlConnection};
 //====== dashboard
 pub use crate::{ReportLayout, TableOptions};
 
