@@ -148,8 +148,8 @@ elusion = { version = "3.9.0", features = ["all"] }
 ```
 
 ### Feature Implications
-When a feature is not enabled, You'll receive an error:
-Error: ***Warning***: API feature not enabled. Add feature under [dependencies]
+#### When a feature is not enabled, You'll receive an error:
+#### Error: ***Warning***: API feature not enabled. Add feature under [dependencies]
 ---
 ## NORMALIZATION
 #### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
