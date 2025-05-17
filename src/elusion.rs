@@ -58,6 +58,22 @@ use rust_xlsxwriter::{Format, Workbook, ExcelDateTime};
 #[cfg(feature = "excel")]
 use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
 
+use calamine::DataType as CalamineDataType;
+use calamine::{Reader, Xlsx, open_workbook};
+
+// Function to convert Excel date (days since 1900-01-01) to NaiveDate
+fn excel_date_to_naive_date(excel_date: f64) -> Option<NaiveDate> {
+    // Excel dates start at January 0, 1900, which is actually December 31, 1899
+    // There's also a leap year bug in Excel that treats 1900 as a leap year
+    let excel_epoch = NaiveDate::from_ymd_opt(1899, 12, 30)?;
+    
+    // Convert to days, ignoring any fractional part (time component)
+    let days = excel_date.trunc() as i64;
+    
+    // Add days to epoch
+    excel_epoch.checked_add_signed(Duration::days(days))
+}
+
 #[derive(Debug, Clone)]
 pub struct ExcelWriteOptions {
     pub autofilter: bool,     
@@ -8062,6 +8078,240 @@ impl CustomDataFrame {
         })
     }
 
+    // ========== EXCEL
+    /// Load an Excel file (XLSX) into a CustomDataFrame
+    pub fn load_excel<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
+        Box::pin(async move {
+
+            if !LocalPath::new(file_path).exists() {
+                return Err(ElusionError::WriteError {
+                    path: file_path.to_string(),
+                    operation: "read".to_string(),
+                    reason: "File not found".to_string(),
+                    suggestion: "💡 Check if the file path is correct".to_string(),
+                });
+            }
+            
+            let mut workbook: Xlsx<_> = open_workbook(file_path)
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Excel Reading".to_string(),
+                    reason: format!("Failed to open Excel file: {}", e),
+                    suggestion: "💡 Ensure the file is a valid Excel (XLSX) file and not corrupted".to_string(),
+                })?;
+            
+            let sheet_names = workbook.sheet_names().to_owned();
+            if sheet_names.is_empty() {
+                return Err(ElusionError::InvalidOperation {
+                    operation: "Excel Reading".to_string(),
+                    reason: "Excel file does not contain any sheets".to_string(),
+                    suggestion: "💡 Ensure the Excel file contains at least one sheet with data".to_string(),
+                });
+            }
+            
+            let sheet_name = &sheet_names[0];
+            
+            let range = workbook.worksheet_range(sheet_name)
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Excel Reading".to_string(),
+                    reason: format!("Failed to read sheet '{}': {}", sheet_name, e),
+                    suggestion: "💡 The sheet may be corrupted or empty".to_string(),
+                })?;
+            
+            if range.is_empty() {
+                return Err(ElusionError::InvalidOperation {
+                    operation: "Excel Reading".to_string(),
+                    reason: format!("Sheet '{}' is empty", sheet_name),
+                    suggestion: "💡 Ensure the sheet contains data".to_string(),
+                });
+            }
+
+            let headers_row = range.rows().next().ok_or_else(|| ElusionError::InvalidOperation {
+                operation: "Excel Reading".to_string(),
+                reason: "Failed to read headers from Excel file".to_string(),
+                suggestion: "💡 Ensure the first row contains column headers".to_string(),
+            })?;
+            
+            // Convert headers to strings, sanitizing as needed
+            let headers: Vec<String> = headers_row.iter()
+                .enumerate()
+                .map(|(column_index, cell)|  {
+                    let header = cell.to_string().trim().to_string();
+                    if header.is_empty() {
+                        format!("Column_{}", column_index)
+                    } else {
+                        // Replace spaces and special characters with underscores
+                        let sanitized = header.replace(' ', "_")
+                            .replace(|c: char| !c.is_alphanumeric() && c != '_', "_");
+                        
+                        // Ensure header starts with a letter
+                        if sanitized.chars().next().map_or(true, |c| !c.is_alphabetic()) {
+                            format!("col_{}", sanitized)
+                        } else {
+                            sanitized
+                        }
+                    }
+                })
+                .enumerate()
+                .map(|(column_index, header)| {
+                    if header.is_empty() {
+                        format!("Column_{}", column_index)
+                    } else {
+                        header
+                    }
+                })
+                .collect();
+            
+            // Check for duplicates in headers
+            let mut seen = HashSet::new();
+            let mut has_duplicates = false;
+            for header in &headers {
+                if !seen.insert(header.clone()) {
+                    has_duplicates = true;
+                    break;
+                }
+            }
+            
+            // If duplicates found, make headers unique
+            let final_headers = if has_duplicates {
+                let mut seen = HashSet::new();
+                let mut unique_headers = Vec::with_capacity(headers.len());
+                
+                for header in headers {
+                    let mut unique_header = header.clone();
+                    let mut counter = 1;
+                    
+                    while !seen.insert(unique_header.clone()) {
+                        unique_header = format!("{}_{}", header, counter);
+                        counter += 1;
+                    }
+                    
+                    unique_headers.push(unique_header);
+                }
+                
+                unique_headers
+            } else {
+                headers
+            };
+            
+            // Process the data rows
+            let mut all_data: Vec<HashMap<String, Value>> = Vec::new();
+            
+            // Skip the header row
+            for row in range.rows().skip(1) {
+                let mut row_map = HashMap::new();
+                
+                for (i, cell) in row.iter().enumerate() {
+                    if i >= final_headers.len() {
+                        continue; // Skip cells without headers
+                    }
+                    
+                    // Convert cell value to serde_json::Value based on its type
+                    let value = match cell {
+                        CalamineDataType::Empty => Value::Null,
+                        
+                        CalamineDataType::String(s) => Value::String(s.clone()),
+                        
+                        CalamineDataType::Float(f) => {
+                            if f.fract() == 0.0 {
+                                // It's an integer
+                                Value::Number(serde_json::Number::from(f.round() as i64))
+                            } else {
+                                // It's a floating point
+                                serde_json::Number::from_f64(*f)
+                                    .map(Value::Number)
+                                    .unwrap_or(Value::Null)
+                            }
+                        },
+                        
+                        CalamineDataType::Int(i) => Value::Number((*i).into()),
+                        
+                        CalamineDataType::Bool(b) => Value::Bool(*b),
+                        
+                        CalamineDataType::DateTime(dt) => {
+                          
+                            if let Some(naive_date) = excel_date_to_naive_date(*dt) {
+                                Value::String(naive_date.format("%Y-%m-%d").to_string())
+                            } else {
+                                // Fallback to original representation if conversion fails
+                                Value::String(format!("DateTime({})", dt))
+                            }
+                        },
+                        
+                        CalamineDataType::Duration(d) => {
+                            let hours = (d * 24.0) as i64;
+                            let minutes = ((d * 24.0 * 60.0) % 60.0) as i64;
+                            let seconds = ((d * 24.0 * 60.0 * 60.0) % 60.0) as i64;
+                            Value::String(format!("{}h {}m {}s", hours, minutes, seconds))
+                        },
+                        
+                        CalamineDataType::DateTimeIso(dt_iso) => {
+                            // ISO 8601 formatted date/time string
+                            Value::String(dt_iso.clone())
+                        },
+                        
+                        CalamineDataType::DurationIso(d_iso) => {
+                            // ISO 8601 formatted duration string
+                            Value::String(d_iso.clone())
+                        },
+                        
+                        CalamineDataType::Error(_) => Value::Null,
+                    };
+                    
+                    row_map.insert(final_headers[i].clone(), value);
+                }
+                
+                all_data.push(row_map);
+            }
+            
+            if all_data.is_empty() {
+                return Err(ElusionError::InvalidOperation {
+                    operation: "Excel Processing".to_string(),
+                    reason: "No valid data rows found in Excel file".to_string(),
+                    suggestion: "💡 Ensure the Excel file contains data rows after the header row".to_string(),
+                });
+            }
+            
+            let schema = infer_schema_from_json(&all_data);
+            
+            let record_batch = build_record_batch(&all_data, schema.clone())
+                .map_err(|e| ElusionError::SchemaError {
+                    message: format!("Failed to build RecordBatch: {}", e),
+                    schema: Some(schema.to_string()),
+                    suggestion: "💡 Check if the Excel data structure is consistent".to_string(),
+                })?;
+            
+            let ctx = SessionContext::new();
+            let mem_table = MemTable::try_new(schema.clone(), vec![vec![record_batch]])
+                .map_err(|e| ElusionError::SchemaError {
+                    message: format!("Failed to create MemTable: {}", e),
+                    schema: Some(schema.to_string()),
+                    suggestion: "💡 Verify data types and schema compatibility".to_string(),
+                })?;
+            
+            ctx.register_table(alias, Arc::new(mem_table))
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Table Registration".to_string(),
+                    reason: format!("Failed to register table: {}", e),
+                    suggestion: "💡 Try using a different alias name".to_string(),
+                })?;
+            
+            let df = ctx.table(alias).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Table Creation".to_string(),
+                    reason: format!("Failed to create table: {}", e),
+                    suggestion: "💡 Verify table creation parameters".to_string(),
+                })?;
+            
+            Ok(AliasedDataFrame {
+                dataframe: df,
+                alias: alias.to_string(),
+            })
+        })
+    }
+
     // ================= AZURE 
     /// Aazure function that connects to Azure blob storage
     #[cfg(feature = "azure")]
@@ -8266,10 +8516,11 @@ impl CustomDataFrame {
             "csv" => Self::load_csv(file_path, alias).await?,
             "json" => Self::load_json(file_path, alias).await?,
             "parquet" => Self::load_parquet(file_path, alias).await?,
+            "xlsx" | "xls" => Self::load_excel(file_path, alias).await?,
             "" => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
-                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet) or a valid Delta table directory".to_string(),
+                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls) or a valid Delta table directory".to_string(),
             }),
             other => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),

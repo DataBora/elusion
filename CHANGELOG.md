@@ -1,3 +1,7 @@
+## [3.11.0] - 2025-05-17
+### Added
+- EXCEL reader/loader
+
 ## [3.10.0] - 2025-05-17
 ### Added
 - EXCEL Feature. write_to_excel() function 

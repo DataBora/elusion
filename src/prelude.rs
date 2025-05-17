@@ -181,3 +181,6 @@ pub use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
 pub use rust_xlsxwriter::{Format, Workbook, ExcelDateTime};
 #[cfg(feature = "excel")]
 pub use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
+
+pub use calamine::DataType as CalamineDataType;
+pub use calamine::{Reader, Xlsx, open_workbook};
