@@ -7,7 +7,7 @@
 Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
 
-Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
+Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
 Additionally you can easily create Reports and Dashboard by passing DataFrame results.
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
@@ -39,7 +39,7 @@ Async Support: Built on tokio for non-blocking operations.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
 ### 🚀 High-Performance DataFrame Query Operations
-Seamless Data Loading: Easily load and process data from CSV, PARQUET, JSON, and DELTA table files.
+Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
 
 ### 🚀 Caching and Views
@@ -82,7 +82,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.10.0"
+elusion = "3.11.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -130,25 +130,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.10.0", features = ["postgres"] }
+elusion = { version = "3.11.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.10.0"
+elusion = "3.11.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.10.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.11.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.10.0", features = ["all"] }
+elusion = { version = "3.11.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -181,7 +181,7 @@ async fn main() -> ElusionResult<()> {
 ---
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
-#### - In-Memory data formats: CSV, JSON, PARQUET, DELTA 
+#### - In-Memory data formats: CSV, EXCEL, JSON, PARQUET, DELTA 
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - Postgres Database SQL Queries
 #### - MySQL Database Queries
@@ -199,23 +199,28 @@ async fn main() -> ElusionResult<()> {
 
 ### LOADING data from CSV into CustomDataFrame
 ```rust
-let csv_path = "C:\\Borivoj\\RUST\\Elusion\\sales_data.csv";
-let df = CustomDataFrame::new(csv_path, "sales").await?; 
+let csv_path = "C:\\Borivoj\\RUST\\Elusion\\csv_data.csv";
+let df = CustomDataFrame::new(csv_path, "csv_data").await?; 
+```
+### LOADING data from EXCEL into CustomDataFrame
+```rust
+let excel_path = "C:\\Borivoj\\RUST\\Elusion\\excel_data.xlsx";
+let df = CustomDataFrame::new(excel_path, "xlsx_data").await?;
 ```
 ### LOADING data from PARQUET into CustomDataFrame
 ```rust
 let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
-let df = CustomDataFrame::new(parquet_path, "prod_data").await?;
+let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
 ```
 ### LOADING data from JSON into CustomDataFrame
 ```rust
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\mongo_data.json";
-let df = CustomDataFrame::new(json_path, "mongo_df").await?;
+let df = CustomDataFrame::new(json_path, "json_data").await?;
 ```
 ### LOADING data from DELTA table into CustomDataFrame
 ```rust
 let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
-let df = CustomDataFrame::new(delta_path, "delta_df").await?;
+let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 ```
 ### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
