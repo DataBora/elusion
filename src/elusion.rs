@@ -52,6 +52,39 @@ use std::error::Error;
 use arrow::compute;
 use arrow::array::StringArray;
 
+// ======== EXCEL
+#[cfg(feature = "excel")]
+use rust_xlsxwriter::{Format, Workbook, ExcelDateTime};
+#[cfg(feature = "excel")]
+use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
+
+#[derive(Debug, Clone)]
+pub struct ExcelWriteOptions {
+    pub autofilter: bool,     
+    pub freeze_header: bool,   
+    pub table_style: bool,    
+    pub sheet_protection: bool, 
+}
+
+impl Default for ExcelWriteOptions {
+    fn default() -> Self {
+        Self {
+            autofilter: true,
+            freeze_header: true,
+            table_style: true,
+            sheet_protection: false,
+        }
+    }
+}
+
+// Implement From<XlsxError> for ElusionError
+#[cfg(feature = "excel")]
+impl From<rust_xlsxwriter::XlsxError> for ElusionError {
+    fn from(error: rust_xlsxwriter::XlsxError) -> Self {
+        ElusionError::Custom(format!("Excel writing error: {}", error))
+    }
+}
+
 // ======== PLOTTING
 #[cfg(feature = "dashboard")]
 use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
@@ -4279,7 +4312,7 @@ impl CustomDataFrame {
         })
     }
    
-    // ==================== API Methods ====================
+    // ==================== DATAFRAME Methods ====================
 
     /// Add JOIN clauses 
     pub fn join<const N: usize>(
@@ -5059,52 +5092,6 @@ impl CustomDataFrame {
         })
     }
     
-    // pub async fn except_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
-    //     let ctx = Arc::new(SessionContext::new());
-        
-    //     // Register base DataFrame
-    //     Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        
-    //     // Register all other DataFrames
-    //     for (i, other) in others.iter().enumerate() {
-    //         let alias = format!("except_source_{}", i);
-    //         Self::register_df_as_table(&ctx, &alias, &other.df).await?;
-    //     }
-        
-    //     // Construct EXCEPT query
-    //     let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
-    //     for i in 0..N {
-    //         sql.push_str(&format!(" EXCEPT SELECT * FROM {}", 
-    //             normalize_alias(&format!("except_source_{}", i))));
-    //     }
-    
-    //     // Execute query
-    //     let df = ctx.sql(&sql).await
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to create except DataFrame: {}", e)))?;
-    
-    //     Ok(CustomDataFrame {
-    //         df,
-    //         table_alias: "except_many_result".to_string(),
-    //         from_table: "except_many_result".to_string(),
-    //         selected_columns: self.selected_columns.clone(),
-    //         alias_map: self.alias_map.clone(),
-    //         aggregations: Vec::new(),
-    //         group_by_columns: Vec::new(),
-    //         where_conditions: Vec::new(),
-    //         having_conditions: Vec::new(),
-    //         order_by_columns: Vec::new(),
-    //         limit_count: None,
-    //         joins: Vec::new(),
-    //         window_functions: Vec::new(),
-    //         ctes: Vec::new(),
-    //         subquery_source: None,
-    //         set_operations: Vec::new(),
-    //         query: String::new(),
-    //         aggregated_df: None,
-    //         union_tables: None,
-    //         original_expressions: self.original_expressions.clone(),
-    //     })
-    // }
     /// Performs INTERSECT on two dataframes
     pub async fn intersect(self, other: CustomDataFrame) -> ElusionResult<Self> {
 
@@ -5168,54 +5155,6 @@ impl CustomDataFrame {
             original_expressions: self.original_expressions.clone(),
         })
     }
-    
-    // pub async fn intersect_many<const N: usize>(self, others: [CustomDataFrame; N]) -> ElusionResult<Self> {
-    //     let ctx = Arc::new(SessionContext::new());
-        
-    //     // Register base DataFrame
-    //     Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
-        
-    //     // Register all other DataFrames
-    //     for (i, other) in others.iter().enumerate() {
-    //         let alias = format!("intersect_source_{}", i);
-    //         Self::register_df_as_table(&ctx, &alias, &other.df).await?;
-    //     }
-        
-    //     // Construct INTERSECT query
-    //     let mut sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
-    //     for i in 0..N {
-    //         sql.push_str(&format!(" INTERSECT SELECT * FROM {}", 
-    //             normalize_alias(&format!("intersect_source_{}", i))));
-    //     }
-    
-    //     // Execute query
-    //     let df = ctx.sql(&sql).await
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to create intersect DataFrame: {}", e)))?;
-    
-    //     Ok(CustomDataFrame {
-    //         df,
-    //         table_alias: "intersect_many_result".to_string(),
-    //         from_table: "intersect_many_result".to_string(),
-    //         selected_columns: self.selected_columns.clone(),
-    //         alias_map: self.alias_map.clone(),
-    //         aggregations: Vec::new(),
-    //         group_by_columns: Vec::new(),
-    //         where_conditions: Vec::new(),
-    //         having_conditions: Vec::new(),
-    //         order_by_columns: Vec::new(),
-    //         limit_count: None,
-    //         joins: Vec::new(),
-    //         window_functions: Vec::new(),
-    //         ctes: Vec::new(),
-    //         subquery_source: None,
-    //         set_operations: Vec::new(),
-    //         query: String::new(),
-    //         aggregated_df: None,
-    //         union_tables: None,
-    //         original_expressions: self.original_expressions.clone(),
-    //     })
-    // }
-
     
     /// Pivot the DataFrame
     pub async fn pivot<const N: usize>(
@@ -5732,105 +5671,6 @@ impl CustomDataFrame {
         
         self
     }
-    
-    // /// JSON extraction with OPENJSON-like functionality (cross apply)
-    // pub fn json_openjson<'a, const N: usize>(
-    //     mut self,
-    //     json_column: &str,
-    //     json_path: Option<&str>,
-    //     columns: &[&'a str; N]
-    // ) -> Self {
-    //     // Find the actual column name from schema
-    //     let actual_column = match self.find_actual_column_name(json_column) {
-    //         Some(col) => col,
-    //         None => json_column.to_string(), // Will be checked at .elusion() time
-    //     };
-        
-    //     // Process path
-    //     let path_expr = if let Some(path) = json_path {
-    //         if !path.starts_with("$.") {
-    //             format!("$.{}", path.trim_start_matches('$'))
-    //         } else {
-    //             path.to_string()
-    //         }
-    //     } else {
-    //         "$".to_string()
-    //     };
-        
-    //     // Build column selections
-    //     let mut select_parts = Vec::new();
-        
-    //     // Add "t.*" to include original columns
-    //     select_parts.push("t.*".to_string());
-        
-    //     // Parse column definitions and add to SQL
-    //     for col_def in columns.iter() {
-    //         // Format: "name type 'json_path'"
-    //         let parts: Vec<&str> = col_def.split_whitespace().collect();
-    //         if parts.len() < 3 {
-    //             continue; // Skip invalid definitions, will be checked at .elusion() time
-    //         }
-            
-    //         let col_name = parts[0];
-    //         let col_type = parts[1];
-            
-    //         // Extract JSON path (it might contain spaces if quoted)
-    //         let json_path_str = if parts[2].starts_with('\'') {
-    //             // Find the closing quote
-    //             let path_start = col_def.find('\'').unwrap_or(0);
-    //             let path_end = col_def[path_start + 1..].find('\'').unwrap_or(col_def.len() - path_start - 1);
-    //             &col_def[path_start + 1..path_start + path_end + 1]
-    //         } else {
-    //             parts[2]
-    //         };
-            
-    //         let normalized_path = if !json_path_str.starts_with("$.") {
-    //             format!("$.{}", json_path_str.trim_start_matches('$'))
-    //         } else {
-    //             json_path_str.to_string()
-    //         };
-            
-    //         let cast_expr = match col_type.to_lowercase().as_str() {
-    //             "int" | "integer" => 
-    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS INTEGER) as \"{}\"", normalized_path, col_name),
-    //             "float" | "double" =>
-    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS DOUBLE) as \"{}\"", normalized_path, col_name),
-    //             "boolean" | "bool" =>
-    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS BOOLEAN) as \"{}\"", normalized_path, col_name),
-    //             "date" =>
-    //                 format!(", CAST(json_extract_scalar(jt.value, '{}') AS DATE) as \"{}\"", normalized_path, col_name),
-    //             "json" =>
-    //                 format!(", json_extract(jt.value, '{}') as \"{}\"", normalized_path, col_name),
-    //             _ => // default to varchar
-    //                 format!(", json_extract_scalar(jt.value, '{}') as \"{}\"", normalized_path, col_name),
-    //         };
-            
-    //         select_parts.push(cast_expr);
-    //     }
-        
-    //     let subquery = format!(
-    //         "(SELECT {} FROM \"{}\" t CROSS JOIN LATERAL (
-    //             SELECT json_extract(t.{}, '{}') as json_array
-    //         ) ja,
-    //         UNNEST(
-    //             CASE 
-    //                 WHEN json_typeof(ja.json_array) = 'array' THEN json_array_elements(ja.json_array)
-    //                 WHEN json_typeof(ja.json_array) = 'object' THEN ARRAY[ja.json_array]
-    //                 ELSE NULL 
-    //             END
-    //         ) AS jt(value)
-    //         WHERE jt.value IS NOT NULL)",
-    //         select_parts.join(" "), 
-    //         self.table_alias,
-    //         actual_column, 
-    //         path_expr
-    //     );
-        
-    //     self.from_table = subquery.clone();
-    //     self.subquery_source = Some(subquery);
-        
-    //     self
-    // }
 
     /// Construct the SQL query based on the current state, including joins
     fn construct_sql(&self) -> String {
@@ -7152,6 +6992,298 @@ impl CustomDataFrame {
         .await
     }
 
+    /// Writes the DataFrame to an Excel file with formatting options
+    #[cfg(feature = "excel")]
+    pub async fn write_to_excel(
+        &self,
+        path: &str,
+        sheet_name: Option<&str>
+    ) -> ElusionResult<()> {
+
+        if let Some(parent) = LocalPath::new(path).parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
+                    path: parent.display().to_string(),
+                    operation: "create_directory".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if you have permissions to create directories".to_string(),
+                })?;
+            }
+        }
+    
+        if fs::metadata(path).is_ok() {
+            fs::remove_file(path).map_err(|e| 
+                ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "overwrite".to_string(),
+                    reason: format!("❌ Failed to delete existing file: {}", e),
+                    suggestion: "💡 Check file permissions and ensure no other process is using the file".to_string(),
+                }
+            )?;
+        }
+    
+        let batches = self.df.clone().collect().await.map_err(|e| 
+            ElusionError::InvalidOperation {
+                operation: "Data Collection".to_string(),
+                reason: format!("Failed to collect DataFrame: {}", e),
+                suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+            }
+        )?;
+    
+        if batches.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Excel Writing".to_string(),
+                reason: "No data to write".to_string(),
+                suggestion: "💡 Ensure DataFrame contains data before writing".to_string(),
+            });
+        }
+    
+        let mut workbook = Workbook::new();
+    
+        let sheet_name = sheet_name.unwrap_or("Sheet1");
+        let worksheet = workbook.add_worksheet().set_name(sheet_name).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "worksheet_create".to_string(),
+            reason: format!("Failed to create worksheet: {}", e),
+            suggestion: "💡 Invalid sheet name or workbook error".to_string(),
+        })?;
+    
+        let header_format = Format::new()
+            .set_bold()
+            .set_font_color(0xFFFFFF)
+            .set_background_color(0x329A52)
+            .set_align(rust_xlsxwriter::FormatAlign::Center);
+        
+        let date_format = Format::new()
+            .set_num_format("yyyy-mm-dd");
+        
+        let schema = batches[0].schema();
+        let column_count = schema.fields().len();
+        
+        for (col_idx, field) in schema.fields().iter().enumerate() {
+            worksheet.write_string_with_format(0, col_idx as u16, field.name(), &header_format)
+                .map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "write_header".to_string(),
+                    reason: format!("Failed to write column header '{}': {}", field.name(), e),
+                    suggestion: "💡 Check if the column name contains invalid characters".to_string(),
+                })?;
+                
+            let width = (field.name().len() as f64 * 1.2).max(10.0).min(50.0);
+            worksheet.set_column_width(col_idx as u16, width)
+                .map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "set_column_width".to_string(),
+                    reason: format!("Failed to set column width: {}", e),
+                    suggestion: "💡 Failed to set column width".to_string(),
+                })?;
+        }
+        
+        // Write data rows
+        let mut row_idx = 1; // Start from row 1 (after headers)
+        
+        for batch in batches.iter() {
+            let row_count = batch.num_rows();
+            
+            for r in 0..row_count {
+                for (c, field) in schema.fields().iter().enumerate() {
+                    let col = batch.column(c);
+                    
+                    if col.is_null(r) {
+                        // skip null values show as empty
+                        continue;
+                    }
+                    
+                    match field.data_type() {
+                        ArrowDataType::Int8 | ArrowDataType::Int16 | ArrowDataType::Int32 | ArrowDataType::Int64 => {
+                            let value = match field.data_type() {
+                                ArrowDataType::Int8 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<Int8Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::Int16 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<Int16Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::Int32 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<Int32Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::Int64 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<Int64Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                _ => 0.0 
+                            };
+                            
+                            worksheet.write_number(row_idx, c as u16, value)
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: path.to_string(),
+                                    operation: format!("write_number_r{}_c{}", row_idx, c),
+                                    reason: format!("Failed to write number: {}", e),
+                                    suggestion: "💡 Failed to write number value".to_string(),
+                                })?;
+                        },
+                        ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 | ArrowDataType::UInt64 => {
+                            let value = match field.data_type() {
+                                ArrowDataType::UInt8 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<UInt8Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::UInt16 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<UInt16Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::UInt32 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<UInt32Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                ArrowDataType::UInt64 => {
+                                    if let Some(array) = col.as_any().downcast_ref::<UInt64Array>() {
+                                        if array.is_null(r) { 0.0 } else { array.value(r) as f64 }
+                                    } else { 0.0 }
+                                },
+                                _ => 0.0 // Shouldn't reach here
+                            };
+                            
+                            worksheet.write_number(row_idx, c as u16, value)
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: path.to_string(),
+                                    operation: format!("write_number_r{}_c{}", row_idx, c),
+                                    reason: format!("Failed to write number: {}", e),
+                                    suggestion: "💡 Failed to write number value".to_string(),
+                                })?;
+                        },
+                        ArrowDataType::Float32 | ArrowDataType::Float64 => {
+                            let value = match array_value_to_json(col, r)? {
+                                serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0),
+                                _ => 0.0,
+                            };
+                            worksheet.write_number(row_idx, c as u16, value)
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: path.to_string(),
+                                    operation: format!("write_number_r{}_c{}", row_idx, c),
+                                    reason: format!("Failed to write number: {}", e),
+                                    suggestion: "💡 Failed to write number value".to_string(),
+                                })?;
+                        },
+                        ArrowDataType::Boolean => {
+                            let value = match array_value_to_json(col, r)? {
+                                serde_json::Value::Bool(b) => b,
+                                _ => false,
+                            };
+                            worksheet.write_boolean(row_idx, c as u16, value)
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: path.to_string(),
+                                    operation: format!("write_boolean_r{}_c{}", row_idx, c),
+                                    reason: format!("Failed to write boolean: {}", e),
+                                    suggestion: "💡 Failed to write boolean value".to_string(),
+                                })?;
+                        },
+                        ArrowDataType::Date32 | ArrowDataType::Date64 => {
+                            let date_str = match array_value_to_json(col, r)? {
+                                serde_json::Value::String(s) => s,
+                                _ => String::new(),
+                            };
+                            
+                            // Format: YYYY-MM-DD
+                            let date_parts: Vec<&str> = date_str.split('-').collect();
+                            if date_parts.len() == 3 {
+                                if let (Ok(year), Ok(month), Ok(day)) = (
+                                    date_parts[0].parse::<u16>(),
+                                    date_parts[1].parse::<u8>(),
+                                    date_parts[2].parse::<u8>(),
+                                ) {
+                                    let excel_date = ExcelDateTime::from_ymd(year, month, day)
+                                        .map_err(|e| ElusionError::WriteError {
+                                            path: path.to_string(),
+                                            operation: format!("create_date_r{}_c{}", row_idx, c),
+                                            reason: format!("Invalid date: {}", e),
+                                            suggestion: "💡 Failed to create Excel date".to_string(),
+                                        })?;
+                                        
+                                    worksheet.write_datetime_with_format(row_idx, c as u16, &excel_date, &date_format)
+                                        .map_err(|e| ElusionError::WriteError {
+                                            path: path.to_string(),
+                                            operation: format!("write_date_r{}_c{}", row_idx, c),
+                                            reason: format!("Failed to write date: {}", e),
+                                            suggestion: "💡 Failed to write date value".to_string(),
+                                        })?;
+                                } else {
+                                    // Fallback to string if parsing fails
+                                    worksheet.write_string(row_idx, c as u16, &date_str)
+                                        .map_err(|e| ElusionError::WriteError {
+                                            path: path.to_string(),
+                                            operation: format!("write_date_str_r{}_c{}", row_idx, c),
+                                            reason: format!("Failed to write date string: {}", e),
+                                            suggestion: "💡 Failed to write date as string".to_string(),
+                                        })?;
+                                }
+                            } else {
+                                // Not a YYYY-MM-DD format, write as string
+                                worksheet.write_string(row_idx, c as u16, &date_str)
+                                    .map_err(|e| ElusionError::WriteError {
+                                        path: path.to_string(),
+                                        operation: format!("write_date_str_r{}_c{}", row_idx, c),
+                                        reason: format!("Failed to write date string: {}", e),
+                                        suggestion: "💡 Failed to write date as string".to_string(),
+                                    })?;
+                            }
+                        },
+                        _ => {
+                            let value = match array_value_to_json(col, r)? {
+                                serde_json::Value::String(s) => s,
+                                other => other.to_string(),
+                            };
+                            worksheet.write_string(row_idx, c as u16, &value)
+                                .map_err(|e| ElusionError::WriteError {
+                                    path: path.to_string(),
+                                    operation: format!("write_string_r{}_c{}", row_idx, c),
+                                    reason: format!("Failed to write string: {}", e),
+                                    suggestion: "💡 Failed to write string value".to_string(),
+                                })?;
+                        }
+                    }
+                }
+                row_idx += 1;
+            }
+        }
+        
+        worksheet.autofilter(0, 0, row_idx - 1, (column_count - 1) as u16)
+            .map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "add_autofilter".to_string(),
+                reason: format!("Failed to add autofilter: {}", e),
+                suggestion: "💡 Failed to add autofilter to worksheet".to_string(),
+            })?;
+ 
+        workbook.save(path).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "save_workbook".to_string(),
+            reason: format!("Failed to save workbook: {}", e),
+            suggestion: "💡 Failed to save Excel file. Check if the file is open in another application.".to_string(),
+        })?;
+        
+        println!("✅ Data successfully written to Excel file '{}'", path);
+        println!("✅ Wrote {} rows and {} columns", row_idx - 1, column_count);
+        
+        Ok(())
+    }
+    #[cfg(not(feature = "excel"))]
+    pub async fn write_to_excel(
+        &self,
+        _path: &str,
+        _sheet_name: Option<&str>
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: Excel feature not enabled. Add feature excel under [dependencies]".to_string()))
+    }
     // ========= AZURE WRITING
     #[cfg(feature = "azure")]
     fn setup_azure_client(&self, url: &str, sas_token: &str) -> ElusionResult<(ContainerClient, String)> {
