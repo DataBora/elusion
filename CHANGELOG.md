@@ -1,3 +1,7 @@
+## [3.10.0] - 2025-05-17
+### Added
+- EXCEL Feature. write_to_excel() function 
+
 ## [3.9.0] - 2025-05-08
 ### Added
 - MYSQL Database connectivity

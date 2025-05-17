@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.9.0"
+version = "3.10.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -40,6 +40,7 @@ ring = ">=0.17.12"
 tokio-postgres = { version = "0.7.13", optional = true }
 rust_decimal = { version = "1.32", features = ["db-postgres"], optional = true }
 mysql_async = { version = "0.32.2", default-features = false, features = ["minimal"], optional = true}
+rust_xlsxwriter = {version = "0.87.0", optional = true}
 
 [features]
 default = []
@@ -48,7 +49,8 @@ api = ["dep:reqwest", "dep:urlencoding"]
 azure = ["dep:azure_storage_blobs", "dep:azure_storage"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
-all = ["dashboard", "api", "azure", "postgres", "mysql" ]
+excel = ["dep:rust_xlsxwriter"]
+all = ["dashboard", "api", "azure", "postgres", "mysql","excel"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

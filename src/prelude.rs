@@ -175,3 +175,9 @@ pub use lazy_static::lazy_static;
 pub use arrow::array::Int32Builder;
 pub use arrow::array::BooleanBuilder;
 pub use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
+
+// =========EXCEL
+#[cfg(feature = "excel")]
+pub use rust_xlsxwriter::{Format, Workbook, ExcelDateTime};
+#[cfg(feature = "excel")]
+pub use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};

@@ -82,7 +82,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.9.0"
+elusion = "3.10.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -116,6 +116,10 @@ Enables HTTP API integration for fetching data from web services.
 ```
 Enables data visualization and dashboard creation capabilities.
 ```rust 
+["excel"]
+```
+Enables writing DataFrame to Excel file.
+```rust 
 ["all"]
 ```
 Enables all available features.
@@ -126,25 +130,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.9.0", features = ["postgres"] }
+elusion = { version = "3.10.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.9.0"
+elusion = "3.10.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.9.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.10.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.9.0", features = ["all"] }
+elusion = { version = "3.10.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1996,26 +2000,34 @@ movie_db.from_api_with_headers_and_sort(
 ---
 # WRITERS
 
+## Writing to EXCEL File ***needs excel feature enabled
+
+#### EXCEL writer can only write or overwrite, so only 2 arguments needed
+#### 1. Path, 2. Optional Sheet name. (default is Sheet1)
+```rust
+ df.write_to_excel(
+    "C:\\Borivoj\\RUST\\Elusion\\Excel\\sales2.xlsx", //path
+    Some("string_interop") // Optional sheet name. Can be None
+).await?;
+```
 ## Writing to Parquet File
 #### We have 2 writing modes: **Overwrite** and **Append**
 ```rust
 // overwrite existing file
-result_df
-    .write_to_parquet(
-        "overwrite",
-        "C:\\Path\\To\\Your\\test.parquet",
-        None // I've set WriteOptions to default for writing Parquet files, so keep it None
-    )
-    .await?;
+df.write_to_parquet(
+    "overwrite",
+    "C:\\Path\\To\\Your\\test.parquet",
+    None // I've set WriteOptions to default for writing Parquet files, so keep it None
+)
+.await?;
 
 // append to exisiting file
-result_df
-    .write_to_parquet(
-        "append",
-        "C:\\Path\\To\\Your\\test.parquet",
-        None // I've set WriteOptions to default for writing Parquet files, so keep it None
-    ) 
-    .await?;
+df.write_to_parquet(
+    "append",
+    "C:\\Path\\To\\Your\\test.parquet",
+    None // I've set WriteOptions to default for writing Parquet files, so keep it None
+) 
+.await?;
 ```
 ## Writing to CSV File
 
@@ -2032,24 +2044,21 @@ let custom_csv_options = CsvWriteOptions {
 ```
 #### We have 2 writing modes: Overwrite and Append
 ```rust
-
 // overwrite existing file
-result_df
-    .write_to_csv(
-        "overwrite", 
-        "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
-        custom_csv_options
-    )
-    .await?;
+df.write_to_csv(
+    "overwrite", 
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+    custom_csv_options
+)
+.await?;
 
 // append to exisiting file
-result_df
-    .write_to_csv(
-        "append", 
-        "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
-        custom_csv_options
-    )
-    .await?;
+df.write_to_csv(
+    "append", 
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+    custom_csv_options
+)
+.await?;
 
 ```
 ## Writing to JSON File
@@ -2068,23 +2077,21 @@ df.write_to_json(
 #### Once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, append also need to have same column for partitioning
 ```rust
 // Overwrite
-result_df
-    .write_to_delta_table(
-        "overwrite",
-        "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
-        Some(vec!["order_date".into()]), 
-    )
-    .await
-    .expect("Failed to overwrite Delta table");
+df.write_to_delta_table(
+    "overwrite",
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
+    Some(vec!["order_date".into()]), 
+)
+.await
+.expect("Failed to overwrite Delta table");
 // Append
-result_df
-    .write_to_delta_table(
-        "append",
-        "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
-        Some(vec!["order_date".into()]),
-    )
-    .await
-    .expect("Failed to append to Delta table");
+df.write_to_delta_table(
+    "append",
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
+    Some(vec!["order_date".into()]),
+)
+.await
+.expect("Failed to append to Delta table");
 ```
 ## Writing Parquet to Azure BLOB Storage 
 #### We have 2 writing options "overwrite" and "append"
