@@ -184,3 +184,9 @@ pub use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
 
 pub use calamine::DataType as CalamineDataType;
 pub use calamine::{Reader, Xlsx, open_workbook};
+
+//========== SHARE POINT
+#[cfg(feature = "sharepoint")]
+pub use reqwest;
+#[cfg(feature = "sharepoint")]
+pub use url;

@@ -1,3 +1,7 @@
+## [3.12.0] - 2025-07-20
+### Added
+- SharePoint connection with AzureCLI
+
 ## [3.11.0] - 2025-05-17
 ### Added
 - EXCEL reader/loader
