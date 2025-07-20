@@ -38,6 +38,9 @@ Async Support: Built on tokio for non-blocking operations.
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
+### 🌐 SharePoint Integration 
+- Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
+
 ### 🚀 High-Performance DataFrame Query Operations
 Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
@@ -82,7 +85,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.11.0"
+elusion = "3.12.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -107,6 +110,17 @@ Enables MySql Database connectivity
 ["azure"]
 ``` 
 Enables Azure BLOB storage connectivity.
+```rust
+["sharepoint"]
+```
+Enables SharePoint connectivity.
+Add the SharePoint feature when specifying the dependency:
+elusion = { version = "3.12.0", features = ["sharepoint"] }
+tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
+
+Grant necessary SharePoint permissions:
+Sites.Read.All or Sites.ReadWrite.All
+Files.Read.All or Files.ReadWrite.All
 ```rust 
 ["api"]
 ```
@@ -130,25 +144,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.11.0", features = ["postgres"] }
+elusion = { version = "3.12.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.11.0"
+elusion = "3.12.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.11.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.12.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.11.0", features = ["all"] }
+elusion = { version = "3.12.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1673,6 +1687,70 @@ let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
+```
+---
+# SharePoint
+### You can load EXCEL, CSV, JSON and PARQUET files
+### To connect to SharePoint you need AzureCLI installed and to be logged in 
+1. Install Azure CLI
+Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
+🍎 macOS: brew install azure-cli
+🐧 Linux: 
+### Ubuntu/Debian
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+### CentOS/RHEL/Fedora
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo dnf install azure-cli
+
+### Arch Linux
+sudo pacman -S azure-cli
+
+# For other distributions, visit:
+# https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+
+2. Login to Azure
+Open Command Prompt and write:
+```rust
+"az login"
+```
+This will open a browser window for authentication. Sign in with your Microsoft account that has access to your SharePoint site.
+3. Verify Login
+```rust
+"az account show"
+```
+This should display your account information and confirm you're logged in.
+
+Now you are ready to roll....
+```rust
+//Example 1:
+let df = CustomDataFrame::load_excel_from_sharepoint(
+    "your-tenant-id",
+    "your-client-id", 
+    "http://companyname.sharepoint.com/sites/SiteName", 
+    "Shared Documents/MainFolder/DailySubFolder/SalesData.xlsx",
+    ).await?;
+
+let sales_data = df
+    .select(["Column_1","Column_2","Column_3"])
+    .elusion("my_sales_data").await?;
+
+sales_data.display().await?;
+
+//RUN THE PROGRAM
+cargo run --features sharepoint,excel
+
+//Example 2:
+let df = CustomDataFrame::load_csv_from_sharepoint(
+    "your-tenant-id",
+    "your-client-id", 
+    "https://contoso.sharepoint.com/sites/MySite",
+    "Shared Documents/Data/customer_data.csv"
+).await?;
+
+//RUN THE PROGRAM
+cargo run --features sharepoint
 ```
 ---
 # Pipeline Scheduler

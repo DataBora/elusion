@@ -42,6 +42,7 @@ rust_decimal = { version = "1.32", features = ["db-postgres"], optional = true }
 mysql_async = { version = "0.32.2", default-features = false, features = ["minimal"], optional = true}
 rust_xlsxwriter = {version = "0.87.0", optional = true}
 calamine = "0.23.1"
+url = {version = "2.5", optional = true}
 
 [features]
 default = []
@@ -51,7 +52,8 @@ azure = ["dep:azure_storage_blobs", "dep:azure_storage"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
-all = ["dashboard", "api", "azure", "postgres", "mysql","excel"]
+sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding"] 
+all = ["dashboard", "api", "azure", "postgres", "mysql", "excel","sharepoint"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

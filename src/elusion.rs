@@ -61,6 +61,364 @@ use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
 use calamine::DataType as CalamineDataType;
 use calamine::{Reader, Xlsx, open_workbook};
 
+//=========== SHARE POINT
+#[cfg(feature = "sharepoint")]
+use reqwest;
+#[cfg(feature = "sharepoint")]
+use url;
+
+#[cfg(feature = "sharepoint")]
+#[derive(Debug, Clone)]
+pub struct SharePointConfig {
+    pub tenant_id: String,
+    pub client_id: String,
+    pub site_url: String,
+}
+
+#[cfg(feature = "sharepoint")]
+impl SharePointConfig {
+    pub fn new(tenant_id: String, client_id: String, site_url: String) -> Self {
+        Self {
+            tenant_id,
+            client_id,
+            site_url,
+        }
+    }
+}
+
+#[cfg(feature = "sharepoint")]
+pub struct SharePointClient {
+    config: SharePointConfig,
+    access_token: Option<String>,
+    site_id: Option<String>,
+}
+
+#[cfg(feature = "sharepoint")]
+impl SharePointClient {
+    pub fn new(config: SharePointConfig) -> Self {
+        Self {
+            config,
+            access_token: None,
+            site_id: None,
+        }
+    }
+
+    /// Cross-platform Azure CLI path detection
+    fn get_azure_cli_paths() -> Vec<&'static str> {
+        if cfg!(target_os = "windows") {
+            vec![
+                "az.cmd",
+                "az",
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+            ]
+        } else if cfg!(target_os = "macos") {
+            vec![
+                "az",
+                "/usr/local/bin/az",
+                "/opt/homebrew/bin/az",
+                "/usr/bin/az",
+            ]
+        } else {
+            // Linux and other Unix-like systems
+            vec![
+                "az",
+                "/usr/local/bin/az",
+                "/usr/bin/az",
+                "/opt/az/bin/az",
+                "~/.local/bin/az",
+            ]
+        }
+    }
+
+    /// Smart authentication - tries multiple methods
+    async fn authenticate(&mut self) -> ElusionResult<()> {
+        let az_paths = Self::get_azure_cli_paths();
+        
+        println!("🔍 Searching for Azure CLI on {} platform...", 
+            if cfg!(target_os = "windows") { "Windows" }
+            else if cfg!(target_os = "macos") { "macOS" } 
+            else { "Linux" }
+        );
+        
+        for (i, az_path) in az_paths.iter().enumerate() {
+            if let Ok(output) = std::process::Command::new(az_path).args(["--version"]).output() {
+                if output.status.success() {
+                    println!("✅ Found Azure CLI at: {}", az_path);
+                    
+                    // Check if logged in
+                    if let Ok(account_output) = std::process::Command::new(az_path).args(["account", "show"]).output() {
+                        if account_output.status.success() {
+                            // Get token
+                            if let Ok(token_output) = std::process::Command::new(az_path)
+                                .args(["account", "get-access-token", "--resource", "https://graph.microsoft.com/", "--output", "json"])
+                                .output() {
+                                if token_output.status.success() {
+                                    let token_json = String::from_utf8_lossy(&token_output.stdout);
+                                    if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
+                                        if let Some(access_token) = token_data["accessToken"].as_str() {
+                                            self.access_token = Some(access_token.to_string());
+                                            println!("✅ Successfully authenticated with Azure CLI");
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            println!("⚠️ Azure CLI found but not logged in. Please run: az login");
+                        }
+                    }
+                }
+            } else if i == 0 {
+                // Only log for the first attempt to avoid spam
+                println!("🔍 Azure CLI not found in PATH, trying other locations...");
+            }
+        }
+        
+        Err(ElusionError::Custom(format!(
+            "Azure CLI not found or not authenticated. Please:\n\
+            1. Install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli\n\
+            2. Run: az login\n\
+            3. Verify: az account show\n\n\
+            Platform: {}", 
+            if cfg!(target_os = "windows") { "Windows" }
+            else if cfg!(target_os = "macos") { "macOS" } 
+            else { "Linux" }
+        )))
+    }
+
+    /// Extract tenant name from SharePoint URL for generic hostname variations
+    fn extract_tenant_info(site_url: &str) -> ElusionResult<(String, String, String)> {
+        let url = url::Url::parse(site_url)
+            .map_err(|e| ElusionError::Custom(format!("Invalid site URL: {}", e)))?;
+        
+        let hostname = url.host_str()
+            .ok_or_else(|| ElusionError::Custom("Invalid hostname in URL".to_string()))?;
+        
+        let site_path = url.path().trim_start_matches('/').trim_end_matches('/');
+        
+        // Extract tenant name from hostname
+        let tenant_name = if hostname.contains(".sharepoint.com") {
+            hostname
+                .split(".sharepoint.com")
+                .next()
+                .unwrap_or("unknown")
+                .split('.')
+                .next()
+                .unwrap_or("unknown")
+                .split('-')
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            // Fallback: use everything before first dot
+            hostname
+                .split('.')
+                .next()
+                .unwrap_or("unknown")
+                .to_string()
+        };
+        
+        Ok((hostname.to_string(), tenant_name, site_path.to_string()))
+    }
+
+    /// Get site ID with smart URL handling for any tenant
+    async fn get_site_id(&mut self) -> ElusionResult<String> {
+        if let Some(site_id) = &self.site_id {
+            return Ok(site_id.clone());
+        }
+
+        let token = self.access_token.as_ref()
+            .ok_or_else(|| ElusionError::Custom("Not authenticated".to_string()))?;
+
+        let (original_hostname, tenant_name, site_path) = Self::extract_tenant_info(&self.config.site_url)?;
+        
+        // Generate hostname variations for different SharePoint configurations
+        let hostname_variants = vec![
+            // Original hostname
+            original_hostname.clone(),
+            
+            // Standard SharePoint Online format
+            format!("{}.sharepoint.com", tenant_name),
+            
+            // Remove country/region codes (e.g., .rs, .de, .uk)
+            if original_hostname.contains(".sharepoint.com") {
+                let base = original_hostname.split(".sharepoint.com").next().unwrap_or(&tenant_name);
+                let clean_base = base.split('.').next().unwrap_or(&tenant_name);
+                format!("{}.sharepoint.com", clean_base)
+            } else {
+                format!("{}.sharepoint.com", tenant_name)
+            },
+            
+            // Handle admin or special suffixes
+            if original_hostname.contains("-") {
+                let clean_name = original_hostname.split('-').next().unwrap_or(&tenant_name);
+                let clean_tenant = clean_name.split('.').next().unwrap_or(&tenant_name);
+                format!("{}.sharepoint.com", clean_tenant)
+            } else {
+                format!("{}.sharepoint.com", tenant_name)
+            },
+            
+            // Government cloud variations 
+            format!("{}.sharepoint.us", tenant_name),
+            format!("{}.sharepoint-mil.us", tenant_name),
+        ];
+        
+        // Remove duplicates
+        let mut unique_hostnames = Vec::new();
+        for hostname in hostname_variants {
+            if !unique_hostnames.contains(&hostname) {
+                unique_hostnames.push(hostname);
+            }
+        }
+        
+        println!("🔍 Trying {} hostname variations for tenant '{}'", unique_hostnames.len(), tenant_name);
+        
+        for (i, host) in unique_hostnames.iter().enumerate() {
+            let graph_url = format!("https://graph.microsoft.com/v1.0/sites/{}:/{}", host, site_path);
+            
+            println!("  {}: {}", i + 1, host);
+            
+            if let Ok(response) = reqwest::Client::new()
+                .get(&graph_url)
+                .bearer_auth(token)
+                .send()
+                .await {
+                if response.status().is_success() {
+                    if let Ok(site_info) = response.json::<serde_json::Value>().await {
+                        if let Some(site_id) = site_info["id"].as_str() {
+                            self.site_id = Some(site_id.to_string());
+                            println!("✅ Found site with hostname: {}", host);
+                            return Ok(site_id.to_string());
+                        }
+                    }
+                } else {
+                    if let Ok(error_text) = response.text().await {
+                        if error_text.contains("invalidRequest") {
+                            println!("    ❌ Invalid hostname: {}", host);
+                        } else {
+                            println!("    ⚠️ Error: {}", error_text.chars().take(100).collect::<String>());
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(ElusionError::Custom(format!(
+            "Could not find site ID for any hostname variation of '{}'. \
+            Please verify your SharePoint site URL is correct.", 
+            tenant_name
+        )))
+    }
+
+    /// Smart file download - tries multiple approaches
+    async fn download_file(&mut self, file_path: &str) -> ElusionResult<Vec<u8>> {
+        self.authenticate().await?;
+        let site_id = self.get_site_id().await?;
+        let token = self.access_token.as_ref().unwrap();
+        
+        println!("📥 Downloading file: {}", file_path);
+        
+        let file_paths = vec![
+            file_path.to_string(),
+            file_path.trim_start_matches("Shared Documents/").to_string(),
+            file_path.trim_start_matches("Documents/").to_string(),
+
+            if file_path.starts_with("Shared Documents/") {
+                file_path.replace("Shared Documents/", "Documents/")
+            } else if file_path.starts_with("Documents/") {
+                file_path.replace("Documents/", "Shared Documents/")
+            } else {
+                format!("Shared Documents/{}", file_path)
+            },
+        ];
+        
+        // Remove duplicates
+        let mut unique_paths = Vec::new();
+        for path in file_paths {
+            if !unique_paths.contains(&path) {
+                unique_paths.push(path);
+            }
+        }
+        
+        // direct Graph API download
+        for (i, path) in unique_paths.iter().enumerate() {
+            let file_url = format!("https://graph.microsoft.com/v1.0/sites/{}/drive/root:/{}:/content", site_id, path);
+            
+            println!("  Trying path {}: {}", i + 1, path);
+            
+            if let Ok(response) = reqwest::Client::new()
+                .get(&file_url)
+                .bearer_auth(token)
+                .send()
+                .await {
+                if response.status().is_success() {
+                    if let Ok(content) = response.bytes().await {
+                        println!("✅ Successfully downloaded {} bytes", content.len());
+                        return Ok(content.to_vec());
+                    }
+                } else {
+                    println!("    ❌ HTTP {}", response.status());
+                }
+            }
+        }
+        
+        // search-based approach as fallback
+        println!("🔍 Trying search-based approach...");
+        let filename = file_path.split('/').last().unwrap_or(file_path);
+        let search_url = format!("https://graph.microsoft.com/v1.0/sites/{}/drive/root/search(q='{}')", 
+            site_id, filename
+        );
+        
+        if let Ok(response) = reqwest::Client::new()
+            .get(&search_url)
+            .bearer_auth(token)
+            .send()
+            .await {
+            if response.status().is_success() {
+                if let Ok(search_data) = response.json::<serde_json::Value>().await {
+                    if let Some(items) = search_data["value"].as_array() {
+                        println!("🔍 Found {} matching files", items.len());
+                        
+                        for item in items {
+                            if let Some(item_name) = item["name"].as_str() {
+                                if item_name == filename {
+                                    if let Some(download_url) = item["@microsoft.graph.downloadUrl"].as_str() {
+                                        if let Ok(file_response) = reqwest::Client::new().get(download_url).send().await {
+                                            if file_response.status().is_success() {
+                                                if let Ok(content) = file_response.bytes().await {
+                                                    println!("✅ Downloaded via search: {} bytes", content.len());
+                                                    return Ok(content.to_vec());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(ElusionError::Custom(format!(
+            "Could not download file '{}'. Please verify:\n\
+            1. File exists at the specified path\n\
+            2. You have permission to access the file\n\
+            3. File path is correct (try with/without 'Shared Documents/' prefix)\n\
+            Platform: {}", 
+            file_path,
+            if cfg!(target_os = "windows") { "Windows" }
+            else if cfg!(target_os = "macos") { "macOS" } 
+            else { "Linux" }
+        )))
+    }
+}
+
+//=======================
+
 // Function to convert Excel date (days since 1900-01-01) to NaiveDate
 fn excel_date_to_naive_date(excel_date: f64) -> Option<NaiveDate> {
     // Excel dates start at January 0, 1900, which is actually December 31, 1899
@@ -3794,6 +4152,243 @@ impl CustomDataFrame {
         Ok(())
     }
 
+    //=========== SHARE POINT
+
+    /// Load Excel file from SharePoint - handles everything automatically
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_excel_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        file_path: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.xlsx", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = Self::load_excel(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+        
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_excel".to_string(),
+            from_table: "sharepoint_excel".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    /// Load CSV file from SharePoint - handles everything automatically  
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_csv_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        file_path: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.csv", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = Self::load_csv(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_csv".to_string(),
+            from_table: "sharepoint_csv".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    /// Load JSON file from SharePoint - handles everything automatically
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_json_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        file_path: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.json", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = Self::load_json(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_json".to_string(),
+            from_table: "sharepoint_json".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    /// Load Parquet file from SharePoint - handles everything automatically
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_parquet_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        file_path: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.parquet", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = Self::load_parquet(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_parquet".to_string(),
+            from_table: "sharepoint_parquet".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    // Stub implementations 
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_excel_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Excel Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_csv_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint CSV Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_json_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint JSON Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_parquet_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Parquet Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
     // ====== POSTGRESS
 
     /// Create a DataFrame from a PostgreSQL query
@@ -8312,6 +8907,7 @@ impl CustomDataFrame {
         })
     }
 
+   
     // ================= AZURE 
     /// Aazure function that connects to Azure blob storage
     #[cfg(feature = "azure")]
