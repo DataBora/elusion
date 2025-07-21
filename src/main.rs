@@ -3,7 +3,7 @@ use elusion::prelude::*;
 #[tokio::main]
 async fn main() -> ElusionResult<()> {
 
-    println!("Hello Elusion!");
+    println!("HELLO, ELUSION!!!");
 
     Ok(())
 }

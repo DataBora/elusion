@@ -1,3 +1,7 @@
+## [3.12.1] - 2025-07-21
+### Added
+- FILL DOWN function fill_down() that fills down null values in column with firs non null values above
+
 ## [3.12.0] - 2025-07-20
 ### Added
 - SharePoint connection with AzureCLI
