@@ -85,7 +85,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.12.0"
+elusion = "3.12.1"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -115,7 +115,7 @@ Enables Azure BLOB storage connectivity.
 ```
 Enables SharePoint connectivity.
 Add the SharePoint feature when specifying the dependency:
-elusion = { version = "3.12.0", features = ["sharepoint"] }
+elusion = { version = "3.12.1", features = ["sharepoint"] }
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 
 Grant necessary SharePoint permissions:
@@ -144,25 +144,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.12.0", features = ["postgres"] }
+elusion = { version = "3.12.1", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.12.0"
+elusion = "3.12.1"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.12.1", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.0", features = ["all"] }
+elusion = { version = "3.12.1", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -563,6 +563,59 @@ let df_having= sales_df
 let result = df_having.elusion("sales_res").await?;
 result.display().await?;
 ```
+### FILL_DOWN function - fill_down() - that fills down null values in column with firs non null values above
+#### Imagine you have DataFrame like bellow with lots of null values.
+```rust
++---------------------+---------------+----------------+----------+----------+
+| site                | location      | centre         | net      | gross    |
++---------------------+---------------+----------------+----------+----------+
+| null                | null          | null           | null     | null     |
+| null                | null          | null           | null     | null     |
+|                     |               |                | Dinner   | null     |
+| Site Name           | Location Name | Revenue Centre | Net      | Gross    |
+| Babaluga            | Bar           | Beer           | 95.24    | 110      |
+| null                | null          | Food           | 1080.04  | 1247.4   |
+| null                | null          | Liquor         | 0        | 0        |
+| null                | null          | Non Alc. Bev   | 51.08    | 59       |
+| null                | null          | Wine           | 64.94    | 75       |
+| null                | Terrace       | Beer           | 2642.89  | 3052.5   |
+| null                | null          | Champagne      | 450.2    | 520      |
+| null                | null          | Food           | 77974.82 | 90060.93 |
+| null                | null          | Liquor         | 21258.71 | 24554    |
+| null                | null          | Non Alc. Bev   | 15560.95 | 17973.5  |
+| null                | null          | Tobacco        | 19939.11 | 23030    |
+| null                | null          | Wine           | 18774.9  | 21685    |
++---------------------+---------------+----------------+----------+----------+
+```
+#### Now to remove null rows, empty value rows and to fill down this Dataframe we can write this:
+```rust
+let sales_data = df.clone()
+    .select(["Site","Location","Centre","Net","Gross"])
+    .filter_many([("Centre != 'null'"), ("Centre != ''"),("Centre != 'Revenue Centre'")])
+    .fill_down(["Site", "Location"])
+    .elusion("my_sales_data").await?;
+
+sales_data.display().await?;
+
+//THEN WE GET THIS RESULT
++---------------------+----------+--------------+----------+----------+
+| site                | location | centre       | net      | gross    |
++---------------------+----------+--------------+----------+----------+
+| Babaluga            | Bar      | Beer         | 95.24    | 110      |
+| Babaluga            | Bar      | Food         | 1080.04  | 1247.4   |
+| Babaluga            | Bar      | Liquor       | 0        | 0        |
+| Babaluga            | Bar      | Non Alc. Bev | 51.08    | 59       |
+| Babaluga            | Bar      | Wine         | 64.94    | 75       |
+| Babaluga            | Terrace  | Beer         | 2642.89  | 3052.5   |
+| Babaluga            | Terrace  | Champagne    | 450.2    | 520      |
+| Babaluga            | Terrace  | Food         | 77974.82 | 90060.93 |
+| Babaluga            | Terrace  | Liquor       | 21258.71 | 24554    |
+| Babaluga            | Terrace  | Non Alc. Bev | 15560.95 | 17973.5  |
+| Babaluga            | Terrace  | Tobacco      | 19939.11 | 23030    |
+| Babaluga            | Terrace  | Wine         | 18774.9  | 21685    |
++---------------------+----------+--------------+----------+----------+
+```
+
 ### SCALAR functions
 ```rust
 let scalar_df = sales_order_df

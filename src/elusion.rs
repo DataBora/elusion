@@ -6052,7 +6052,264 @@ impl CustomDataFrame {
     
         Ok(self)
     }
-    
+
+
+    /// Fill down null values (deferred execution - follows select/filter pattern)
+    pub fn fill_down<const N: usize>(
+        mut self, 
+        columns: [&str; N]
+    ) -> Self {
+        let normalized_columns: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                col.trim().replace(" ", "_").to_lowercase()
+            })
+            .collect();
+        
+     //   println!("Debug: Adding fill_down for columns: {:?} -> normalized: {:?}", columns, normalized_columns);
+        
+        let operation = format!("FILL_DOWN:{}", normalized_columns.join(","));
+        self.set_operations.push(operation);
+        self
+    }
+
+    /// Alternative implementation using set_operations if you prefer that pattern
+    pub fn fill_down_with_set_ops<const N: usize>(
+        mut self, 
+        columns: [&str; N]
+    ) -> Self {
+        let operation = format!("FILL_DOWN:{}", columns.join(","));
+        self.set_operations.push(operation);
+        self
+    }
+
+    /// Fill down null values (immediate execution - follows append/union pattern)  
+    pub async fn fill_down_now<const N: usize>(
+        self,
+        columns: [&str; N], 
+        alias: &str
+    ) -> ElusionResult<CustomDataFrame> {
+        self.fill_down_vec_now(columns.to_vec(), alias).await
+    }
+
+    pub async fn fill_down_vec_now(
+        self,
+        columns: Vec<&str>,
+        alias: &str  
+    ) -> ElusionResult<CustomDataFrame> {
+        let ctx = SessionContext::new();
+        
+        // Register current DataFrame
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        // Get all data first, then process it manually since DataFusion window functions don't work well
+        let all_data_sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
+        let temp_df = ctx.sql(&all_data_sql).await?;
+        let batches = temp_df.clone().collect().await?;
+        
+        if batches.is_empty() {
+            return Ok(CustomDataFrame {
+                df: temp_df,
+                table_alias: alias.to_string(),
+                from_table: alias.to_string(),
+                selected_columns: Vec::new(),
+                alias_map: self.alias_map,
+                aggregations: Vec::new(),
+                group_by_columns: Vec::new(),
+                where_conditions: Vec::new(),
+                having_conditions: Vec::new(),
+                order_by_columns: Vec::new(),
+                limit_count: None,
+                joins: Vec::new(),
+                window_functions: Vec::new(),
+                ctes: Vec::new(),
+                subquery_source: None,
+                set_operations: Vec::new(),
+                query: all_data_sql,
+                aggregated_df: None,
+                union_tables: None,
+                original_expressions: Vec::new(),
+            });
+        }
+        
+        // Process each batch to implement fill down manually
+        let schema = batches[0].schema();
+        let mut processed_batches = Vec::new();
+        
+        // Find column indices for fill down columns
+        let fill_column_indices: Vec<usize> = columns
+            .iter()
+            .filter_map(|col_name| {
+                schema.fields().iter().position(|field| field.name() == col_name)
+            })
+            .collect();
+        
+      //  println!("Debug: Fill column indices: {:?} for columns: {:?}", fill_column_indices, columns);
+        
+        for batch in batches {
+            let mut new_columns = Vec::new();
+            let mut fill_values: Vec<Option<String>> = vec![None; fill_column_indices.len()];
+            
+            // Process each column
+            for (col_idx, _field) in schema.fields().iter().enumerate() {
+                let array = batch.column(col_idx);
+                
+                if let Some(fill_idx) = fill_column_indices.iter().position(|&idx| idx == col_idx) {
+                    // This is a fill-down column - process it
+                    let string_array = array.as_any().downcast_ref::<arrow::array::StringArray>()
+                        .ok_or_else(|| ElusionError::Custom("Expected string array".to_string()))?;
+                    
+                    let mut new_values = Vec::new();
+                    for i in 0..string_array.len() {
+                        // Fix the type error - string_array.value(i) returns &str, not Option<&str>
+                        if string_array.is_null(i) {
+                            new_values.push(fill_values[fill_idx].clone());
+                        } else {
+                            let value = string_array.value(i);
+                            if !value.trim().is_empty() {
+                                fill_values[fill_idx] = Some(value.to_string());
+                                new_values.push(Some(value.to_string()));
+                            } else {
+                                new_values.push(fill_values[fill_idx].clone());
+                            }
+                        }
+                    }
+                    
+                    let new_array = arrow::array::StringArray::from(new_values);
+                    new_columns.push(Arc::new(new_array) as ArrayRef);
+                } else {
+                    // Regular column - keep as is
+                    new_columns.push(array.clone());
+                }
+            }
+            
+            // Fix the error conversion issue
+            let new_batch = RecordBatch::try_new(schema.clone(), new_columns)
+                .map_err(|e| ElusionError::Custom(format!("Failed to create record batch: {}", e)))?;
+            processed_batches.push(new_batch);
+        }
+        
+        // Create new DataFrame from processed batches
+        let result_mem_table = MemTable::try_new(schema.clone().into(), vec![processed_batches])
+            .map_err(|e| ElusionError::Custom(format!("Failed to create mem table: {}", e)))?;
+        ctx.register_table(alias, Arc::new(result_mem_table))
+            .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+        let result_df = ctx.table(alias).await
+            .map_err(|e| ElusionError::Custom(format!("Failed to get table: {}", e)))?;
+        
+        Ok(CustomDataFrame {
+            df: result_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: self.alias_map,
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: format!("-- Manual fill down processing for columns: {:?}", columns),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    /// Handle various set operations including FILL_DOWN
+    fn handle_set_operation(&self, operation: &str, base_sql: String) -> String {
+        if let Some(columns_str) = operation.strip_prefix("FILL_DOWN:") {
+            self.handle_fill_down_operation(columns_str, base_sql)
+        } else if operation.starts_with("UNION") {
+            // Handle other set operations like UNION if needed in the future
+            base_sql
+        } else {
+            base_sql
+        }
+    }
+
+    /// Handle the FILL_DOWN operation by wrapping the base SQL in a CTE
+    fn handle_fill_down_operation(&self, columns_str: &str, base_sql: String) -> String {
+        let columns: Vec<&str> = columns_str.split(',').collect();
+      //  println!("Debug: handle_fill_down_operation called with columns: {:?}", columns);
+        
+        let selected_cols = if self.selected_columns.is_empty() {
+            self.df.schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().clone())
+                .collect::<Vec<_>>()
+        } else {
+            self.selected_columns
+                .iter()
+                .map(|col| {
+                    if col.contains(" AS ") {
+                        col.split(" AS ")
+                            .nth(1)
+                            .unwrap_or(col)
+                            .trim_matches('"')
+                            .trim()
+                            .to_string()
+                    } else {
+                        col.trim_matches('"')
+                            .split('.')
+                            .last()
+                            .unwrap_or(col)
+                            .trim_matches('"')
+                            .to_string()
+                    }
+                })
+                .collect()
+        };
+        
+      //  println!("Debug: selected_cols after processing: {:?}", selected_cols);
+      //  println!("Debug: columns to fill: {:?}", columns);
+        
+        // Handle both NULL and string "null" values by converting them to actual NULLs first
+        let fill_expressions: Vec<String> = selected_cols
+            .iter()
+            .map(|col_name| {
+                if columns.contains(&col_name.as_str()) {
+                   // println!("Debug: Processing fill_down for column: {}", col_name);
+                    // First convert "null" strings and empty strings to actual NULLs,
+                    // then use LAST_VALUE with IGNORE NULLS
+                    format!(
+                        r#"LAST_VALUE(
+                            CASE 
+                                WHEN "{0}" IS NULL OR TRIM("{0}") = '' OR TRIM("{0}") = 'null' THEN NULL
+                                ELSE "{0}"
+                            END
+                        ) IGNORE NULLS OVER (
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                        ) AS "{0}""#,
+                        col_name
+                    )
+                } else {
+                    //println!("Debug: NOT processing fill_down for column: {} (not in fill list)", col_name);
+                    format!(r#""{0}""#, col_name)
+                }
+            })
+            .collect();
+        
+        let result_sql = format!(
+            r#"WITH fill_down_base AS (
+                {}
+            )
+            SELECT {} 
+            FROM fill_down_base"#,
+            base_sql,
+            fill_expressions.join(", ")
+        );
+        
+      //  println!("Debug: Final SQL: {}", result_sql);
+        result_sql
+    }
+
     /// SELECT clause using const generics
     pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
         self.select_vec(columns.to_vec())
@@ -6270,8 +6527,6 @@ impl CustomDataFrame {
                     alias
                 );
             } else {
-                // For simple case: "column.'$FieldName' AS alias"
-                // Require explicit value:id=name format instead of hardcoding
                 continue; // Skip expressions that don't use the explicit format
             }
             
@@ -6389,7 +6644,13 @@ impl CustomDataFrame {
             }
         }
 
-        query
+        // set operations 
+            let mut final_query = query;
+            for operation in &self.set_operations {
+                final_query = self.handle_set_operation(operation, final_query);
+            }
+
+        final_query
     }
 
 
