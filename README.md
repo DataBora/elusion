@@ -1,4 +1,4 @@
-# Elusion 🦀 DataFrame / Data Engineering / Data Analysis Library for Everybody!
+# Elusion 🦀 DataFrame / Data Engineering Library
 
 
 ![Elusion Logo](images/elusion.png)
