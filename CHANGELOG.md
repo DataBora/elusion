@@ -1,3 +1,7 @@
+## [3.12.2] - 2025-07-22
+### Added
+- load_folder_from_sharepoint() function for SharePoint connector that read all files from folder and UNION ALL to single dataframe.
+
 ## [3.12.1] - 2025-07-21
 ### Added
 - FILL DOWN function fill_down() that fills down null values in column with firs non null values above
@@ -5,6 +9,7 @@
 ## [3.12.0] - 2025-07-20
 ### Added
 - SharePoint connection with AzureCLI
+- load_excel_from_sharepoint(), load_csv_from_sharepoint(), load_json_from_sharepoint(), load_parquet_from_sharepoint()
 
 ## [3.11.0] - 2025-05-17
 ### Added

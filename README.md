@@ -85,7 +85,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.12.1"
+elusion = "3.12.2"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -114,13 +114,6 @@ Enables Azure BLOB storage connectivity.
 ["sharepoint"]
 ```
 Enables SharePoint connectivity.
-Add the SharePoint feature when specifying the dependency:
-elusion = { version = "3.12.1", features = ["sharepoint"] }
-tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
-
-Grant necessary SharePoint permissions:
-Sites.Read.All or Sites.ReadWrite.All
-Files.Read.All or Files.ReadWrite.All
 ```rust 
 ["api"]
 ```
@@ -144,25 +137,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.12.1", features = ["postgres"] }
+elusion = { version = "3.12.2", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.12.1"
+elusion = "3.12.2"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.1", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.12.2", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.1", features = ["all"] }
+elusion = { version = "3.12.2", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -589,7 +582,7 @@ result.display().await?;
 ```
 #### Now to remove null rows, empty value rows and to fill down this Dataframe we can write this:
 ```rust
-let sales_data = df.clone()
+let sales_data = df
     .select(["Site","Location","Centre","Net","Gross"])
     .filter_many([("Centre != 'null'"), ("Centre != ''"),("Centre != 'Revenue Centre'")])
     .fill_down(["Site", "Location"])
@@ -1743,7 +1736,7 @@ test_data.display().await?;
 ```
 ---
 # SharePoint
-### You can load EXCEL, CSV, JSON and PARQUET files
+### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a Folder into Single DataFrame
 ### To connect to SharePoint you need AzureCLI installed and to be logged in 
 1. Install Azure CLI
 Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
@@ -1775,14 +1768,18 @@ This will open a browser window for authentication. Sign in with your Microsoft 
 ```
 This should display your account information and confirm you're logged in.
 
-Now you are ready to roll....
+- Grant necessary SharePoint permissions:
+Sites.Read.All or Sites.ReadWrite.All
+Files.Read.All or Files.ReadWrite.All
+
+#### Single file loading examples:
 ```rust
 //Example 1:
 let df = CustomDataFrame::load_excel_from_sharepoint(
     "your-tenant-id",
     "your-client-id", 
     "http://companyname.sharepoint.com/sites/SiteName", 
-    "Shared Documents/MainFolder/DailySubFolder/SalesData.xlsx",
+    "Shared Documents/MainFolder/SalesSubFolder/SalesData.xlsx",
     ).await?;
 
 let sales_data = df
@@ -1791,9 +1788,6 @@ let sales_data = df
 
 sales_data.display().await?;
 
-//RUN THE PROGRAM
-cargo run --features sharepoint,excel
-
 //Example 2:
 let df = CustomDataFrame::load_csv_from_sharepoint(
     "your-tenant-id",
@@ -1801,6 +1795,22 @@ let df = CustomDataFrame::load_csv_from_sharepoint(
     "https://contoso.sharepoint.com/sites/MySite",
     "Shared Documents/Data/customer_data.csv"
 ).await?;
+
+//RUN THE PROGRAM
+cargo run --features sharepoint
+```
+#### Reading ALL Files from a folder into single DataFrame example:
+```rust
+let dataframes = CustomDataFrame::load_folder_from_sharepoint(
+    "your-tenant-id",
+    "your-client-id", 
+    "http://companyname.sharepoint.com/sites/SiteName", 
+    "Shared Documents/MainFolder/SubFolder",
+    None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
+    "combined_data"
+).await?;
+
+dataframes.display().await?;
 
 //RUN THE PROGRAM
 cargo run --features sharepoint
