@@ -94,6 +94,17 @@ pub struct SharePointClient {
 }
 
 #[cfg(feature = "sharepoint")]
+#[derive(Debug, Clone)]
+pub struct SharePointFileInfo {
+    pub name: String,
+    pub size: Option<u64>,
+    pub created_date_time: Option<String>,
+    pub last_modified_date_time: Option<String>,
+    pub web_url: Option<String>,
+    pub download_url: Option<String>,
+}
+
+#[cfg(feature = "sharepoint")]
 impl SharePointClient {
     pub fn new(config: SharePointConfig) -> Self {
         Self {
@@ -402,6 +413,8 @@ impl SharePointClient {
                 }
             }
         }
+
+        
         
         Err(ElusionError::Custom(format!(
             "Could not download file '{}'. Please verify:\n\
@@ -415,7 +428,174 @@ impl SharePointClient {
             else { "Linux" }
         )))
     }
+
+    /// List all files in a SharePoint folder
+    pub async fn list_folder_contents(&mut self, folder_path: &str) -> ElusionResult<Vec<SharePointFileInfo>> {
+        self.authenticate().await?;
+        let site_id = self.get_site_id().await?;
+        let token = self.access_token.as_ref().unwrap();
+        
+        println!("📁 Listing contents of folder: {}", folder_path);
+        
+        let folder_paths = vec![
+            folder_path.to_string(),
+            folder_path.trim_start_matches("Shared Documents/").to_string(),
+            folder_path.trim_start_matches("Documents/").to_string(),
+            if folder_path.starts_with("Shared Documents/") {
+                folder_path.replace("Shared Documents/", "Documents/")
+            } else if folder_path.starts_with("Documents/") {
+                folder_path.replace("Documents/", "Shared Documents/")
+            } else {
+                format!("Shared Documents/{}", folder_path)
+            },
+        ];
+        
+        // Remove duplicates
+        let mut unique_paths = Vec::new();
+        for path in folder_paths {
+            if !unique_paths.contains(&path) {
+                unique_paths.push(path);
+            }
+        }
+        
+        // Try each folder path variation
+        for (i, path) in unique_paths.iter().enumerate() {
+            let folder_url = format!(
+                "https://graph.microsoft.com/v1.0/sites/{}/drive/root:/{}:/children", 
+                site_id, 
+                path.trim_start_matches('/').trim_end_matches('/')
+            );
+            
+            println!("  Trying folder path {}: {}", i + 1, path);
+            
+            if let Ok(response) = reqwest::Client::new()
+                .get(&folder_url)
+                .bearer_auth(token)
+                .send()
+                .await {
+                
+                if response.status().is_success() {
+                    if let Ok(folder_data) = response.json::<serde_json::Value>().await {
+                        if let Some(items) = folder_data["value"].as_array() {
+                            let mut files = Vec::new();
+                            
+                            for item in items {
+                                // Only include files, not folders
+                                if item["file"].is_object() {
+                                    let file_info = SharePointFileInfo {
+                                        name: item["name"].as_str().unwrap_or("unknown").to_string(),
+                                        size: item["size"].as_u64(),
+                                        created_date_time: item["createdDateTime"].as_str().map(|s| s.to_string()),
+                                        last_modified_date_time: item["lastModifiedDateTime"].as_str().map(|s| s.to_string()),
+                                        web_url: item["webUrl"].as_str().map(|s| s.to_string()),
+                                        download_url: item["@microsoft.graph.downloadUrl"].as_str().map(|s| s.to_string()),
+                                    };
+                                    files.push(file_info);
+                                }
+                            }
+                            
+                            println!("✅ Found {} files in folder: {}", files.len(), path);
+                            return Ok(files);
+                        }
+                    }
+                } else {
+                    // FIX: Get status before consuming response
+                    let status = response.status();
+                    if let Ok(error_text) = response.text().await {
+                        println!("    ❌ HTTP {}: {}", status, 
+                            error_text.chars().take(100).collect::<String>());
+                    }
+                }
+            }
+        }
+        
+        // Fallback: try to find folder by search
+        println!("🔍 Trying search-based folder discovery...");
+        let folder_name = folder_path.split('/').last().unwrap_or(folder_path);
+        let search_url = format!(
+            "https://graph.microsoft.com/v1.0/sites/{}/drive/root/search(q='{}')", 
+            site_id, 
+            folder_name
+        );
+        
+        if let Ok(response) = reqwest::Client::new()
+            .get(&search_url)
+            .bearer_auth(token)
+            .send()
+            .await {
+            
+            if response.status().is_success() {
+                if let Ok(search_data) = response.json::<serde_json::Value>().await {
+                    if let Some(items) = search_data["value"].as_array() {
+                        // Look for folders matching our search
+                        for item in items {
+                            if item["folder"].is_object() {
+                                if let Some(item_name) = item["name"].as_str() {
+                                    if item_name == folder_name {
+                                        // Found the folder, now get its contents
+                                        if let Some(item_id) = item["id"].as_str() {
+                                            let children_url = format!(
+                                                "https://graph.microsoft.com/v1.0/sites/{}/drive/items/{}/children", 
+                                                site_id, 
+                                                item_id
+                                            );
+                                            
+                                            if let Ok(children_response) = reqwest::Client::new()
+                                                .get(&children_url)
+                                                .bearer_auth(token)
+                                                .send()
+                                                .await {
+                                                
+                                                if children_response.status().is_success() {
+                                                    if let Ok(children_data) = children_response.json::<serde_json::Value>().await {
+                                                        if let Some(child_items) = children_data["value"].as_array() {
+                                                            let mut files = Vec::new();
+                                                            
+                                                            for child_item in child_items {
+                                                                // Only include files, not folders
+                                                                if child_item["file"].is_object() {
+                                                                    let file_info = SharePointFileInfo {
+                                                                        name: child_item["name"].as_str().unwrap_or("unknown").to_string(),
+                                                                        size: child_item["size"].as_u64(),
+                                                                        created_date_time: child_item["createdDateTime"].as_str().map(|s| s.to_string()),
+                                                                        last_modified_date_time: child_item["lastModifiedDateTime"].as_str().map(|s| s.to_string()),
+                                                                        web_url: child_item["webUrl"].as_str().map(|s| s.to_string()),
+                                                                        download_url: child_item["@microsoft.graph.downloadUrl"].as_str().map(|s| s.to_string()),
+                                                                    };
+                                                                    files.push(file_info);
+                                                                }
+                                                            }
+                                                            
+                                                            println!("✅ Found {} files via search in folder: {}", files.len(), item_name);
+                                                            return Ok(files);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(ElusionError::Custom(format!(
+            "Could not list contents of folder '{}'. Please verify:\n\
+            1. Folder exists at the specified path\n\
+            2. You have permission to access the folder\n\
+            3. Folder path is correct (try with/without 'Shared Documents/' prefix)\n\
+            Platform: {}", 
+            folder_path,
+            if cfg!(target_os = "windows") { "Windows" }
+            else if cfg!(target_os = "macos") { "macOS" } 
+            else { "Linux" }
+        )))
+    }
 }
+
 
 //=======================
 
@@ -4389,6 +4569,258 @@ impl CustomDataFrame {
             suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
         })
     }
+
+    /// Load all files from a SharePoint folder and union them if they have compatible schemas
+    /// Supports CSV, Excel, JSON, and Parquet files
+    // Simplified load_folder_from_sharepoint with proper column name and type matching
+#[cfg(feature = "sharepoint")]
+pub async fn load_folder_from_sharepoint(
+    tenant_id: &str,
+    client_id: &str,
+    site_url: &str,
+    folder_path: &str,
+    file_extensions: Option<Vec<&str>>, // Filter by extensions, e.g., vec!["xlsx", "csv"]
+    result_alias: &str,
+) -> ElusionResult<Self> {
+    let config = SharePointConfig::new(
+        tenant_id.to_string(),
+        client_id.to_string(),
+        site_url.to_string(),
+    );
+    
+    let mut client = SharePointClient::new(config);
+    
+    // Get list of files in the folder
+    let files = client.list_folder_contents(folder_path).await?;
+    
+    let mut dataframes = Vec::new();
+    
+    for file_info in files {
+        // Skip if file extensions filter is specified and file doesn't match
+        if let Some(ref extensions) = file_extensions {
+            let file_ext = file_info.name
+                .split('.')
+                .last()
+                .unwrap_or("")
+                .to_lowercase();
+            
+            if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                continue;
+            }
+        }
+        
+        // Download and process file based on extension
+        let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+        
+        match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+            "csv" => {
+                match Self::load_csv_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                    Ok(df) => {
+                        println!("✅ Loaded CSV: {}", file_info.name);
+                        dataframes.push(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            },
+            "xlsx" | "xls" => {
+                match Self::load_excel_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                    Ok(df) => {
+                        println!("✅ Loaded Excel: {}", file_info.name);
+                        dataframes.push(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            },
+            "json" => {
+                match Self::load_json_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                    Ok(df) => {
+                        println!("✅ Loaded JSON: {}", file_info.name);
+                        dataframes.push(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            },
+            "parquet" => {
+                match Self::load_parquet_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                    Ok(df) => {
+                        println!("✅ Loaded Parquet: {}", file_info.name);
+                        dataframes.push(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            },
+            _ => {
+                println!("⏭️ Skipping unsupported file type: {}", file_info.name);
+            }
+        }
+    }
+    
+    if dataframes.is_empty() {
+        return Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Folder Loading".to_string(),
+            reason: "No supported files found or all files failed to load".to_string(),
+            suggestion: "💡 Check folder path and ensure it contains CSV, Excel, JSON, or Parquet files".to_string(),
+        });
+    }
+    
+    // If only one file, return it directly
+    if dataframes.len() == 1 {
+        println!("📄 Single file loaded, returning as-is");
+        return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+    }
+    
+    // Check schema compatibility by column names AND types
+    println!("🔍 Checking schema compatibility for {} files (names + types)...", dataframes.len());
+    
+    let first_schema = dataframes[0].df.schema();
+    let mut compatible_schemas = true;
+    let mut schema_issues = Vec::new();
+    
+    // Print first file schema for reference
+    println!("📋 File 1 schema:");
+    for (i, field) in first_schema.fields().iter().enumerate() {
+        println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+    }
+    
+    for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+        let current_schema = df.df.schema();
+        
+        println!("📋 File {} schema:", file_idx + 1);
+        for (i, field) in current_schema.fields().iter().enumerate() {
+            println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+        }
+        
+        // Check if column count matches
+        if first_schema.fields().len() != current_schema.fields().len() {
+            compatible_schemas = false;
+            schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+            continue;
+        }
+        
+        // Check if column names and types match (case insensitive names)
+        for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+            if let Some(current_field) = current_schema.fields().get(col_idx) {
+                // Check column name (case insensitive)
+                if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                    compatible_schemas = false;
+                    schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                        file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                }
+                
+                // Check column type
+                if first_field.data_type() != current_field.data_type() {
+                    compatible_schemas = false;
+                    schema_issues.push(format!("File {} column {} ('{}') type is {:?}, but first file has {:?}", 
+                        file_idx + 1, col_idx + 1, current_field.name(), 
+                        current_field.data_type(), first_field.data_type()));
+                }
+            }
+        }
+    }
+    
+    if !compatible_schemas {
+        println!("⚠️ Schema compatibility issues found:");
+        for issue in &schema_issues {
+            println!("   {}", issue);
+        }
+        
+        // Since all columns are UTF8, just reorder them by name to match first file
+        println!("🔧 Reordering columns by name to match first file...");
+        
+        // Get the column order from the first file
+        let first_file_columns: Vec<String> = first_schema.fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect();
+        
+        println!("📋 Target column order: {:?}", first_file_columns);
+        
+        let mut reordered_dataframes = Vec::new();
+        
+        for (i, df) in dataframes.clone().into_iter().enumerate() {
+            // Select columns in the same order as first file
+            let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+            let reordered_df = df.select_vec(column_refs);
+            
+            // Create temporary alias
+            let temp_alias = format!("reordered_file_{}", i + 1);
+            match reordered_df.elusion(&temp_alias).await {
+                Ok(standardized_df) => {
+                    println!("✅ Reordered file {} columns", i + 1);
+                    reordered_dataframes.push(standardized_df);
+                },
+                Err(e) => {
+                    eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                    continue;
+                }
+            }
+        }
+        
+        if reordered_dataframes.is_empty() {
+            println!("📄 Column reordering failed, returning first file only");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        dataframes = reordered_dataframes;
+        println!("✅ All files reordered to match first file column order");
+    } else {
+        println!("✅ All schemas are compatible!");
+    }
+    
+    // Union the compatible dataframes
+    println!("🔗 Unioning {} files with compatible schemas...", dataframes.len());
+    
+    let total_files = dataframes.len();
+    let mut result = dataframes.clone().into_iter().next().unwrap();
+    
+    // Union with remaining dataframes using union_all to keep all data
+    for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+        result = result.union_all(df).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "SharePoint Folder Union All".to_string(),
+                reason: format!("Failed to union file {}: {}", i + 1, e),
+                suggestion: "💡 Check that all files have compatible schemas".to_string(),
+            })?;
+        
+        println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+    }
+    
+    println!("🎉 Successfully combined {} files using UNION ALL", total_files);
+    
+    // Final elusion with the desired alias
+    result.elusion(result_alias).await
+}
+
+// Stub implementation for when sharepoint feature is not enabled
+#[cfg(not(feature = "sharepoint"))]
+pub async fn load_folder_from_sharepoint(
+    _tenant_id: &str, 
+    _client_id: &str, 
+    _site_url: &str, 
+    _folder_path: &str,
+    _file_extensions: Option<Vec<&str>>,
+    _result_alias: &str,
+) -> ElusionResult<Self> {
+    Err(ElusionError::InvalidOperation {
+        operation: "SharePoint Folder Loading".to_string(),
+        reason: "SharePoint feature not enabled".to_string(),
+        suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+    })
+}
+
     // ====== POSTGRESS
 
     /// Create a DataFrame from a PostgreSQL query
