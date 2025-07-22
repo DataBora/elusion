@@ -1,3 +1,7 @@
+## [3.12.3] - 2025-07-22
+### Added
+- load_folder_from_sharepoint_with_filename_column() function for SharePoint connector that read all files from folder, adds filename column and UNION ALL to single dataframe.
+
 ## [3.12.2] - 2025-07-22
 ### Added
 - load_folder_from_sharepoint() function for SharePoint connector that read all files from folder and UNION ALL to single dataframe.
