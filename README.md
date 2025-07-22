@@ -1815,6 +1815,19 @@ dataframes.display().await?;
 //RUN THE PROGRAM
 cargo run --features sharepoint
 ```
+#### Reading ALL Files from a folder into single DataFrame with Addind filename into new column:
+```rust
+let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
+    "your-tenant-id",
+    "your-client-id", 
+    "http://companyname.sharepoint.com/sites/SiteName", 
+    "Shared Documents/MainFolder/SubFolder",
+    None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
+    "combined_data"
+).await?;
+
+dataframes.display().await?;
+```
 ---
 # Pipeline Scheduler
 ### Time is set according to UTC

@@ -4572,254 +4572,504 @@ impl CustomDataFrame {
 
     /// Load all files from a SharePoint folder and union them if they have compatible schemas
     /// Supports CSV, Excel, JSON, and Parquet files
-    // Simplified load_folder_from_sharepoint with proper column name and type matching
-#[cfg(feature = "sharepoint")]
-pub async fn load_folder_from_sharepoint(
-    tenant_id: &str,
-    client_id: &str,
-    site_url: &str,
-    folder_path: &str,
-    file_extensions: Option<Vec<&str>>, // Filter by extensions, e.g., vec!["xlsx", "csv"]
-    result_alias: &str,
-) -> ElusionResult<Self> {
-    let config = SharePointConfig::new(
-        tenant_id.to_string(),
-        client_id.to_string(),
-        site_url.to_string(),
-    );
-    
-    let mut client = SharePointClient::new(config);
-    
-    // Get list of files in the folder
-    let files = client.list_folder_contents(folder_path).await?;
-    
-    let mut dataframes = Vec::new();
-    
-    for file_info in files {
-        // Skip if file extensions filter is specified and file doesn't match
-        if let Some(ref extensions) = file_extensions {
-            let file_ext = file_info.name
-                .split('.')
-                .last()
-                .unwrap_or("")
-                .to_lowercase();
-            
-            if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
-                continue;
-            }
-        }
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>, // Filter by extensions, e.g., vec!["xlsx", "csv"]
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
         
-        // Download and process file based on extension
-        let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+        let mut client = SharePointClient::new(config);
         
-        match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
-            "csv" => {
-                match Self::load_csv_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
-                    Ok(df) => {
-                        println!("✅ Loaded CSV: {}", file_info.name);
-                        dataframes.push(df);
-                    },
-                    Err(e) => {
-                        eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
-                        continue;
-                    }
-                }
-            },
-            "xlsx" | "xls" => {
-                match Self::load_excel_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
-                    Ok(df) => {
-                        println!("✅ Loaded Excel: {}", file_info.name);
-                        dataframes.push(df);
-                    },
-                    Err(e) => {
-                        eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
-                        continue;
-                    }
-                }
-            },
-            "json" => {
-                match Self::load_json_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
-                    Ok(df) => {
-                        println!("✅ Loaded JSON: {}", file_info.name);
-                        dataframes.push(df);
-                    },
-                    Err(e) => {
-                        eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
-                        continue;
-                    }
-                }
-            },
-            "parquet" => {
-                match Self::load_parquet_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
-                    Ok(df) => {
-                        println!("✅ Loaded Parquet: {}", file_info.name);
-                        dataframes.push(df);
-                    },
-                    Err(e) => {
-                        eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
-                        continue;
-                    }
-                }
-            },
-            _ => {
-                println!("⏭️ Skipping unsupported file type: {}", file_info.name);
-            }
-        }
-    }
-    
-    if dataframes.is_empty() {
-        return Err(ElusionError::InvalidOperation {
-            operation: "SharePoint Folder Loading".to_string(),
-            reason: "No supported files found or all files failed to load".to_string(),
-            suggestion: "💡 Check folder path and ensure it contains CSV, Excel, JSON, or Parquet files".to_string(),
-        });
-    }
-    
-    // If only one file, return it directly
-    if dataframes.len() == 1 {
-        println!("📄 Single file loaded, returning as-is");
-        return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
-    }
-    
-    // Check schema compatibility by column names AND types
-    println!("🔍 Checking schema compatibility for {} files (names + types)...", dataframes.len());
-    
-    let first_schema = dataframes[0].df.schema();
-    let mut compatible_schemas = true;
-    let mut schema_issues = Vec::new();
-    
-    // Print first file schema for reference
-    println!("📋 File 1 schema:");
-    for (i, field) in first_schema.fields().iter().enumerate() {
-        println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
-    }
-    
-    for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
-        let current_schema = df.df.schema();
+        // Get list of files in the folder
+        let files = client.list_folder_contents(folder_path).await?;
         
-        println!("📋 File {} schema:", file_idx + 1);
-        for (i, field) in current_schema.fields().iter().enumerate() {
-            println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
-        }
+        let mut dataframes = Vec::new();
         
-        // Check if column count matches
-        if first_schema.fields().len() != current_schema.fields().len() {
-            compatible_schemas = false;
-            schema_issues.push(format!("File {} has {} columns, but first file has {}", 
-                file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
-            continue;
-        }
-        
-        // Check if column names and types match (case insensitive names)
-        for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
-            if let Some(current_field) = current_schema.fields().get(col_idx) {
-                // Check column name (case insensitive)
-                if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
-                    compatible_schemas = false;
-                    schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
-                        file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
-                }
+        for file_info in files {
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_info.name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
                 
-                // Check column type
-                if first_field.data_type() != current_field.data_type() {
-                    compatible_schemas = false;
-                    schema_issues.push(format!("File {} column {} ('{}') type is {:?}, but first file has {:?}", 
-                        file_idx + 1, col_idx + 1, current_field.name(), 
-                        current_field.data_type(), first_field.data_type()));
-                }
-            }
-        }
-    }
-    
-    if !compatible_schemas {
-        println!("⚠️ Schema compatibility issues found:");
-        for issue in &schema_issues {
-            println!("   {}", issue);
-        }
-        
-        // Since all columns are UTF8, just reorder them by name to match first file
-        println!("🔧 Reordering columns by name to match first file...");
-        
-        // Get the column order from the first file
-        let first_file_columns: Vec<String> = first_schema.fields()
-            .iter()
-            .map(|field| field.name().clone())
-            .collect();
-        
-        println!("📋 Target column order: {:?}", first_file_columns);
-        
-        let mut reordered_dataframes = Vec::new();
-        
-        for (i, df) in dataframes.clone().into_iter().enumerate() {
-            // Select columns in the same order as first file
-            let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
-            let reordered_df = df.select_vec(column_refs);
-            
-            // Create temporary alias
-            let temp_alias = format!("reordered_file_{}", i + 1);
-            match reordered_df.elusion(&temp_alias).await {
-                Ok(standardized_df) => {
-                    println!("✅ Reordered file {} columns", i + 1);
-                    reordered_dataframes.push(standardized_df);
-                },
-                Err(e) => {
-                    eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
                     continue;
                 }
             }
+            
+            // Download and process file based on extension
+            let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+            
+            match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match Self::load_csv_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded CSV: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match Self::load_excel_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Excel: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match Self::load_json_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded JSON: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match Self::load_parquet_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Parquet: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_info.name);
+                }
+            }
         }
         
-        if reordered_dataframes.is_empty() {
-            println!("📄 Column reordering failed, returning first file only");
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "SharePoint Folder Loading".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains CSV, Excel, JSON, or Parquet files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded, returning as-is");
             return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
         }
         
-        dataframes = reordered_dataframes;
-        println!("✅ All files reordered to match first file column order");
-    } else {
-        println!("✅ All schemas are compatible!");
-    }
-    
-    // Union the compatible dataframes
-    println!("🔗 Unioning {} files with compatible schemas...", dataframes.len());
-    
-    let total_files = dataframes.len();
-    let mut result = dataframes.clone().into_iter().next().unwrap();
-    
-    // Union with remaining dataframes using union_all to keep all data
-    for (i, df) in dataframes.into_iter().enumerate().skip(1) {
-        result = result.union_all(df).await
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "SharePoint Folder Union All".to_string(),
-                reason: format!("Failed to union file {}: {}", i + 1, e),
-                suggestion: "💡 Check that all files have compatible schemas".to_string(),
-            })?;
+        // Check schema compatibility by column names AND types
+        println!("🔍 Checking schema compatibility for {} files (names + types)...", dataframes.len());
         
-        println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        // Print first file schema for reference
+        println!("📋 File 1 schema:");
+        for (i, field) in first_schema.fields().iter().enumerate() {
+            println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+        }
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            println!("📋 File {} schema:", file_idx + 1);
+            for (i, field) in current_schema.fields().iter().enumerate() {
+                println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+            }
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names and types match (case insensitive names)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    // Check column name (case insensitive)
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                    
+                    // Check column type
+                    if first_field.data_type() != current_field.data_type() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} ('{}') type is {:?}, but first file has {:?}", 
+                            file_idx + 1, col_idx + 1, current_field.name(), 
+                            current_field.data_type(), first_field.data_type()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            // Since all columns are UTF8, just reorder them by name to match first file
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            // Get the column order from the first file
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                // Select columns in the same order as first file
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                // Create temporary alias
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        // Union the compatible dataframes
+        println!("🔗 Unioning {} files with compatible schemas...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "SharePoint Folder Union All".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files using UNION ALL", total_files);
+        
+        // Final elusion with the desired alias
+        result.elusion(result_alias).await
     }
-    
-    println!("🎉 Successfully combined {} files using UNION ALL", total_files);
-    
-    // Final elusion with the desired alias
-    result.elusion(result_alias).await
-}
 
-// Stub implementation for when sharepoint feature is not enabled
-#[cfg(not(feature = "sharepoint"))]
-pub async fn load_folder_from_sharepoint(
-    _tenant_id: &str, 
-    _client_id: &str, 
-    _site_url: &str, 
-    _folder_path: &str,
-    _file_extensions: Option<Vec<&str>>,
-    _result_alias: &str,
-) -> ElusionResult<Self> {
-    Err(ElusionError::InvalidOperation {
-        operation: "SharePoint Folder Loading".to_string(),
-        reason: "SharePoint feature not enabled".to_string(),
-        suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
-    })
-}
+    // Stub implementation for when sharepoint feature is not enabled
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_folder_from_sharepoint(
+        _tenant_id: &str, 
+        _client_id: &str, 
+        _site_url: &str, 
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Folder Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    /// Load all files from SharePoint folder and add filename as a column
+    /// Same as load_folder_from_sharepoint but adds a "filename" column to track source files
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint_with_filename_column(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        
+        // Get list of files in the folder
+        let files = client.list_folder_contents(folder_path).await?;
+        
+        let mut dataframes = Vec::new();
+        
+        for file_info in files {
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_info.name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                    continue;
+                }
+            }
+            
+            // Download and process file based on extension
+            let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+            
+            let mut loaded_df = None;
+            
+            match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match Self::load_csv_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded CSV: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match Self::load_excel_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Excel: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match Self::load_json_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded JSON: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match Self::load_parquet_from_sharepoint(tenant_id, client_id, site_url, &file_path).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Parquet: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_info.name);
+                }
+            }
+            
+            // Add filename column to the loaded dataframe
+            if let Some(mut df) = loaded_df {
+                // Add filename as a new column using select with literal value
+                df = df.select_vec(vec![
+                    &format!("'{}' AS filename_added", file_info.name), 
+                    "*"
+                ]);
+                
+                // Execute the selection to create the dataframe with filename column
+                let temp_alias = format!("file_with_filename_{}", dataframes.len());
+                match df.elusion(&temp_alias).await {
+                    Ok(filename_df) => {
+                        println!("✅ Added filename column to {}", file_info.name);
+                        dataframes.push(filename_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to add filename to {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "SharePoint Folder Loading with Filename".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains supported files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded with filename column");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        // Check schema compatibility (all files should now have filename as first column)
+        println!("🔍 Checking schema compatibility for {} files with filename columns...", dataframes.len());
+        
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names match (should be identical now with filename column)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            // Reorder columns by name to match first file (same as original function)
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        // Union the compatible dataframes
+        println!("🔗 Unioning {} files with filename tracking...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "SharePoint Folder Union with Filename".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files with filename tracking", total_files);
+        
+        // Final elusion with the desired alias
+        result.elusion(result_alias).await
+    }
+
+    // Stub implementation for when sharepoint feature is not enabled
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_folder_from_sharepoint_with_filename_column(
+        _tenant_id: &str, 
+        _client_id: &str, 
+        _site_url: &str, 
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Folder Loading with Filename".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
 
     // ====== POSTGRESS
 
