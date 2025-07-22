@@ -4013,7 +4013,6 @@ impl CustomDataFrame {
                         date.format(format_str).to_string()
                     }
                 };
-                
                 // Apply formatting to all period dates
                 week_start_builder.append_value(format_period_date(week_start));
                 week_end_builder.append_value(format_period_date(week_end));
