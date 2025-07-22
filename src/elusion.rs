@@ -6694,7 +6694,7 @@ impl CustomDataFrame {
                 .collect::<Vec<_>>()
                 .join(", ");
     
-            // // Use the final part of the value column for the label
+            //  final part of the value column for the label
             // let label = if let Some(pos) = val_col.rfind('_') {
             //     &val_col[pos + 1..]
             // } else {
@@ -6734,7 +6734,6 @@ impl CustomDataFrame {
     
         Ok(self)
     }
-
 
     /// Fill down null values (deferred execution - follows select/filter pattern)
     pub fn fill_down<const N: usize>(

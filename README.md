@@ -2,10 +2,10 @@
 
 
 ![Elusion Logo](images/elusion.png)
-
-## Best Way to learn Elusion:
-Udemy Course - [Click to start learning on Udemy!](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
-
+---
+### If you find Elusion useful, buy me a coffee! ☕
+[Buy me a coffee](https://coff.ee/elusion.rust)
+---
 
 Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
 Additionally you can easily create Reports and Dashboard by passing DataFrame results.
