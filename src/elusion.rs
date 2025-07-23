@@ -114,92 +114,116 @@ impl SharePointClient {
         }
     }
 
-    /// Cross-platform Azure CLI path detection
-    fn get_azure_cli_paths() -> Vec<&'static str> {
-        if cfg!(target_os = "windows") {
-            vec![
-                "az.cmd",
-                "az.exe", 
-                "az",
-                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
-                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
-                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
-                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
-
-                // MSI installer locations
-                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
-                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
-                
-                // Chocolatey installation
-                "C:\\ProgramData\\chocolatey\\bin\\az.cmd",
-                "C:\\ProgramData\\chocolatey\\bin\\az.exe",
-                
-                // Scoop installation (common for developers)
-                "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.cmd",
-                
-                // Windows Store / App installation (newer Windows 10/11)
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe",
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.cmd",
-                
-                // Python pip installation
-                "C:\\Python39\\Scripts\\az.cmd",
-                "C:\\Python310\\Scripts\\az.cmd", 
-                "C:\\Python311\\Scripts\\az.cmd",
-                "C:\\Python312\\Scripts\\az.cmd",
-                
-                // User-specific Python installations
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\az.cmd",
-                
-                // AppData Roaming (pip --user installations)
-                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python39\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python310\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python311\\Scripts\\az.cmd",
-                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python312\\Scripts\\az.cmd",
- 
-            ]
-        } else if cfg!(target_os = "macos") {
-            vec![
-                "az",
-                "/usr/local/bin/az",
-                "/opt/homebrew/bin/az",
-                "/usr/bin/az",
-            ]
-        } else {
-            // Linux and other Unix-like systems
-            vec![
-                "az",
-                "/usr/local/bin/az",
-                "/usr/bin/az",
-                "/opt/az/bin/az",
-                "~/.local/bin/az",
-            ]
-        }
+    async fn execute_az_via_python(&self, args: &[&str]) -> ElusionResult<std::process::Output> {
+    let python_path = r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#;
+    
+    if !std::path::Path::new(python_path).exists() {
+        return Err(ElusionError::Custom("Azure CLI Python not found".to_string()));
     }
+    
+    let mut full_args = vec!["-X", "utf8", "-m", "azure.cli"];
+    full_args.extend(args);
+    
+    std::process::Command::new(python_path)
+        .args(&full_args)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
+        .output()
+        .map_err(|e| ElusionError::Custom(format!("Failed to execute Azure CLI via Python: {}", e)))
+}
 
-    /// Smart authentication - tries multiple methods
+    /// authenticate function using direct Python approach for Unicode usernames
     async fn authenticate(&mut self) -> ElusionResult<()> {
-        let az_paths = Self::get_azure_cli_paths();
+        println!("🔍 Authenticating with Azure CLI (Unicode-safe method)...");
         
-        println!("🔍 Searching for Azure CLI on {} platform...", 
-            if cfg!(target_os = "windows") { "Windows" }
-            else if cfg!(target_os = "macos") { "macOS" } 
-            else { "Linux" }
-        );
+        // Try direct Python approach first (works with Unicode usernames)
+        match self.execute_az_via_python(&["--version"]).await {
+            Ok(version_output) => {
+                if version_output.status.success() {
+                    println!("✅ Azure CLI via Python works");
+                    
+                    // Check if logged in using helper
+                    match self.execute_az_via_python(&["account", "show"]).await {
+                        Ok(account_output) => {
+                            if account_output.status.success() {
+                                println!("✅ Already logged in to Azure");
+                                
+                                // Get access token using helper
+                                match self.execute_az_via_python(&["account", "get-access-token", "--resource", "https://graph.microsoft.com/", "--output", "json"]).await {
+                                    Ok(token_output) => {
+                                        if token_output.status.success() {
+                                            let token_json = String::from_utf8_lossy(&token_output.stdout);
+                                            if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
+                                                if let Some(access_token) = token_data["accessToken"].as_str() {
+                                                    self.access_token = Some(access_token.to_string());
+                                                    println!("✅ Successfully authenticated with Azure CLI (Python method)");
+                                                    return Ok(()); // SUCCESS - Exit immediately
+                                                }
+                                            }
+                                        } else {
+                                            let error_text = String::from_utf8_lossy(&token_output.stderr);
+                                            println!("⚠️ Failed to get access token via Python: {}", error_text);
+                                        }
+                                    },
+                                    Err(e) => {
+                                        println!("⚠️ Python token command failed: {}", e);
+                                    }
+                                }
+                            } else {
+                                println!("⚠️ Azure CLI found but not logged in. Please run: az login");
+                                let error_text = String::from_utf8_lossy(&account_output.stderr);
+                                if !error_text.trim().is_empty() && !error_text.contains("charmap") {
+                                    println!("Details: {}", error_text);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            println!("⚠️ Python account check failed: {}", e);
+                        }
+                    }
+                } else {
+                    println!("⚠️ Azure CLI Python method failed, trying all other paths...");
+                }
+            },
+            Err(e) => {
+                println!("⚠️ Python method not available ({}), trying all other paths...", e);
+            }
+        }
+        
+        // Fallback: try ALL paths until one works
+        println!("🔄 Checking all available Azure CLI paths...");
+        
+        let az_paths = Self::get_azure_cli_paths();
+        let total_paths = az_paths.len();
+        
+        println!("🔍 Will check {} potential Azure CLI locations...", total_paths);
+        
+        let mut unicode_errors = 0;
+        let mut paths_tried = 0;
         
         for (i, az_path) in az_paths.iter().enumerate() {
+            // Skip the Python path since we already tried it
+            if az_path.contains("python.exe") {
+                continue;
+            }
+            
+            paths_tried += 1;
+            
+            // Show progress every 10 paths
+            if i > 0 && i % 10 == 0 {
+                println!("   Checked {}/{} paths...", i, total_paths);
+            }
+            
             if let Ok(output) = std::process::Command::new(az_path)
                 .args(["--version"])
-                .env("PYTHONIOENCODING", "utf-8")  // Fix Unicode encoding
-                .env("PYTHONUTF8", "1")            // Enable UTF-8 mode
+                .env("PYTHONIOENCODING", "utf-8")
+                .env("PYTHONUTF8", "1")
                 .output() 
             {
                 if output.status.success() {
-                    println!("✅ Found Azure CLI at: {}", az_path);
+                    println!("✅ Found working Azure CLI at path {}/{}: {}", i + 1, total_paths, az_path);
                     
-                    // Check if logged in with Unicode fix
+                    // Check login status
                     if let Ok(account_output) = std::process::Command::new(az_path)
                         .args(["account", "show"])
                         .env("PYTHONIOENCODING", "utf-8")
@@ -207,7 +231,9 @@ impl SharePointClient {
                         .output() 
                     {
                         if account_output.status.success() {
-                            // Get token with Unicode fix
+                            println!("✅ User is logged in");
+                            
+                            // Get token
                             if let Ok(token_output) = std::process::Command::new(az_path)
                                 .args(["account", "get-access-token", "--resource", "https://graph.microsoft.com/", "--output", "json"])
                                 .env("PYTHONIOENCODING", "utf-8")
@@ -219,47 +245,363 @@ impl SharePointClient {
                                     if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
                                         if let Some(access_token) = token_data["accessToken"].as_str() {
                                             self.access_token = Some(access_token.to_string());
-                                            println!("✅ Successfully authenticated with Azure CLI (Unicode fix applied)");
-                                            return Ok(());
+                                            println!("🎉 Successfully authenticated with Azure CLI!");
+                                            println!("📍 Using path: {}", az_path);
+                                            return Ok(()); // SUCCESS - Exit immediately!
                                         }
                                     }
                                 } else {
                                     let error_text = String::from_utf8_lossy(&token_output.stderr);
-                                    println!("⚠️ Token error: {}", error_text);
+                                    if error_text.contains("charmap") || error_text.contains("UnicodeEncodeError") {
+                                        unicode_errors += 1;
+                                        println!("⚠️ Unicode error at path {}: {}", i + 1, az_path);
+                                    } else {
+                                        println!("⚠️ Token error at path {}: {}", i + 1, error_text.lines().next().unwrap_or("Unknown"));
+                                    }
                                 }
                             }
                         } else {
                             let error_text = String::from_utf8_lossy(&account_output.stderr);
-                            println!("⚠️ Azure CLI found but not logged in. Please run: az login");
-                            println!("Error: {}", error_text);
+                            if error_text.contains("charmap") || error_text.contains("UnicodeEncodeError") {
+                                unicode_errors += 1;
+                                println!("⚠️ Unicode error at path {}: {}", i + 1, az_path);
+                            } else if !error_text.contains("Please run 'az login'") {
+                                // Only log if it's not the standard "not logged in" message
+                                println!("⚠️ Account error at path {}: {}", i + 1, error_text.lines().next().unwrap_or("Not logged in"));
+                            }
                         }
+                    } else {
+                        println!("⚠️ Could not check account status at path {}: {}", i + 1, az_path);
                     }
-                } else if i == 0 {
-                    // Only log the first attempt failure with details
+                } else {
                     let error_text = String::from_utf8_lossy(&output.stderr);
                     if error_text.contains("charmap") || error_text.contains("UnicodeEncodeError") {
-                        println!("🔧 Detected Unicode encoding issue in username. Applying fix...");
-                    } else {
-                        println!("🔍 Azure CLI not found at: {}", az_path);
+                        unicode_errors += 1;
+                        // Don't spam Unicode errors, just count them
+                    } else if i < 5 {
+                        // Only show first few non-Unicode errors to avoid spam
+                        println!("⚠️ Path {} failed: {}", i + 1, error_text.lines().next().unwrap_or("Unknown error"));
                     }
                 }
-            } else if i == 0 {
-                println!("🔍 Azure CLI not found in PATH, trying other locations...");
+            } else {
+                // File doesn't exist or can't execute - this is normal, don't log
             }
         }
         
+        // If we get here, no paths worked
+        println!("❌ Checked all {} paths, none worked", total_paths);
+        
+        if unicode_errors > 0 {
+            println!("⚠️ Detected {} Unicode encoding errors", unicode_errors);
+            println!("💡 Your username may contain special characters that require the Python method");
+        }
+        
         Err(ElusionError::Custom(format!(
-            "Azure CLI not found or not authenticated. Please:\n\
+            "Azure CLI authentication failed after checking {} paths.\n\
+            {} Unicode errors detected.\n\n\
+            Please:\n\
             1. Install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli\n\
             2. Run: az login\n\
             3. Verify: az account show\n\n\
-            Note: If you have special characters in your username, this may cause Unicode issues.\n\
-            Platform: {}", 
+            Platform: {}\n\
+            Paths checked: {}", 
+            total_paths,
+            unicode_errors,
             if cfg!(target_os = "windows") { "Windows" }
             else if cfg!(target_os = "macos") { "macOS" } 
-            else { "Linux" }
+            else { "Linux" },
+            paths_tried
         )))
     }
+
+    /// Comprehensive Azure CLI path detection for all platforms and installation methods
+    fn get_azure_cli_paths() -> Vec<&'static str> {
+        if cfg!(target_os = "windows") {
+            vec![
+                // Prioritize the working Python method for Unicode usernames
+                r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#,
+                
+                // Standard paths (try these first)
+                "az.cmd",
+                "az.exe", 
+                "az",
+                
+                // Microsoft Official Installer locations (most common)
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+
+                // MSI installer alternative locations
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
+                
+                // Windows Store / App installation (Windows 10/11)
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.cmd",
+                
+                // Package Manager installations
+                // Chocolatey
+                "C:\\ProgramData\\chocolatey\\bin\\az.cmd",
+                "C:\\ProgramData\\chocolatey\\bin\\az.exe",
+                "C:\\tools\\azure-cli\\az.cmd",
+                
+                // Scoop (popular among developers)
+                "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.cmd",
+                "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.exe",
+                "C:\\Users\\%USERNAME%\\scoop\\shims\\az.cmd",
+                "C:\\Users\\%USERNAME%\\scoop\\shims\\az.exe",
+                
+                // Winget installations
+                "C:\\Program Files\\WindowsApps\\Microsoft.AzureCLI_*\\az.cmd",
+                
+                // Python pip installations (various Python versions)
+                "C:\\Python39\\Scripts\\az.cmd",
+                "C:\\Python310\\Scripts\\az.cmd", 
+                "C:\\Python311\\Scripts\\az.cmd",
+                "C:\\Python312\\Scripts\\az.cmd",
+                "C:\\Python313\\Scripts\\az.cmd",
+                
+                // User-specific Python installations
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\az.cmd",
+                
+                // Pip --user installations
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python39\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python310\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python311\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python312\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python313\\Scripts\\az.cmd",
+                
+                // Conda/Miniconda installations
+                "C:\\Users\\%USERNAME%\\miniconda3\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\anaconda3\\Scripts\\az.cmd",
+                "C:\\miniconda3\\Scripts\\az.cmd",
+                "C:\\anaconda3\\Scripts\\az.cmd",
+                "C:\\ProgramData\\miniconda3\\Scripts\\az.cmd",
+                "C:\\ProgramData\\anaconda3\\Scripts\\az.cmd",
+                
+                // Docker Desktop bundled installations
+                "C:\\Program Files\\Docker\\Docker\\resources\\bin\\az.exe",
+                
+                // Enterprise/Corporate custom installations
+                "C:\\tools\\az\\az.cmd",
+                "C:\\bin\\az.cmd",
+                "C:\\opt\\azure-cli\\az.cmd",
+            ]
+        } else if cfg!(target_os = "macos") {
+            vec![
+                // Standard PATH
+                "az",
+                
+                // Homebrew installations (most common on macOS)
+                "/usr/local/bin/az",              // Intel Macs
+                "/opt/homebrew/bin/az",           // Apple Silicon Macs
+                "/opt/homebrew/Cellar/azure-cli/*/bin/az",
+                
+                // System installations
+                "/usr/bin/az",
+                "/bin/az",
+                
+                // MacPorts
+                "/opt/local/bin/az",
+                
+                // Python pip installations
+                "/usr/local/python3/bin/az",
+                "/Library/Frameworks/Python.framework/Versions/3.9/bin/az",
+                "/Library/Frameworks/Python.framework/Versions/3.10/bin/az",
+                "/Library/Frameworks/Python.framework/Versions/3.11/bin/az",
+                "/Library/Frameworks/Python.framework/Versions/3.12/bin/az",
+                "/Library/Frameworks/Python.framework/Versions/3.13/bin/az",
+                
+                // User-specific installations
+                "/Users/%USER%/.local/bin/az",
+                "/Users/%USER%/Library/Python/3.9/bin/az",
+                "/Users/%USER%/Library/Python/3.10/bin/az",
+                "/Users/%USER%/Library/Python/3.11/bin/az",
+                "/Users/%USER%/Library/Python/3.12/bin/az",
+                "/Users/%USER%/Library/Python/3.13/bin/az",
+                
+                // Conda installations
+                "/Users/%USER%/miniconda3/bin/az",
+                "/Users/%USER%/anaconda3/bin/az",
+                "/opt/miniconda3/bin/az",
+                "/opt/anaconda3/bin/az",
+                
+                // Pyenv installations
+                "/Users/%USER%/.pyenv/shims/az",
+                
+                // Docker Desktop
+                "/Applications/Docker.app/Contents/Resources/bin/az",
+                
+                // Manual installations
+                "/usr/local/azure-cli/az",
+                "/opt/azure-cli/bin/az",
+                "/Applications/Azure CLI/az",
+            ]
+        } else {
+            // Linux and other Unix-like systems
+            vec![
+                // Standard PATH
+                "az",
+                
+                // Common system paths
+                "/usr/local/bin/az",
+                "/usr/bin/az",
+                "/bin/az",
+                "/opt/az/bin/az",
+                
+                // User-specific installations
+                "~/.local/bin/az",
+                "/home/$USER/.local/bin/az",
+                
+                // Package manager installations
+                // Snap (Ubuntu/Debian)
+                "/snap/bin/azure-cli",
+                "/snap/azure-cli/current/bin/az",
+                
+                // Flatpak
+                "/var/lib/flatpak/exports/bin/com.microsoft.AzureCLI",
+                "/home/$USER/.local/share/flatpak/exports/bin/com.microsoft.AzureCLI",
+                
+                // APT/YUM package installations
+                "/usr/lib/azure-cli/az",
+                
+                // Python pip installations (various distributions)
+                "/usr/local/python3/bin/az",
+                "/usr/local/lib/python3.9/site-packages/az",
+                "/usr/local/lib/python3.10/site-packages/az",
+                "/usr/local/lib/python3.11/site-packages/az",
+                "/usr/local/lib/python3.12/site-packages/az",
+                
+                // User Python installations
+                "/home/$USER/.local/lib/python3.9/bin/az",
+                "/home/$USER/.local/lib/python3.10/bin/az",
+                "/home/$USER/.local/lib/python3.11/bin/az",
+                "/home/$USER/.local/lib/python3.12/bin/az",
+                
+                // Conda installations
+                "/home/$USER/miniconda3/bin/az",
+                "/home/$USER/anaconda3/bin/az",
+                "/opt/miniconda3/bin/az",
+                "/opt/anaconda3/bin/az",
+                "/usr/local/miniconda3/bin/az",
+                "/usr/local/anaconda3/bin/az",
+                
+                // Docker installations
+                "/usr/local/docker/bin/az",
+                
+                // Enterprise/Custom installations
+                "/opt/microsoft/azure-cli/bin/az",
+                "/usr/local/azure-cli/bin/az",
+                "/home/$USER/azure-cli/bin/az",
+                
+                // Distribution-specific paths
+                // Red Hat/CentOS/Fedora
+                "/usr/libexec/azure-cli/az",
+                
+                // SUSE
+                "/usr/lib64/azure-cli/az",
+                
+                // Arch Linux
+                "/usr/share/azure-cli/az",
+                
+                // Alpine Linux
+                "/usr/lib/python3.*/site-packages/azure-cli/az",
+            ]
+        }
+    }
+
+    //-----------------================\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+   
+
+    // /// Smart authentication - tries multiple methods
+    // async fn authenticate(&mut self) -> ElusionResult<()> {
+    //     let az_paths = Self::get_azure_cli_paths();
+        
+    //     println!("🔍 Searching for Azure CLI on {} platform...", 
+    //         if cfg!(target_os = "windows") { "Windows" }
+    //         else if cfg!(target_os = "macos") { "macOS" } 
+    //         else { "Linux" }
+    //     );
+        
+    //     for (i, az_path) in az_paths.iter().enumerate() {
+    //         if let Ok(output) = std::process::Command::new(az_path)
+    //             .args(["--version"])
+    //             .env("PYTHONIOENCODING", "utf-8")  // Fix Unicode encoding
+    //             .env("PYTHONUTF8", "1")            // Enable UTF-8 mode
+    //             .output() 
+    //         {
+    //             if output.status.success() {
+    //                 println!("✅ Found Azure CLI at: {}", az_path);
+                    
+    //                 // Check if logged in with Unicode fix
+    //                 if let Ok(account_output) = std::process::Command::new(az_path)
+    //                     .args(["account", "show"])
+    //                     .env("PYTHONIOENCODING", "utf-8")
+    //                     .env("PYTHONUTF8", "1")
+    //                     .output() 
+    //                 {
+    //                     if account_output.status.success() {
+    //                         // Get token with Unicode fix
+    //                         if let Ok(token_output) = std::process::Command::new(az_path)
+    //                             .args(["account", "get-access-token", "--resource", "https://graph.microsoft.com/", "--output", "json"])
+    //                             .env("PYTHONIOENCODING", "utf-8")
+    //                             .env("PYTHONUTF8", "1")
+    //                             .output()
+    //                         {
+    //                             if token_output.status.success() {
+    //                                 let token_json = String::from_utf8_lossy(&token_output.stdout);
+    //                                 if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
+    //                                     if let Some(access_token) = token_data["accessToken"].as_str() {
+    //                                         self.access_token = Some(access_token.to_string());
+    //                                         println!("✅ Successfully authenticated with Azure CLI (Unicode fix applied)");
+    //                                         return Ok(());
+    //                                     }
+    //                                 }
+    //                             } else {
+    //                                 let error_text = String::from_utf8_lossy(&token_output.stderr);
+    //                                 println!("⚠️ Token error: {}", error_text);
+    //                             }
+    //                         }
+    //                     } else {
+    //                         let error_text = String::from_utf8_lossy(&account_output.stderr);
+    //                         println!("⚠️ Azure CLI found but not logged in. Please run: az login");
+    //                         println!("Error: {}", error_text);
+    //                     }
+    //                 }
+    //             } else if i == 0 {
+    //                 // Only log the first attempt failure with details
+    //                 let error_text = String::from_utf8_lossy(&output.stderr);
+    //                 if error_text.contains("charmap") || error_text.contains("UnicodeEncodeError") {
+    //                     println!("🔧 Detected Unicode encoding issue in username. Applying fix...");
+    //                 } else {
+    //                     println!("🔍 Azure CLI not found at: {}", az_path);
+    //                 }
+    //             }
+    //         } else if i == 0 {
+    //             println!("🔍 Azure CLI not found in PATH, trying other locations...");
+    //         }
+    //     }
+        
+    //     Err(ElusionError::Custom(format!(
+    //         "Azure CLI not found or not authenticated. Please:\n\
+    //         1. Install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli\n\
+    //         2. Run: az login\n\
+    //         3. Verify: az account show\n\n\
+    //         Note: If you have special characters in your username, this may cause Unicode issues.\n\
+    //         Platform: {}", 
+    //         if cfg!(target_os = "windows") { "Windows" }
+    //         else if cfg!(target_os = "macos") { "macOS" } 
+    //         else { "Linux" }
+    //     )))
+    // }
 
     /// Extract tenant name from SharePoint URL for generic hostname variations
     fn extract_tenant_info(site_url: &str) -> ElusionResult<(String, String, String)> {
