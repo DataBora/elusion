@@ -119,11 +119,46 @@ impl SharePointClient {
         if cfg!(target_os = "windows") {
             vec![
                 "az.cmd",
+                "az.exe", 
                 "az",
                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+
+                // MSI installer locations
+                "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+                "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+                
+                // Chocolatey installation
+                "C:\\ProgramData\\chocolatey\\bin\\az.cmd",
+                "C:\\ProgramData\\chocolatey\\bin\\az.exe",
+                
+                // Scoop installation (common for developers)
+                "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.cmd",
+                
+                // Windows Store / App installation (newer Windows 10/11)
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.cmd",
+                
+                // Python pip installation
+                "C:\\Python39\\Scripts\\az.cmd",
+                "C:\\Python310\\Scripts\\az.cmd", 
+                "C:\\Python311\\Scripts\\az.cmd",
+                "C:\\Python312\\Scripts\\az.cmd",
+                
+                // User-specific Python installations
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\az.cmd",
+                
+                // AppData Roaming (pip --user installations)
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python39\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python310\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python311\\Scripts\\az.cmd",
+                "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python312\\Scripts\\az.cmd",
+ 
             ]
         } else if cfg!(target_os = "macos") {
             vec![
@@ -155,35 +190,60 @@ impl SharePointClient {
         );
         
         for (i, az_path) in az_paths.iter().enumerate() {
-            if let Ok(output) = std::process::Command::new(az_path).args(["--version"]).output() {
+            if let Ok(output) = std::process::Command::new(az_path)
+                .args(["--version"])
+                .env("PYTHONIOENCODING", "utf-8")  // Fix Unicode encoding
+                .env("PYTHONUTF8", "1")            // Enable UTF-8 mode
+                .output() 
+            {
                 if output.status.success() {
                     println!("✅ Found Azure CLI at: {}", az_path);
                     
-                    // Check if logged in
-                    if let Ok(account_output) = std::process::Command::new(az_path).args(["account", "show"]).output() {
+                    // Check if logged in with Unicode fix
+                    if let Ok(account_output) = std::process::Command::new(az_path)
+                        .args(["account", "show"])
+                        .env("PYTHONIOENCODING", "utf-8")
+                        .env("PYTHONUTF8", "1")
+                        .output() 
+                    {
                         if account_output.status.success() {
-                            // Get token
+                            // Get token with Unicode fix
                             if let Ok(token_output) = std::process::Command::new(az_path)
                                 .args(["account", "get-access-token", "--resource", "https://graph.microsoft.com/", "--output", "json"])
-                                .output() {
+                                .env("PYTHONIOENCODING", "utf-8")
+                                .env("PYTHONUTF8", "1")
+                                .output()
+                            {
                                 if token_output.status.success() {
                                     let token_json = String::from_utf8_lossy(&token_output.stdout);
                                     if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
                                         if let Some(access_token) = token_data["accessToken"].as_str() {
                                             self.access_token = Some(access_token.to_string());
-                                            println!("✅ Successfully authenticated with Azure CLI");
+                                            println!("✅ Successfully authenticated with Azure CLI (Unicode fix applied)");
                                             return Ok(());
                                         }
                                     }
+                                } else {
+                                    let error_text = String::from_utf8_lossy(&token_output.stderr);
+                                    println!("⚠️ Token error: {}", error_text);
                                 }
                             }
                         } else {
+                            let error_text = String::from_utf8_lossy(&account_output.stderr);
                             println!("⚠️ Azure CLI found but not logged in. Please run: az login");
+                            println!("Error: {}", error_text);
                         }
+                    }
+                } else if i == 0 {
+                    // Only log the first attempt failure with details
+                    let error_text = String::from_utf8_lossy(&output.stderr);
+                    if error_text.contains("charmap") || error_text.contains("UnicodeEncodeError") {
+                        println!("🔧 Detected Unicode encoding issue in username. Applying fix...");
+                    } else {
+                        println!("🔍 Azure CLI not found at: {}", az_path);
                     }
                 }
             } else if i == 0 {
-                // Only log for the first attempt to avoid spam
                 println!("🔍 Azure CLI not found in PATH, trying other locations...");
             }
         }
@@ -193,6 +253,7 @@ impl SharePointClient {
             1. Install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli\n\
             2. Run: az login\n\
             3. Verify: az account show\n\n\
+            Note: If you have special characters in your username, this may cause Unicode issues.\n\
             Platform: {}", 
             if cfg!(target_os = "windows") { "Windows" }
             else if cfg!(target_os = "macos") { "macOS" } 
