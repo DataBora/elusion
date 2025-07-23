@@ -1,6 +1,10 @@
+## [3.12.5] - 2025-07-23
+### Added
+- Sharepoint connector early checkout after path is found
+
 ## [3.12.4] - 2025-07-23
 ### Fixed
-- Sharepoint connetor for users with probelms for Unicode encoding error with the character \u010d (which is č)
+- Sharepoint connector for users with probelms for Unicode encoding error with the character \u010d (which is č)
 
 ## [3.12.3] - 2025-07-22
 ### Added
