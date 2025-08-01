@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.12.5"
+version = "3.13.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -43,6 +43,10 @@ mysql_async = { version = "0.32.2", default-features = false, features = ["minim
 rust_xlsxwriter = {version = "0.87.0", optional = true}
 calamine = "0.23.1"
 url = {version = "2.5", optional = true}
+# tiberius = { version = "0.12", features = ["tds73", "sql-browser-async-std"], optional = true }
+# tokio-util = { version = "0.7", features = ["compat"], optional = true }
+# azure_identity = { version = "0.26.0", optional = true }
+
 
 [features]
 default = []
@@ -53,7 +57,8 @@ postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
 sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding"] 
-all = ["dashboard", "api", "azure", "postgres", "mysql", "excel","sharepoint"]
+# azuresql = ["dep:tiberius", "dep:tokio-util", "dep:azure_identity"]
+all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

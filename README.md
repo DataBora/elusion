@@ -7,7 +7,7 @@
 [Buy me a coffee](https://coff.ee/elusion.rust)
 ---
 
-Elusion is a high-performance DataFrame / Data Engineering / Data Analysis library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
+Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
 Additionally you can easily create Reports and Dashboard by passing DataFrame results.
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
@@ -85,7 +85,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.12.5"
+elusion = "3.13.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -137,25 +137,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.12.5", features = ["postgres"] }
+elusion = { version = "3.13.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.12.5"
+elusion = "3.13.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.5", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.13.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.12.5", features = ["all"] }
+elusion = { version = "3.13.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -189,6 +189,7 @@ async fn main() -> ElusionResult<()> {
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
 #### - In-Memory data formats: CSV, EXCEL, JSON, PARQUET, DELTA 
+#### - SharePoint
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - Postgres Database SQL Queries
 #### - MySQL Database Queries
@@ -203,6 +204,7 @@ async fn main() -> ElusionResult<()> {
 
 ## Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
+#### File extensions are automatically recognized (csv, excel, json, parquet, delta)
 
 ### LOADING data from CSV into CustomDataFrame
 ```rust
@@ -1741,8 +1743,8 @@ test_data.display().await?;
 1. Install Azure CLI
 Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
-🍎 macOS: brew install azure-cli
-🐧 Linux: 
+- 🍎 macOS: brew install azure-cli
+- 🐧 Linux: 
 ### Ubuntu/Debian
 curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
@@ -1772,30 +1774,22 @@ This should display your account information and confirm you're logged in.
 Sites.Read.All or Sites.ReadWrite.All
 Files.Read.All or Files.ReadWrite.All
 
-#### Single file loading examples:
+#### Single file loading auto-recognize file extension (csv, excel, parquet, json):
 ```rust
-//Example 1:
-let df = CustomDataFrame::load_excel_from_sharepoint(
+//Example:
+let df = CustomDataFrame::load_from_sharepoint(
     "your-tenant-id",
     "your-client-id", 
-    "http://companyname.sharepoint.com/sites/SiteName", 
-    "Shared Documents/MainFolder/SalesSubFolder/SalesData.xlsx",
-    ).await?;
+    "https://contoso.sharepoint.com/sites/MySite",
+    "Shared Documents/Data/customer_data.csv",
+    "combined_data" //dataframe alias
+).await?;
 
 let sales_data = df
     .select(["Column_1","Column_2","Column_3"])
     .elusion("my_sales_data").await?;
 
 sales_data.display().await?;
-
-//Example 2:
-let df = CustomDataFrame::load_csv_from_sharepoint(
-    "your-tenant-id",
-    "your-client-id", 
-    "https://contoso.sharepoint.com/sites/MySite",
-    "Shared Documents/Data/customer_data.csv"
-).await?;
-
 //RUN THE PROGRAM
 cargo run --features sharepoint
 ```
@@ -1807,7 +1801,7 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint(
     "http://companyname.sharepoint.com/sites/SiteName", 
     "Shared Documents/MainFolder/SubFolder",
     None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
-    "combined_data"
+    "combined_data" //dataframe alias
 ).await?;
 
 dataframes.display().await?;
@@ -1823,7 +1817,7 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_colu
     "http://companyname.sharepoint.com/sites/SiteName", 
     "Shared Documents/MainFolder/SubFolder",
     None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
-    "combined_data"
+    "combined_data" //dataframe alias
 ).await?;
 
 dataframes.display().await?;
