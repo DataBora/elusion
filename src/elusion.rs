@@ -67,6 +67,626 @@ use reqwest;
 #[cfg(feature = "sharepoint")]
 use url;
 
+//=========== AZURE SQL SERVER
+// #[cfg(feature = "azuresql")]
+// use tiberius::{Client as TiberiusClient, Config as TiberiusConfig, AuthMethod};
+// #[cfg(feature = "azuresql")]
+// use tokio::net::TcpStream;
+// #[cfg(feature = "azuresql")]
+// use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
+
+// #[cfg(feature = "azuresql")]
+// #[derive(Debug, Clone)]
+// pub struct AzureSqlConfig {
+//     pub server_name: String,           
+//     pub database_name: Option<String>,
+//     pub tenant_id: Option<String>,   
+//     pub client_id: Option<String>,    
+//     pub port: Option<u16>,
+//     pub is_fabric: bool, 
+// }
+
+
+// #[cfg(feature = "azuresql")]
+// impl AzureSqlConfig {
+
+//         pub fn new(server_name: String, database_name: String) -> Self {
+//         let is_fabric = server_name.contains(".datawarehouse.fabric.microsoft.com") ||
+//                        server_name.contains(".lakehouse.fabric.microsoft.com");
+        
+//         Self {
+//             server_name,
+//             database_name: Some(database_name),
+//             tenant_id: None,
+//             client_id: None,
+//             port: Some(1433),
+//             is_fabric,
+//         }
+//     }
+    
+//      pub fn new_fabric(server_name: String) -> Self {
+//         Self {
+//             server_name,
+//             database_name: None,
+//             tenant_id: None,
+//             client_id: None,
+//             port: Some(1433),
+//             is_fabric: true,
+//         }
+//     }
+
+//     pub fn new_with_auth(
+//         server_name: String, 
+//         database_name: Option<String>,
+//         tenant_id: String,
+//         client_id: String
+//     ) -> Self {
+//         let is_fabric = server_name.contains(".datawarehouse.fabric.microsoft.com") ||
+//                        server_name.contains(".lakehouse.fabric.microsoft.com");
+        
+//         Self {
+//             server_name,
+//             database_name,
+//             tenant_id: Some(tenant_id),
+//             client_id: Some(client_id),
+//             port: Some(1433),
+//             is_fabric,
+//         }
+//     }
+    
+//     pub fn with_port(mut self, port: u16) -> Self {
+//         self.port = Some(port);
+//         self
+//     }
+// }
+
+// #[cfg(feature = "azuresql")]
+// pub struct AzureSqlClient {
+//     config: AzureSqlConfig,
+//     access_token: Option<String>,
+// }
+// #[cfg(feature = "azuresql")]
+// impl AzureSqlClient {
+//     pub fn new(config: AzureSqlConfig) -> Self {
+//         Self {
+//             config,
+//             access_token: None,
+//         }
+//     }
+
+//     async fn authenticate(&mut self) -> ElusionResult<()> {
+//         println!("🔍 Authenticating with Azure CLI for {}...", 
+//                 if self.config.is_fabric { "Fabric Data Warehouse" } else { "Azure SQL Server" });
+        
+//         // Determine the correct resource scope
+//         let resource_url = if self.config.is_fabric {
+//             // Fabric 
+//             "https://analysis.windows.net/powerbi/api"
+//         } else {
+//             //Traditional
+//             "https://database.windows.net/"
+//         };
+
+//         // Try the Python approach first
+//         match self.execute_az_via_python(&["--version"]).await {
+//             Ok(version_output) => {
+//                 if version_output.status.success() {
+//                     println!("✅ Azure CLI via Python works");
+                    
+//                     // Check if logged in
+//                     match self.execute_az_via_python(&["account", "show"]).await {
+//                         Ok(account_output) => {
+//                             if account_output.status.success() {
+//                                 println!("✅ Already logged in to Azure");
+                                
+//                                 // Get access token with correct resource scope
+//                                 match self.execute_az_via_python(&[
+//                                     "account", 
+//                                     "get-access-token", 
+//                                     "--resource", 
+//                                     resource_url,
+//                                     "--output", 
+//                                     "json"
+//                                 ]).await {
+//                                     Ok(token_output) => {
+//                                         if token_output.status.success() {
+//                                             let token_json = String::from_utf8_lossy(&token_output.stdout);
+//                                             if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
+//                                                 if let Some(access_token) = token_data["accessToken"].as_str() {
+//                                                     self.access_token = Some(access_token.to_string());
+//                                                     println!("✅ Successfully authenticated for {}", 
+//                                                             if self.config.is_fabric { "Fabric" } else { "Azure SQL" });
+//                                                     return Ok(());
+//                                                 }
+//                                             }
+//                                         } else {
+//                                             let error_text = String::from_utf8_lossy(&token_output.stderr);
+//                                             println!("⚠️ Failed to get access token: {}", error_text);
+//                                         }
+//                                     },
+//                                     Err(e) => {
+//                                         println!("⚠️ Token command failed: {}", e);
+//                                     }
+//                                 }
+//                             } else {
+//                                 println!("⚠️ Azure CLI found but not logged in. Please run: az login");
+//                             }
+//                         },
+//                         Err(e) => {
+//                             println!("⚠️ Account check failed: {}", e);
+//                         }
+//                     }
+//                 }
+//             },
+//             Err(e) => {
+//                 println!("⚠️ Python method not available ({}), trying fallback paths...", e);
+//             }
+//         }
+        
+//         // Fallback to comprehensive path checking
+//         let az_paths = Self::get_azure_cli_paths();
+        
+//         for az_path in &az_paths {
+//             if let Ok(output) = std::process::Command::new(az_path)
+//                 .args(["account", "get-access-token", "--resource", resource_url, "--output", "json"])
+//                 .env("PYTHONIOENCODING", "utf-8")
+//                 .env("PYTHONUTF8", "1")
+//                 .output() 
+//             {
+//                 if output.status.success() {
+//                     let token_json = String::from_utf8_lossy(&output.stdout);
+//                     if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
+//                         if let Some(access_token) = token_data["accessToken"].as_str() {
+//                             self.access_token = Some(access_token.to_string());
+//                             println!("✅ Successfully authenticated for {}", 
+//                                     if self.config.is_fabric { "Fabric" } else { "Azure SQL" });
+//                             return Ok(());
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+        
+//         Err(ElusionError::Custom(format!(
+//             "Azure CLI authentication failed for {}. Please run: az login", 
+//             if self.config.is_fabric { "Fabric Data Warehouse" } else { "Azure SQL Server" }
+//         )))
+//     }
+
+//     async fn execute_az_via_python(&self, args: &[&str]) -> ElusionResult<std::process::Output> {
+//         let python_path = r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#;
+        
+//         if !std::path::Path::new(python_path).exists() {
+//             return Err(ElusionError::Custom("Azure CLI Python not found".to_string()));
+//         }
+        
+//         let mut full_args = vec!["-X", "utf8", "-m", "azure.cli"];
+//         full_args.extend(args);
+        
+//         std::process::Command::new(python_path)
+//             .args(&full_args)
+//             .env("PYTHONIOENCODING", "utf-8")
+//             .env("PYTHONUTF8", "1")
+//             .output()
+//             .map_err(|e| ElusionError::Custom(format!("Failed to execute Azure CLI: {}", e)))
+//     }
+
+//     fn get_azure_cli_paths() -> Vec<&'static str> {
+//         if cfg!(target_os = "windows") {
+//             vec![
+//                 // Prioritize the working Python method for Unicode usernames
+//                 r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#,
+                
+//                 // Standard paths (try these first)
+//                 "az.cmd",
+//                 "az.exe", 
+//                 "az",
+                
+//                 // Microsoft Official Installer locations (most common)
+//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
+//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
+
+//                 // MSI installer alternative locations
+//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
+//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
+//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
+                
+//                 // Windows Store / App installation (Windows 10/11)
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.cmd",
+                
+//                 // Package Manager installations
+//                 // Chocolatey
+//                 "C:\\ProgramData\\chocolatey\\bin\\az.cmd",
+//                 "C:\\ProgramData\\chocolatey\\bin\\az.exe",
+//                 "C:\\tools\\azure-cli\\az.cmd",
+                
+//                 // Scoop (popular among developers)
+//                 "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.exe",
+//                 "C:\\Users\\%USERNAME%\\scoop\\shims\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\scoop\\shims\\az.exe",
+                
+//                 // Winget installations
+//                 "C:\\Program Files\\WindowsApps\\Microsoft.AzureCLI_*\\az.cmd",
+                
+//                 // Python pip installations (various Python versions)
+//                 "C:\\Python39\\Scripts\\az.cmd",
+//                 "C:\\Python310\\Scripts\\az.cmd", 
+//                 "C:\\Python311\\Scripts\\az.cmd",
+//                 "C:\\Python312\\Scripts\\az.cmd",
+//                 "C:\\Python313\\Scripts\\az.cmd",
+                
+//                 // User-specific Python installations
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\az.cmd",
+                
+//                 // Pip --user installations
+//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python39\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python310\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python311\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python312\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python313\\Scripts\\az.cmd",
+                
+//                 // Conda/Miniconda installations
+//                 "C:\\Users\\%USERNAME%\\miniconda3\\Scripts\\az.cmd",
+//                 "C:\\Users\\%USERNAME%\\anaconda3\\Scripts\\az.cmd",
+//                 "C:\\miniconda3\\Scripts\\az.cmd",
+//                 "C:\\anaconda3\\Scripts\\az.cmd",
+//                 "C:\\ProgramData\\miniconda3\\Scripts\\az.cmd",
+//                 "C:\\ProgramData\\anaconda3\\Scripts\\az.cmd",
+                
+//                 // Docker Desktop bundled installations
+//                 "C:\\Program Files\\Docker\\Docker\\resources\\bin\\az.exe",
+                
+//                 // Enterprise/Corporate custom installations
+//                 "C:\\tools\\az\\az.cmd",
+//                 "C:\\bin\\az.cmd",
+//                 "C:\\opt\\azure-cli\\az.cmd",
+//             ]
+//         } else if cfg!(target_os = "macos") {
+//             vec![
+//                 // Standard PATH
+//                 "az",
+                
+//                 // Homebrew installations (most common on macOS)
+//                 "/usr/local/bin/az",              // Intel Macs
+//                 "/opt/homebrew/bin/az",           // Apple Silicon Macs
+//                 "/opt/homebrew/Cellar/azure-cli/*/bin/az",
+                
+//                 // System installations
+//                 "/usr/bin/az",
+//                 "/bin/az",
+                
+//                 // MacPorts
+//                 "/opt/local/bin/az",
+                
+//                 // Python pip installations
+//                 "/usr/local/python3/bin/az",
+//                 "/Library/Frameworks/Python.framework/Versions/3.9/bin/az",
+//                 "/Library/Frameworks/Python.framework/Versions/3.10/bin/az",
+//                 "/Library/Frameworks/Python.framework/Versions/3.11/bin/az",
+//                 "/Library/Frameworks/Python.framework/Versions/3.12/bin/az",
+//                 "/Library/Frameworks/Python.framework/Versions/3.13/bin/az",
+                
+//                 // User-specific installations
+//                 "/Users/%USER%/.local/bin/az",
+//                 "/Users/%USER%/Library/Python/3.9/bin/az",
+//                 "/Users/%USER%/Library/Python/3.10/bin/az",
+//                 "/Users/%USER%/Library/Python/3.11/bin/az",
+//                 "/Users/%USER%/Library/Python/3.12/bin/az",
+//                 "/Users/%USER%/Library/Python/3.13/bin/az",
+                
+//                 // Conda installations
+//                 "/Users/%USER%/miniconda3/bin/az",
+//                 "/Users/%USER%/anaconda3/bin/az",
+//                 "/opt/miniconda3/bin/az",
+//                 "/opt/anaconda3/bin/az",
+                
+//                 // Pyenv installations
+//                 "/Users/%USER%/.pyenv/shims/az",
+                
+//                 // Docker Desktop
+//                 "/Applications/Docker.app/Contents/Resources/bin/az",
+                
+//                 // Manual installations
+//                 "/usr/local/azure-cli/az",
+//                 "/opt/azure-cli/bin/az",
+//                 "/Applications/Azure CLI/az",
+//             ]
+//         } else {
+//             // Linux and other Unix-like systems
+//             vec![
+//                 // Standard PATH
+//                 "az",
+                
+//                 // Common system paths
+//                 "/usr/local/bin/az",
+//                 "/usr/bin/az",
+//                 "/bin/az",
+//                 "/opt/az/bin/az",
+                
+//                 // User-specific installations
+//                 "~/.local/bin/az",
+//                 "/home/$USER/.local/bin/az",
+                
+//                 // Package manager installations
+//                 // Snap (Ubuntu/Debian)
+//                 "/snap/bin/azure-cli",
+//                 "/snap/azure-cli/current/bin/az",
+                
+//                 // Flatpak
+//                 "/var/lib/flatpak/exports/bin/com.microsoft.AzureCLI",
+//                 "/home/$USER/.local/share/flatpak/exports/bin/com.microsoft.AzureCLI",
+                
+//                 // APT/YUM package installations
+//                 "/usr/lib/azure-cli/az",
+                
+//                 // Python pip installations (various distributions)
+//                 "/usr/local/python3/bin/az",
+//                 "/usr/local/lib/python3.9/site-packages/az",
+//                 "/usr/local/lib/python3.10/site-packages/az",
+//                 "/usr/local/lib/python3.11/site-packages/az",
+//                 "/usr/local/lib/python3.12/site-packages/az",
+                
+//                 // User Python installations
+//                 "/home/$USER/.local/lib/python3.9/bin/az",
+//                 "/home/$USER/.local/lib/python3.10/bin/az",
+//                 "/home/$USER/.local/lib/python3.11/bin/az",
+//                 "/home/$USER/.local/lib/python3.12/bin/az",
+                
+//                 // Conda installations
+//                 "/home/$USER/miniconda3/bin/az",
+//                 "/home/$USER/anaconda3/bin/az",
+//                 "/opt/miniconda3/bin/az",
+//                 "/opt/anaconda3/bin/az",
+//                 "/usr/local/miniconda3/bin/az",
+//                 "/usr/local/anaconda3/bin/az",
+                
+//                 // Docker installations
+//                 "/usr/local/docker/bin/az",
+                
+//                 // Enterprise/Custom installations
+//                 "/opt/microsoft/azure-cli/bin/az",
+//                 "/usr/local/azure-cli/bin/az",
+//                 "/home/$USER/azure-cli/bin/az",
+                
+//                 // Distribution-specific paths
+//                 // Red Hat/CentOS/Fedora
+//                 "/usr/libexec/azure-cli/az",
+                
+//                 // SUSE
+//                 "/usr/lib64/azure-cli/az",
+                
+//                 // Arch Linux
+//                 "/usr/share/azure-cli/az",
+                
+//                 // Alpine Linux
+//                 "/usr/lib/python3.*/site-packages/azure-cli/az",
+//             ]
+//         }
+//     }
+
+//    pub async fn connect(&mut self) -> ElusionResult<TiberiusClient<Compat<TcpStream>>> {
+//         self.authenticate().await?;
+        
+//         let token = self.access_token.as_ref()
+//             .ok_or_else(|| ElusionError::Custom("Not authenticated".to_string()))?;
+
+//         // First attempt - try the original server
+//         match self.try_connect(&self.config.server_name, token).await {
+//             Ok(client) => return Ok(client),
+//             Err(e) => {
+//                 // Check if this is a redirect error
+//                 let error_msg = format!("{:?}", e);
+//                 println!("🔍 Connection error: {}", error_msg);
+                
+//                 if error_msg.contains("Server requested a connection to an alternative address") {
+//                     // Extract the redirect address
+//                     if let Some(redirect_addr) = self.extract_redirect_address(&error_msg) {
+//                         println!("🔄 Fabric redirect detected, connecting to: {}", redirect_addr);
+//                         return self.try_connect(&redirect_addr, token).await;
+//                     } else {
+//                         println!("⚠️ Could not extract redirect address from error");
+//                     }
+//                 }
+//                 return Err(e);
+//             }
+//         }
+//     }
+
+//     /// Helper method to extract redirect address from error message
+//     fn extract_redirect_address(&self, error_msg: &str) -> Option<String> {
+//         println!("🔍 Extracting redirect from: {}", error_msg);
+        
+//         // Look for pattern: `server_name:port` or `server_name\instance:port`
+//         if let Some(start) = error_msg.find('`') {
+//             if let Some(end) = error_msg[start + 1..].find('`') {
+//                 let full_addr = &error_msg[start + 1..start + 1 + end];
+//                 println!("🔍 Found redirect address: '{}'", full_addr);
+                
+//                 // Handle SQL Server instance format: server\instance:port
+//                 if let Some(colon_pos) = full_addr.rfind(':') {
+//                     let server_part = &full_addr[..colon_pos];
+//                     println!("🔍 Extracted server part: '{}'", server_part);
+//                     return Some(server_part.to_string());
+//                 }
+//                 return Some(full_addr.to_string());
+//             }
+//         }
+        
+//         // Alternative pattern: look for "alternative address: " followed by the address
+//         if let Some(alt_start) = error_msg.find("alternative address: ") {
+//             let remainder = &error_msg[alt_start + "alternative address: ".len()..];
+//             if let Some(end_quote) = remainder.find('`') {
+//                 let addr = &remainder[..end_quote];
+//                 if let Some(colon_pos) = addr.rfind(':') {
+//                     let server_part = &addr[..colon_pos];
+//                     println!("🔍 Alternative extraction found: '{}'", server_part);
+//                     return Some(server_part.to_string());
+//                 }
+//             }
+//         }
+        
+//         None
+//     }
+
+//     /// Helper method to attempt connection to a specific server
+//     async fn try_connect(&self, server_name: &str, token: &str) -> ElusionResult<TiberiusClient<Compat<TcpStream>>> {
+//         println!("🔗 Attempting connection to server: '{}'", server_name);
+        
+//         let mut config = TiberiusConfig::new();
+        
+//         // Parse server name for SQL Server instance format (server\instance)
+//         // Handle both single and double backslashes (from redirect parsing)
+//         let normalized_server = server_name.replace("\\\\", "\\");
+//         println!("🔍 Normalized server name: '{}'", normalized_server);
+        
+//         let (host, instance) = if normalized_server.contains('\\') {
+//             let parts: Vec<&str> = normalized_server.split('\\').collect();
+//             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+//                 println!("🔍 Parsed server: host='{}', instance='{}'", parts[0], parts[1]);
+//                 (parts[0], Some(parts[1]))
+//             } else if parts.len() > 2 {
+//                 // Handle multiple backslashes - take first and last non-empty parts
+//                 let host_part = parts.iter().copied().find(|p| !p.is_empty()).unwrap_or("");
+//                 let instance_part = parts.iter().rev().copied().find(|p| !p.is_empty()).unwrap_or("");
+//                 if host_part != instance_part {
+//                     println!("🔍 Multi-part server parsed: host='{}', instance='{}'", host_part, instance_part);
+//                     (host_part, Some(instance_part))
+//                 } else {
+//                     println!("⚠️ Could not parse server format: {}, using as-is", normalized_server);
+//                     (normalized_server.as_str(), None)
+//                 }
+//             } else {
+//                 println!("⚠️ Unexpected server format: {}, using as-is", normalized_server);
+//                 (normalized_server.as_str(), None)
+//             }
+//         } else {
+//             println!("🔍 Simple server name (no instance): '{}'", normalized_server);
+//             (normalized_server.as_str(), None)
+//         };
+        
+//         config.host(host);
+//         config.port(self.config.port.unwrap_or(1433));
+        
+//         // Set instance name if present
+//         if let Some(instance_name) = instance {
+//             config.instance_name(instance_name);
+//             println!("🔗 Using SQL Server instance: {}", instance_name);
+//         }
+        
+//         // Handle database configuration
+//         if self.config.is_fabric {
+//             if let Some(ref database_name) = self.config.database_name {
+//                 config.database(database_name);
+//                 println!("🔗 Connecting to Fabric database: {}", database_name);
+//             } else {
+//                 println!("🔗 Connecting to Fabric Data Warehouse (no specific database)");
+//             }
+//         } else {
+//             if let Some(ref database_name) = self.config.database_name {
+//                 config.database(database_name); 
+//                 println!("🔗 Connecting to Azure SQL database: {}", database_name);
+//             }
+//         }
+        
+//         config.authentication(AuthMethod::AADToken(token.to_string()));
+//         config.encryption(tiberius::EncryptionLevel::Required);
+        
+//         println!("🔗 Final connection details: host='{}', port={}, instance={:?}", 
+//                 host, 
+//                 self.config.port.unwrap_or(1433),
+//                 instance);
+        
+//         let tcp = match TcpStream::connect(config.get_addr()).await {
+//             Ok(stream) => {
+//                 println!("✅ TCP connection established to {}", server_name);
+//                 stream
+//             },
+//             Err(e) => {
+//                 let error_msg = format!("Failed to connect to server '{}': {}. \n\
+//                        💡 Connection troubleshooting:\n\
+//                        - Verify the server address is correct\n\
+//                        - Check network connectivity\n\
+//                        - Ensure the service is running", server_name, e);
+//                 return Err(ElusionError::Custom(error_msg));
+//             }
+//         };
+        
+//         let client = match TiberiusClient::connect(config, tcp.compat_write()).await {
+//             Ok(client) => {
+//                 println!("✅ Successfully authenticated and connected to: {}", server_name);
+//                 client
+//             },
+//             Err(e) => {
+//                 // Check if this is a redirect error and let the caller handle it
+//                 let error_str = format!("{:?}", e);
+//                 if error_str.contains("Server requested a connection to an alternative address") {
+//                     println!("🔄 Redirect error detected, passing up to caller");
+//                     return Err(ElusionError::Custom(error_str));
+//                 }
+                
+//                 let error_msg = if self.config.is_fabric {
+//                     format!("Failed to authenticate with Fabric Data Warehouse: {}. \n\
+//                            💡 Authentication troubleshooting:\n\
+//                            - Try: az login --scope https://analysis.windows.net/powerbi/api/.default\n\
+//                            - Ensure you have proper permissions to the Fabric workspace\n\
+//                            - Check if the Data Warehouse is active", e)
+//                 } else {
+//                     format!("Failed to authenticate with Azure SQL Server: {}. \n\
+//                            💡 Check your Azure permissions and token scope", e)
+//                 };
+//                 return Err(ElusionError::Custom(error_msg));
+//             }
+//         };
+        
+//         Ok(client)
+//     }
+
+//     /// Execute a query and return results (similar to your PostgreSQL implementation)
+//     pub async fn query(&mut self, sql: &str) -> ElusionResult<Vec<tiberius::Row>> {
+//         let mut client = self.connect().await?;
+        
+//         println!("🔍 Executing query: {}", 
+//                 if sql.len() > 100 { 
+//                     format!("{}...", &sql[..100]) 
+//                 } else { 
+//                     sql.to_string() 
+//                 });
+        
+//         let stream = client.query(sql, &[]).await
+//             .map_err(|e| {
+//                 let error_msg = if self.config.is_fabric {
+//                     format!("Fabric query execution failed: {}. \n\
+//                            💡 Fabric-specific tips:\n\
+//                            - Use T-SQL syntax compatible with Fabric\n\
+//                            - Check table/view names and schemas\n\
+//                            - Ensure the lakehouse/warehouse is properly configured", e)
+//                 } else {
+//                     format!("Azure SQL query execution failed: {}", e)
+//                 };
+//                 ElusionError::Custom(error_msg)
+//             })?;
+        
+//         let rows = stream.into_results().await
+//             .map_err(|e| ElusionError::Custom(format!("Failed to collect results: {}", e)))?;
+        
+//         let row_vec: Vec<tiberius::Row> = rows.into_iter().flatten().collect();
+//         println!("✅ Query completed, returned {} rows", row_vec.len());
+        
+//         Ok(row_vec)
+//     }
+// }
+
+// ===============================================
+
 #[cfg(feature = "sharepoint")]
 #[derive(Debug, Clone)]
 pub struct SharePointConfig {
@@ -4649,10 +5269,122 @@ impl CustomDataFrame {
     }
 
     //=========== SHARE POINT
+    /// Universal SharePoint file loader - auto-detects file type and loads with custom alias
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_from_sharepoint(
+        tenant_id: &str,
+        client_id: &str,
+        site_url: &str,
+        file_path: &str,
+        alias: &str,  // Custom alias for joins
+    ) -> ElusionResult<Self> {
+        let config = SharePointConfig::new(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        // Auto-detect file extension
+        let file_extension = file_path
+            .split('.')
+            .last()
+            .unwrap_or("")
+            .to_lowercase();
+        
+        println!("🔍 Detected file type: {} for {}", file_extension, file_path);
+        
+        // Create temporary file with appropriate extension
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.{}", 
+            chrono::Utc::now().timestamp(), 
+            file_extension
+        ));
+        
+        std::fs::write(&temp_file, content)?;
+        
+        // Load file based on extension using your existing methods
+        let aliased_df = match file_extension.as_str() {
+            "xlsx" | "xls" => {
+                println!("📊 Loading as Excel file...");
+                Self::load_excel(temp_file.to_str().unwrap(), alias).await?
+            },
+            "csv" => {
+                println!("📋 Loading as CSV file...");
+                Self::load_csv(temp_file.to_str().unwrap(), alias).await?
+            },
+            "json" => {
+                println!("🔧 Loading as JSON file...");
+                Self::load_json(temp_file.to_str().unwrap(), alias).await?
+            },
+            "parquet" => {
+                println!("🗄️ Loading as Parquet file...");
+                Self::load_parquet(temp_file.to_str().unwrap(), alias).await?
+            },
+            _ => {
+                // Clean up temp file before returning error
+                let _ = std::fs::remove_file(&temp_file);
+                return Err(ElusionError::InvalidOperation {
+                    operation: "SharePoint File Loading".to_string(),
+                    reason: format!("Unsupported file extension: '{}'", file_extension),
+                    suggestion: "💡 Supported formats: xlsx, xls, csv, json, parquet".to_string(),
+                });
+            }
+        };
+        
+        // Clean up temporary file
+        let _ = std::fs::remove_file(temp_file);
+        
+        // Normalize column names to lowercase (following your existing pattern)
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        println!("✅ Successfully loaded {} as '{}'", file_path, alias);
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: alias.to_string(),          
+            from_table: alias.to_string(),          
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+        })
+    }
+
+    // Stub implementation
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_from_sharepoint(
+        _tenant_id: &str,
+        _client_id: &str,
+        _site_url: &str,
+        _file_path: &str,
+        _alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint File Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
 
     /// Load Excel file from SharePoint - handles everything automatically
     #[cfg(feature = "sharepoint")]
-    pub async fn load_excel_from_sharepoint(
+    async fn load_excel_from_sharepoint(
         tenant_id: &str,
         client_id: &str,
         site_url: &str,
@@ -4701,7 +5433,7 @@ impl CustomDataFrame {
 
     /// Load CSV file from SharePoint - handles everything automatically  
     #[cfg(feature = "sharepoint")]
-    pub async fn load_csv_from_sharepoint(
+    async fn load_csv_from_sharepoint(
         tenant_id: &str,
         client_id: &str,
         site_url: &str,
@@ -4751,7 +5483,7 @@ impl CustomDataFrame {
 
     /// Load JSON file from SharePoint - handles everything automatically
     #[cfg(feature = "sharepoint")]
-    pub async fn load_json_from_sharepoint(
+    async fn load_json_from_sharepoint(
         tenant_id: &str,
         client_id: &str,
         site_url: &str,
@@ -4801,7 +5533,7 @@ impl CustomDataFrame {
 
     /// Load Parquet file from SharePoint - handles everything automatically
     #[cfg(feature = "sharepoint")]
-    pub async fn load_parquet_from_sharepoint(
+    async fn load_parquet_from_sharepoint(
         tenant_id: &str,
         client_id: &str,
         site_url: &str,
@@ -4849,43 +5581,6 @@ impl CustomDataFrame {
         })
     }
 
-    // Stub implementations 
-    #[cfg(not(feature = "sharepoint"))]
-    pub async fn load_excel_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
-        Err(ElusionError::InvalidOperation {
-            operation: "SharePoint Excel Loading".to_string(),
-            reason: "SharePoint feature not enabled".to_string(),
-            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
-        })
-    }
-
-    #[cfg(not(feature = "sharepoint"))]
-    pub async fn load_csv_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
-        Err(ElusionError::InvalidOperation {
-            operation: "SharePoint CSV Loading".to_string(),
-            reason: "SharePoint feature not enabled".to_string(),
-            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
-        })
-    }
-
-    #[cfg(not(feature = "sharepoint"))]
-    pub async fn load_json_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
-        Err(ElusionError::InvalidOperation {
-            operation: "SharePoint JSON Loading".to_string(),
-            reason: "SharePoint feature not enabled".to_string(),
-            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
-        })
-    }
-
-    #[cfg(not(feature = "sharepoint"))]
-    pub async fn load_parquet_from_sharepoint(_tenant_id: &str, _client_id: &str, _site_url: &str, _file_path: &str) -> ElusionResult<Self> {
-        Err(ElusionError::InvalidOperation {
-            operation: "SharePoint Parquet Loading".to_string(),
-            reason: "SharePoint feature not enabled".to_string(),
-            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
-        })
-    }
-
     /// Load all files from a SharePoint folder and union them if they have compatible schemas
     /// Supports CSV, Excel, JSON, and Parquet files
     #[cfg(feature = "sharepoint")]
@@ -4894,7 +5589,7 @@ impl CustomDataFrame {
         client_id: &str,
         site_url: &str,
         folder_path: &str,
-        file_extensions: Option<Vec<&str>>, // Filter by extensions, e.g., vec!["xlsx", "csv"]
+        file_extensions: Option<Vec<&str>>, 
         result_alias: &str,
     ) -> ElusionResult<Self> {
         let config = SharePointConfig::new(
@@ -5386,6 +6081,178 @@ impl CustomDataFrame {
             suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
         })
     }
+
+    // =========== AZURE SQL
+    /// Create a DataFrame from an Azure SQL Server query
+    // #[cfg(feature = "azuresql")]
+    // pub async fn from_azure_sql(
+    //     server_name: &str,
+    //     database_name: &str,
+    //     query: &str,
+    //     alias: &str
+    // ) -> ElusionResult<Self> {
+    //     let config = AzureSqlConfig::new(server_name.to_string(), database_name.to_string());
+    //     let mut client = AzureSqlClient::new(config);
+        
+    //     let rows = client.query(query).await?;
+        
+    //     if rows.is_empty() {
+    //         return Err(ElusionError::Custom("Query returned no rows".to_string()));
+    //     }
+
+    //     Self::convert_sql_rows_to_dataframe(rows, alias).await
+    // }
+
+    // /// Create a DataFrame from Azure SQL Server with specific tenant/client (like SharePoint)
+    // #[cfg(feature = "azuresql")]
+    // pub async fn from_azure_sql_with_auth(
+    //     tenant_id: &str,
+    //     client_id: &str,
+    //     server_name: &str,
+    //     database_name: Option<&str>,
+    //     query: &str,
+    //     alias: &str
+    // ) -> ElusionResult<Self> {
+    //     let config = AzureSqlConfig::new_with_auth(
+    //         server_name.to_string(),
+    //         database_name.map(|s| s.to_string()),
+    //         tenant_id.to_string(),
+    //         client_id.to_string(),
+    //     );
+    //     let mut client = AzureSqlClient::new(config);
+        
+    //     let rows = client.query(query).await?;
+        
+    //     if rows.is_empty() {
+    //         return Err(ElusionError::Custom("Query returned no rows".to_string()));
+    //     }
+
+    //     Self::convert_sql_rows_to_dataframe(rows, alias).await
+    // }
+
+    // /// Helper method to convert SQL rows to DataFrame (shared by both methods)
+    // #[cfg(feature = "azuresql")]
+    // async fn convert_sql_rows_to_dataframe(
+    //     rows: Vec<tiberius::Row>,
+    //     alias: &str
+    // ) -> ElusionResult<Self> {
+
+    //     // Get column metadata from the first row
+    //     let first_row = &rows[0];
+    //     let num_columns = first_row.len();
+        
+    //     // Create Arrow schema - we'll use a simplified approach
+    //     let mut fields = Vec::with_capacity(num_columns);
+    //     for col_idx in 0..num_columns {
+    //         let column_name = format!("column_{}", col_idx); // Tiberius doesn't provide column names easily
+    //         // Default to Utf8 for now - we'll detect types from the data
+    //         fields.push(Field::new(&column_name, ArrowDataType::Utf8, true));
+    //     }
+        
+    //     let schema = Arc::new(Schema::new(fields));
+        
+    //     // Build arrays - simplified approach using mostly strings
+    //     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(num_columns);
+        
+    //     for col_idx in 0..num_columns {
+    //         let mut builder = StringBuilder::new();
+            
+    //         for row in &rows {
+    //             // Try to get the value as different types and convert to string
+    //             if let Ok(Some(value)) = row.try_get::<&str, usize>(col_idx) {
+    //                 builder.append_value(value);
+    //             } else if let Ok(Some(value)) = row.try_get::<i32, usize>(col_idx) {
+    //                 builder.append_value(value.to_string());
+    //             } else if let Ok(Some(value)) = row.try_get::<i64, usize>(col_idx) {
+    //                 builder.append_value(value.to_string());
+    //             } else if let Ok(Some(value)) = row.try_get::<f32, usize>(col_idx) {
+    //                 builder.append_value(value.to_string());
+    //             } else if let Ok(Some(value)) = row.try_get::<f64, usize>(col_idx) {
+    //                 builder.append_value(value.to_string());
+    //             } else if let Ok(Some(value)) = row.try_get::<bool, usize>(col_idx) {
+    //                 builder.append_value(value.to_string());
+    //             } else if let Ok(Some(value)) = row.try_get::<&[u8], usize>(col_idx) {
+    //                 // Convert binary to base64 for readability
+    //                 use base64::{Engine as _, engine::general_purpose};
+    //                 builder.append_value(general_purpose::STANDARD.encode(value));
+    //             } else {
+    //                 // If we can't get the value, it's null or unsupported type
+    //                 builder.append_null();
+    //             }
+    //         }
+            
+    //         arrays.push(Arc::new(builder.finish()));
+    //     }
+        
+    //     // Create a record batch
+    //     let batch = RecordBatch::try_new(schema.clone(), arrays)
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to create record batch: {}", e)))?;
+        
+    //     // Create a DataFusion DataFrame
+    //     let ctx = SessionContext::new();
+    //     let mem_table = MemTable::try_new(schema, vec![vec![batch]])
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
+        
+    //     ctx.register_table(alias, Arc::new(mem_table))
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
+        
+    //     let df = ctx.table(alias).await
+    //         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
+        
+    //     // Return CustomDataFrame following your established pattern
+    //     Ok(Self {
+    //         df,
+    //         table_alias: alias.to_string(),
+    //         from_table: alias.to_string(),
+    //         selected_columns: Vec::new(),
+    //         alias_map: Vec::new(),
+    //         aggregations: Vec::new(),
+    //         group_by_columns: Vec::new(),
+    //         where_conditions: Vec::new(),
+    //         having_conditions: Vec::new(),
+    //         order_by_columns: Vec::new(),
+    //         limit_count: None,
+    //         joins: Vec::new(),
+    //         window_functions: Vec::new(),
+    //         ctes: Vec::new(),
+    //         subquery_source: None,
+    //         set_operations: Vec::new(),
+    //         query: String::new(),
+    //         aggregated_df: None,
+    //         union_tables: None,
+    //         original_expressions: Vec::new(),
+    //     })
+    // }
+
+    // #[cfg(not(feature = "azuresql"))]
+    // pub async fn from_azure_sql(
+    //     _server_name: &str,
+    //     _database_name: &str,
+    //     _query: &str,
+    //     _alias: &str
+    // ) -> ElusionResult<Self> {
+    //     Err(ElusionError::InvalidOperation {
+    //         operation: "Azure SQL Server Loading".to_string(),
+    //         reason: "Azure SQL feature not enabled".to_string(),
+    //         suggestion: "💡 Add 'azuresql' to your features: features = [\"azuresql\"]".to_string(),
+    //     })
+    // }
+
+    // #[cfg(not(feature = "azuresql"))]
+    // pub async fn from_azure_sql_with_auth(
+    //     _tenant_id: &str,
+    //     _client_id: &str,
+    //     _server_name: &str,
+    //     _database_name: Option<&str>,
+    //     _query: &str,
+    //     _alias: &str
+    // ) -> ElusionResult<Self> {
+    //     Err(ElusionError::InvalidOperation {
+    //         operation: "Azure SQL Server Loading".to_string(),
+    //         reason: "Azure SQL feature not enabled".to_string(),
+    //         suggestion: "💡 Add 'azuresql' to your features: features = [\"azuresql\"]".to_string(),
+    //     })
+    // }
 
     // ====== POSTGRESS
 

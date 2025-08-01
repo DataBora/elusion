@@ -1,3 +1,9 @@
+## [3.13.0] - 2025-08-01
+### BREAKING CHANGE
+- REMOVED: Individul Sharepoint functions: load_csv_from_sharepoint(),load_excel_from_sharepoint(),load_json_from_sharepoint(),load_parquet_from_sharepoint(),
+### Added
+- Single loading Sharepoint function that auto-reconizes file extension: load_from_sharepoint()
+
 ## [3.12.5] - 2025-07-23
 ### Added
 - Sharepoint connector early checkout after path is found
