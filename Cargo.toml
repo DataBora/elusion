@@ -43,10 +43,6 @@ mysql_async = { version = "0.32.2", default-features = false, features = ["minim
 rust_xlsxwriter = {version = "0.87.0", optional = true}
 calamine = "0.23.1"
 url = {version = "2.5", optional = true}
-# tiberius = { version = "0.12", features = ["tds73", "sql-browser-async-std"], optional = true }
-# tokio-util = { version = "0.7", features = ["compat"], optional = true }
-# azure_identity = { version = "0.26.0", optional = true }
-
 
 [features]
 default = []
@@ -57,7 +53,6 @@ postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
 sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding"] 
-# azuresql = ["dep:tiberius", "dep:tokio-util", "dep:azure_identity"]
 all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint"]
 
 [dev-dependencies]

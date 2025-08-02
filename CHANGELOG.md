@@ -1,8 +1,9 @@
-## [3.13.0] - 2025-08-01
+## [3.13.0] - 2025-08-02
 ### BREAKING CHANGE
 - REMOVED: Individul Sharepoint functions: load_csv_from_sharepoint(),load_excel_from_sharepoint(),load_json_from_sharepoint(),load_parquet_from_sharepoint(),
 ### Added
 - Single loading Sharepoint function that auto-reconizes file extension: load_from_sharepoint()
+- Readling multiple files with same schema/columns from local folder (csv, json, excel, parquet): load_folder(), load_folder_with_filename_column()
 
 ## [3.12.5] - 2025-07-23
 ### Added
