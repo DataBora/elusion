@@ -208,29 +208,81 @@ async fn main() -> ElusionResult<()> {
 
 ### LOADING data from CSV into CustomDataFrame
 ```rust
-let csv_path = "C:\\Borivoj\\RUST\\Elusion\\csv_data.csv";
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
 let df = CustomDataFrame::new(csv_path, "csv_data").await?; 
 ```
 ### LOADING data from EXCEL into CustomDataFrame
 ```rust
-let excel_path = "C:\\Borivoj\\RUST\\Elusion\\excel_data.xlsx";
+let excel_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\excel_data.xlsx";
 let df = CustomDataFrame::new(excel_path, "xlsx_data").await?;
 ```
 ### LOADING data from PARQUET into CustomDataFrame
 ```rust
-let parquet_path = "C:\\Borivoj\\RUST\\Elusion\\prod_data.parquet";
+let parquet_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\prod_data.parquet";
 let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
 ```
 ### LOADING data from JSON into CustomDataFrame
 ```rust
-let json_path = "C:\\Borivoj\\RUST\\Elusion\\mongo_data.json";
+let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
 let df = CustomDataFrame::new(json_path, "json_data").await?;
 ```
 ### LOADING data from DELTA table into CustomDataFrame
 ```rust
-let delta_path = "C:\\Borivoj\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
+let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
 let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 ```
+---
+### LOADING data from LOCAL FOLDER into CustomDataFrame
+#### - Automatically loads and combines multiple files from a folder
+#### - Supports CSV, EXCEL, JSON, and PARQUET files
+#### - Handles schema compatibility and column reordering automatically
+#### - Uses UNION ALL to combine all files
+
+## Loading All Files from Folder
+#### 3 arguments needed: **Folder Path**, **File Extensions Filter (Optional)**, **Result Alias**
+#### Loads all supported files and combines them into a single DataFrame
+
+```rust
+// Load all supported files from folder
+let combined_data = CustomDataFrame::load_folder(
+   "C:\\BorivojGrujicic\\RUST\\Elusion\\SalesReports",
+   None, // Load all supported file types (csv, xlsx, json, parquet)
+   "combined_sales_data"
+).await?;
+
+// Load only specific file types
+let csv_excel_data = CustomDataFrame::load_folder(
+   "C:\\BorivojGrujicic\\RUST\\Elusion\\SalesReports", 
+   Some(vec!["csv", "xlsx"]), // Only load CSV and Excel files
+   "filtered_data"
+).await?;
+```
+### LOADING data from LOCAL FOLDER with FILENAME TRACKING into CustomDataFrame
+#### - Same as load_folder but adds "filename_added" column to track source files
+#### - Perfect for time-series data where filename contains date information
+#### - Automatically loads and combines multiple files from a folder
+#### - Supports CSV, EXCEL, JSON, and PARQUET files
+
+## Loading Files from Folder with Filename Column
+#### 3 arguments needed: **Folder Path**, **File Extensions Filter (Optional)**, **Result Alias**
+#### Adds "filename_added" column and combines all files into a single DataFrame
+
+```rust
+// Load files with filename tracking
+let data_with_source = CustomDataFrame::load_folder_with_filename_column(
+   "C:\\BorivojGrujicic\\RUST\\Elusion\\DailyReports",
+   None, // Load all supported file types
+   "daily_data_with_source"
+).await?;
+
+// Load only specific file types with filename tracking
+let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
+   "C:\\BorivojGrujicic\\RUST\\Elusion\\MonthlySales", 
+   Some(vec!["xlsx", "xls"]), // Only Excel files
+   "monthly_excel_data"
+).await?;
+```
+---
 ### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
 let df = CustomDataFrame::from_azure_with_sas_token(

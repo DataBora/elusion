@@ -67,192 +67,238 @@ use reqwest;
 #[cfg(feature = "sharepoint")]
 use url;
 
-//=========== AZURE SQL SERVER
+
 // #[cfg(feature = "azuresql")]
-// use tiberius::{Client as TiberiusClient, Config as TiberiusConfig, AuthMethod};
+// use reqwest;
 // #[cfg(feature = "azuresql")]
-// use tokio::net::TcpStream;
-// #[cfg(feature = "azuresql")]
-// use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
+// use serde_json;
 
 // #[cfg(feature = "azuresql")]
 // #[derive(Debug, Clone)]
-// pub struct AzureSqlConfig {
-//     pub server_name: String,           
-//     pub database_name: Option<String>,
-//     pub tenant_id: Option<String>,   
-//     pub client_id: Option<String>,    
-//     pub port: Option<u16>,
-//     pub is_fabric: bool, 
+// pub struct FabricSqlConfig {
+//     pub sql_endpoint: String,  // The SQL Analytics Endpoint URL
+//     pub tenant_id: Option<String>,
+//     pub client_id: Option<String>,
+//     pub use_azure_identity: bool,
 // }
 
-
 // #[cfg(feature = "azuresql")]
-// impl AzureSqlConfig {
-
-//         pub fn new(server_name: String, database_name: String) -> Self {
-//         let is_fabric = server_name.contains(".datawarehouse.fabric.microsoft.com") ||
-//                        server_name.contains(".lakehouse.fabric.microsoft.com");
-        
+// impl FabricSqlConfig {
+//     /// Create config with SQL Analytics Endpoint (works for any Fabric artifact)
+//     pub fn new(sql_endpoint: String) -> Self {
 //         Self {
-//             server_name,
-//             database_name: Some(database_name),
+//             sql_endpoint,
 //             tenant_id: None,
 //             client_id: None,
-//             port: Some(1433),
-//             is_fabric,
-//         }
-//     }
-    
-//      pub fn new_fabric(server_name: String) -> Self {
-//         Self {
-//             server_name,
-//             database_name: None,
-//             tenant_id: None,
-//             client_id: None,
-//             port: Some(1433),
-//             is_fabric: true,
+//             use_azure_identity: false, // Default to Azure CLI
 //         }
 //     }
 
-//     pub fn new_with_auth(
-//         server_name: String, 
-//         database_name: Option<String>,
-//         tenant_id: String,
-//         client_id: String
-//     ) -> Self {
-//         let is_fabric = server_name.contains(".datawarehouse.fabric.microsoft.com") ||
-//                        server_name.contains(".lakehouse.fabric.microsoft.com");
-        
+//     /// Create config with specific tenant/client for authentication
+//     pub fn new_with_auth(sql_endpoint: String, tenant_id: String, client_id: String) -> Self {
 //         Self {
-//             server_name,
-//             database_name,
+//             sql_endpoint,
 //             tenant_id: Some(tenant_id),
 //             client_id: Some(client_id),
-//             port: Some(1433),
-//             is_fabric,
+//             use_azure_identity: false,
 //         }
 //     }
-    
-//     pub fn with_port(mut self, port: u16) -> Self {
-//         self.port = Some(port);
+
+//     pub fn with_azure_identity(mut self, use_it: bool) -> Self {
+//         self.use_azure_identity = use_it;
 //         self
 //     }
 // }
 
 // #[cfg(feature = "azuresql")]
-// pub struct AzureSqlClient {
-//     config: AzureSqlConfig,
+// pub struct FabricSqlClient {
+//     config: FabricSqlConfig,
 //     access_token: Option<String>,
+//     http_client: reqwest::Client,
 // }
+
 // #[cfg(feature = "azuresql")]
-// impl AzureSqlClient {
-//     pub fn new(config: AzureSqlConfig) -> Self {
+// impl FabricSqlClient {
+//     pub fn new(config: FabricSqlConfig) -> Self {
 //         Self {
 //             config,
 //             access_token: None,
+//             http_client: reqwest::Client::new(),
 //         }
 //     }
 
+//     /// Authenticate for Fabric SQL Analytics Endpoint
 //     async fn authenticate(&mut self) -> ElusionResult<()> {
-//         println!("🔍 Authenticating with Azure CLI for {}...", 
-//                 if self.config.is_fabric { "Fabric Data Warehouse" } else { "Azure SQL Server" });
+//         println!("🔍 Authenticating for Fabric SQL Analytics Endpoint...");
         
-//         // Determine the correct resource scope
-//         let resource_url = if self.config.is_fabric {
-//             // Fabric 
-//             "https://analysis.windows.net/powerbi/api"
+//         if self.config.use_azure_identity {
+//             self.authenticate_with_azure_identity().await
 //         } else {
-//             //Traditional
-//             "https://database.windows.net/"
+//             self.authenticate_with_azure_cli().await
+//         }
+//     }
+
+//     /// Authenticate using azure_identity
+//     async fn authenticate_with_azure_identity(&mut self) -> ElusionResult<()> {
+//         use azure_identity::DefaultAzureCredential;
+//         use azure_core::credentials::TokenCredential;
+
+//         // SQL Analytics Endpoint uses database scope
+//         let resource_scope = "https://database.windows.net/.default";
+//         println!("🔍 Using azure_identity with scope: {}", resource_scope);
+
+//         let credential = match DefaultAzureCredential::new() {
+//             Ok(cred) => cred,
+//             Err(e) => {
+//                 println!("⚠️ Failed to create DefaultAzureCredential: {}", e);
+//                 println!("💡 Falling back to Azure CLI...");
+//                 return self.authenticate_with_azure_cli().await;
+//             }
 //         };
 
-//         // Try the Python approach first
-//         match self.execute_az_via_python(&["--version"]).await {
-//             Ok(version_output) => {
-//                 if version_output.status.success() {
-//                     println!("✅ Azure CLI via Python works");
-                    
-//                     // Check if logged in
-//                     match self.execute_az_via_python(&["account", "show"]).await {
-//                         Ok(account_output) => {
-//                             if account_output.status.success() {
-//                                 println!("✅ Already logged in to Azure");
-                                
-//                                 // Get access token with correct resource scope
-//                                 match self.execute_az_via_python(&[
-//                                     "account", 
-//                                     "get-access-token", 
-//                                     "--resource", 
-//                                     resource_url,
-//                                     "--output", 
-//                                     "json"
-//                                 ]).await {
-//                                     Ok(token_output) => {
-//                                         if token_output.status.success() {
-//                                             let token_json = String::from_utf8_lossy(&token_output.stdout);
-//                                             if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
-//                                                 if let Some(access_token) = token_data["accessToken"].as_str() {
-//                                                     self.access_token = Some(access_token.to_string());
-//                                                     println!("✅ Successfully authenticated for {}", 
-//                                                             if self.config.is_fabric { "Fabric" } else { "Azure SQL" });
-//                                                     return Ok(());
-//                                                 }
-//                                             }
-//                                         } else {
-//                                             let error_text = String::from_utf8_lossy(&token_output.stderr);
-//                                             println!("⚠️ Failed to get access token: {}", error_text);
-//                                         }
-//                                     },
-//                                     Err(e) => {
-//                                         println!("⚠️ Token command failed: {}", e);
-//                                     }
-//                                 }
-//                             } else {
-//                                 println!("⚠️ Azure CLI found but not logged in. Please run: az login");
-//                             }
-//                         },
-//                         Err(e) => {
-//                             println!("⚠️ Account check failed: {}", e);
-//                         }
-//                     }
-//                 }
+//         match credential.get_token(&[resource_scope], None).await {
+//             Ok(token) => {
+//                 self.access_token = Some(token.token.secret().to_string());
+//                 println!("✅ Successfully authenticated with azure_identity");
+//                 Ok(())
 //             },
 //             Err(e) => {
-//                 println!("⚠️ Python method not available ({}), trying fallback paths...", e);
+//                 println!("⚠️ azure_identity authentication failed: {}", e);
+//                 println!("💡 Falling back to Azure CLI...");
+//                 self.authenticate_with_azure_cli().await
 //             }
 //         }
-        
-//         // Fallback to comprehensive path checking
-//         let az_paths = Self::get_azure_cli_paths();
-        
-//         for az_path in &az_paths {
-//             if let Ok(output) = std::process::Command::new(az_path)
-//                 .args(["account", "get-access-token", "--resource", resource_url, "--output", "json"])
-//                 .env("PYTHONIOENCODING", "utf-8")
-//                 .env("PYTHONUTF8", "1")
-//                 .output() 
-//             {
-//                 if output.status.success() {
-//                     let token_json = String::from_utf8_lossy(&output.stdout);
+//     }
+
+//     /// Authenticate using Azure CLI
+//     async fn authenticate_with_azure_cli(&mut self) -> ElusionResult<()> {
+//         // Use database scope for SQL Analytics Endpoint
+//         let resource_url = "https://database.windows.net/";
+
+//         match self.execute_az_via_python(&["account", "get-access-token", "--resource", resource_url, "--output", "json"]).await {
+//             Ok(token_output) => {
+//                 if token_output.status.success() {
+//                     let token_json = String::from_utf8_lossy(&token_output.stdout);
 //                     if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
 //                         if let Some(access_token) = token_data["accessToken"].as_str() {
 //                             self.access_token = Some(access_token.to_string());
-//                             println!("✅ Successfully authenticated for {}", 
-//                                     if self.config.is_fabric { "Fabric" } else { "Azure SQL" });
+//                             println!("✅ Successfully authenticated with Azure CLI");
 //                             return Ok(());
 //                         }
 //                     }
 //                 }
+//                 let error_text = String::from_utf8_lossy(&token_output.stderr);
+//                 println!("⚠️ Failed to get access token: {}", error_text);
+//             },
+//             Err(e) => {
+//                 println!("⚠️ Token command failed: {}", e);
 //             }
 //         }
         
-//         Err(ElusionError::Custom(format!(
-//             "Azure CLI authentication failed for {}. Please run: az login", 
-//             if self.config.is_fabric { "Fabric Data Warehouse" } else { "Azure SQL Server" }
-//         )))
+//         Err(ElusionError::Custom("Azure CLI authentication failed".to_string()))
 //     }
 
+//     /// Execute SQL query via HTTP POST to SQL Analytics Endpoint
+//     pub async fn query(&mut self, sql: &str) -> ElusionResult<Vec<Vec<String>>> {
+//         self.authenticate().await?;
+        
+//         let token = self.access_token.as_ref()
+//             .ok_or_else(|| ElusionError::Custom("Not authenticated".to_string()))?;
+
+//         println!("🔍 Executing query on SQL Analytics Endpoint: {}", self.config.sql_endpoint);
+//         println!("📝 Query: {}", if sql.len() > 100 { format!("{}...", &sql[..100]) } else { sql.to_string() });
+
+//         // Try multiple potential SQL execution endpoints
+//         if let Ok(result) = self.try_direct_sql_execution(sql, token).await {
+//             return Ok(result);
+//         }
+
+//         if let Ok(result) = self.try_rest_api_sql_execution(sql, token).await {
+//             return Ok(result);
+//         }
+
+//         // If direct SQL execution isn't available yet, return connection info
+//         println!("💡 Direct SQL execution not available via REST API yet");
+//         println!("🔧 SQL Analytics Endpoint: {}", self.config.sql_endpoint);
+//         println!("💡 This endpoint can be used with SSMS, Power BI, or other SQL tools");
+        
+//         Ok(vec![
+//             vec!["Status".to_string(), "Endpoint".to_string(), "Token_Available".to_string()],
+//             vec!["Connected".to_string(), self.config.sql_endpoint.clone(), "Yes".to_string()],
+//             vec!["Info".to_string(), "SQL Analytics Endpoint ready".to_string(), "Use with SQL tools".to_string()],
+//         ])
+//     }
+
+//     /// Try direct SQL execution (experimental)
+//     async fn try_direct_sql_execution(&self, sql: &str, token: &str) -> ElusionResult<Vec<Vec<String>>> {
+//         // Experimental: Try to execute SQL directly via HTTP
+//         // This might work if Fabric exposes SQL execution via REST
+        
+//         let url = format!("{}/api/sql/execute", self.config.sql_endpoint);
+        
+//         let payload = serde_json::json!({
+//             "query": sql,
+//             "parameters": []
+//         });
+
+//         let response = self.http_client
+//             .post(&url)
+//             .header("Authorization", format!("Bearer {}", token))
+//             .header("Content-Type", "application/json")
+//             .json(&payload)
+//             .send()
+//             .await
+//             .map_err(|e| ElusionError::Custom(format!("SQL execution request failed: {}", e)))?;
+
+//         if response.status().is_success() {
+//             // Try to parse response as JSON
+//             if let Ok(json_response) = response.json::<serde_json::Value>().await {
+//                 println!("✅ Direct SQL execution successful!");
+//                 // Parse the response into rows (format depends on Fabric's response structure)
+//                 return self.parse_sql_response(json_response);
+//             }
+//         }
+
+//         Err(ElusionError::Custom("Direct SQL execution not supported".to_string()))
+//     }
+
+//     /// Try REST API SQL execution
+//     async fn try_rest_api_sql_execution(&self, sql: &str, token: &str) -> ElusionResult<Vec<Vec<String>>> {
+//         // Alternative approach: Use Fabric's REST API for SQL execution
+//         // This is also experimental but might be available
+        
+//         let base_url = self.config.sql_endpoint.replace(".database.windows.net", "");
+//         let api_url = format!("https://api.fabric.microsoft.com/v1/workspaces/{}/items/{}/executeQuery", 
+//                              "workspace-id", "item-id"); // These would need to be extracted from endpoint
+
+//         Err(ElusionError::Custom("REST API SQL execution not implemented yet".to_string()))
+//     }
+
+//     /// Parse SQL response from Fabric
+//     fn parse_sql_response(&self, response: serde_json::Value) -> ElusionResult<Vec<Vec<String>>> {
+//         // This depends on how Fabric returns SQL results
+//         // Common formats might be:
+//         // - rows: [["col1", "col2"], ["val1", "val2"]]
+//         // - columns + data structure
+//         // - standard SQL result format
+        
+//         if let Some(rows) = response.get("rows").and_then(|r| r.as_array()) {
+//             let mut result = Vec::new();
+//             for row in rows {
+//                 if let Some(row_array) = row.as_array() {
+//                     let string_row: Vec<String> = row_array.iter()
+//                         .map(|v| v.as_str().unwrap_or("NULL").to_string())
+//                         .collect();
+//                     result.push(string_row);
+//                 }
+//             }
+//             return Ok(result);
+//         }
+
+//         Err(ElusionError::Custom("Could not parse SQL response".to_string()))
+//     }
+
+//     /// Azure CLI execution method
 //     async fn execute_az_via_python(&self, args: &[&str]) -> ElusionResult<std::process::Output> {
 //         let python_path = r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#;
         
@@ -269,419 +315,6 @@ use url;
 //             .env("PYTHONUTF8", "1")
 //             .output()
 //             .map_err(|e| ElusionError::Custom(format!("Failed to execute Azure CLI: {}", e)))
-//     }
-
-//     fn get_azure_cli_paths() -> Vec<&'static str> {
-//         if cfg!(target_os = "windows") {
-//             vec![
-//                 // Prioritize the working Python method for Unicode usernames
-//                 r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#,
-                
-//                 // Standard paths (try these first)
-//                 "az.cmd",
-//                 "az.exe", 
-//                 "az",
-                
-//                 // Microsoft Official Installer locations (most common)
-//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
-//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd",
-//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
-//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.exe",
-
-//                 // MSI installer alternative locations
-//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
-//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.cmd",
-//                 "C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
-//                 "C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\az.exe",
-                
-//                 // Windows Store / App installation (Windows 10/11)
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.exe",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Microsoft\\WindowsApps\\az.cmd",
-                
-//                 // Package Manager installations
-//                 // Chocolatey
-//                 "C:\\ProgramData\\chocolatey\\bin\\az.cmd",
-//                 "C:\\ProgramData\\chocolatey\\bin\\az.exe",
-//                 "C:\\tools\\azure-cli\\az.cmd",
-                
-//                 // Scoop (popular among developers)
-//                 "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\scoop\\apps\\azure-cli\\current\\bin\\az.exe",
-//                 "C:\\Users\\%USERNAME%\\scoop\\shims\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\scoop\\shims\\az.exe",
-                
-//                 // Winget installations
-//                 "C:\\Program Files\\WindowsApps\\Microsoft.AzureCLI_*\\az.cmd",
-                
-//                 // Python pip installations (various Python versions)
-//                 "C:\\Python39\\Scripts\\az.cmd",
-//                 "C:\\Python310\\Scripts\\az.cmd", 
-//                 "C:\\Python311\\Scripts\\az.cmd",
-//                 "C:\\Python312\\Scripts\\az.cmd",
-//                 "C:\\Python313\\Scripts\\az.cmd",
-                
-//                 // User-specific Python installations
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python310\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python311\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\az.cmd",
-                
-//                 // Pip --user installations
-//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python39\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python310\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python311\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python312\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\AppData\\Roaming\\Python\\Python313\\Scripts\\az.cmd",
-                
-//                 // Conda/Miniconda installations
-//                 "C:\\Users\\%USERNAME%\\miniconda3\\Scripts\\az.cmd",
-//                 "C:\\Users\\%USERNAME%\\anaconda3\\Scripts\\az.cmd",
-//                 "C:\\miniconda3\\Scripts\\az.cmd",
-//                 "C:\\anaconda3\\Scripts\\az.cmd",
-//                 "C:\\ProgramData\\miniconda3\\Scripts\\az.cmd",
-//                 "C:\\ProgramData\\anaconda3\\Scripts\\az.cmd",
-                
-//                 // Docker Desktop bundled installations
-//                 "C:\\Program Files\\Docker\\Docker\\resources\\bin\\az.exe",
-                
-//                 // Enterprise/Corporate custom installations
-//                 "C:\\tools\\az\\az.cmd",
-//                 "C:\\bin\\az.cmd",
-//                 "C:\\opt\\azure-cli\\az.cmd",
-//             ]
-//         } else if cfg!(target_os = "macos") {
-//             vec![
-//                 // Standard PATH
-//                 "az",
-                
-//                 // Homebrew installations (most common on macOS)
-//                 "/usr/local/bin/az",              // Intel Macs
-//                 "/opt/homebrew/bin/az",           // Apple Silicon Macs
-//                 "/opt/homebrew/Cellar/azure-cli/*/bin/az",
-                
-//                 // System installations
-//                 "/usr/bin/az",
-//                 "/bin/az",
-                
-//                 // MacPorts
-//                 "/opt/local/bin/az",
-                
-//                 // Python pip installations
-//                 "/usr/local/python3/bin/az",
-//                 "/Library/Frameworks/Python.framework/Versions/3.9/bin/az",
-//                 "/Library/Frameworks/Python.framework/Versions/3.10/bin/az",
-//                 "/Library/Frameworks/Python.framework/Versions/3.11/bin/az",
-//                 "/Library/Frameworks/Python.framework/Versions/3.12/bin/az",
-//                 "/Library/Frameworks/Python.framework/Versions/3.13/bin/az",
-                
-//                 // User-specific installations
-//                 "/Users/%USER%/.local/bin/az",
-//                 "/Users/%USER%/Library/Python/3.9/bin/az",
-//                 "/Users/%USER%/Library/Python/3.10/bin/az",
-//                 "/Users/%USER%/Library/Python/3.11/bin/az",
-//                 "/Users/%USER%/Library/Python/3.12/bin/az",
-//                 "/Users/%USER%/Library/Python/3.13/bin/az",
-                
-//                 // Conda installations
-//                 "/Users/%USER%/miniconda3/bin/az",
-//                 "/Users/%USER%/anaconda3/bin/az",
-//                 "/opt/miniconda3/bin/az",
-//                 "/opt/anaconda3/bin/az",
-                
-//                 // Pyenv installations
-//                 "/Users/%USER%/.pyenv/shims/az",
-                
-//                 // Docker Desktop
-//                 "/Applications/Docker.app/Contents/Resources/bin/az",
-                
-//                 // Manual installations
-//                 "/usr/local/azure-cli/az",
-//                 "/opt/azure-cli/bin/az",
-//                 "/Applications/Azure CLI/az",
-//             ]
-//         } else {
-//             // Linux and other Unix-like systems
-//             vec![
-//                 // Standard PATH
-//                 "az",
-                
-//                 // Common system paths
-//                 "/usr/local/bin/az",
-//                 "/usr/bin/az",
-//                 "/bin/az",
-//                 "/opt/az/bin/az",
-                
-//                 // User-specific installations
-//                 "~/.local/bin/az",
-//                 "/home/$USER/.local/bin/az",
-                
-//                 // Package manager installations
-//                 // Snap (Ubuntu/Debian)
-//                 "/snap/bin/azure-cli",
-//                 "/snap/azure-cli/current/bin/az",
-                
-//                 // Flatpak
-//                 "/var/lib/flatpak/exports/bin/com.microsoft.AzureCLI",
-//                 "/home/$USER/.local/share/flatpak/exports/bin/com.microsoft.AzureCLI",
-                
-//                 // APT/YUM package installations
-//                 "/usr/lib/azure-cli/az",
-                
-//                 // Python pip installations (various distributions)
-//                 "/usr/local/python3/bin/az",
-//                 "/usr/local/lib/python3.9/site-packages/az",
-//                 "/usr/local/lib/python3.10/site-packages/az",
-//                 "/usr/local/lib/python3.11/site-packages/az",
-//                 "/usr/local/lib/python3.12/site-packages/az",
-                
-//                 // User Python installations
-//                 "/home/$USER/.local/lib/python3.9/bin/az",
-//                 "/home/$USER/.local/lib/python3.10/bin/az",
-//                 "/home/$USER/.local/lib/python3.11/bin/az",
-//                 "/home/$USER/.local/lib/python3.12/bin/az",
-                
-//                 // Conda installations
-//                 "/home/$USER/miniconda3/bin/az",
-//                 "/home/$USER/anaconda3/bin/az",
-//                 "/opt/miniconda3/bin/az",
-//                 "/opt/anaconda3/bin/az",
-//                 "/usr/local/miniconda3/bin/az",
-//                 "/usr/local/anaconda3/bin/az",
-                
-//                 // Docker installations
-//                 "/usr/local/docker/bin/az",
-                
-//                 // Enterprise/Custom installations
-//                 "/opt/microsoft/azure-cli/bin/az",
-//                 "/usr/local/azure-cli/bin/az",
-//                 "/home/$USER/azure-cli/bin/az",
-                
-//                 // Distribution-specific paths
-//                 // Red Hat/CentOS/Fedora
-//                 "/usr/libexec/azure-cli/az",
-                
-//                 // SUSE
-//                 "/usr/lib64/azure-cli/az",
-                
-//                 // Arch Linux
-//                 "/usr/share/azure-cli/az",
-                
-//                 // Alpine Linux
-//                 "/usr/lib/python3.*/site-packages/azure-cli/az",
-//             ]
-//         }
-//     }
-
-//    pub async fn connect(&mut self) -> ElusionResult<TiberiusClient<Compat<TcpStream>>> {
-//         self.authenticate().await?;
-        
-//         let token = self.access_token.as_ref()
-//             .ok_or_else(|| ElusionError::Custom("Not authenticated".to_string()))?;
-
-//         // First attempt - try the original server
-//         match self.try_connect(&self.config.server_name, token).await {
-//             Ok(client) => return Ok(client),
-//             Err(e) => {
-//                 // Check if this is a redirect error
-//                 let error_msg = format!("{:?}", e);
-//                 println!("🔍 Connection error: {}", error_msg);
-                
-//                 if error_msg.contains("Server requested a connection to an alternative address") {
-//                     // Extract the redirect address
-//                     if let Some(redirect_addr) = self.extract_redirect_address(&error_msg) {
-//                         println!("🔄 Fabric redirect detected, connecting to: {}", redirect_addr);
-//                         return self.try_connect(&redirect_addr, token).await;
-//                     } else {
-//                         println!("⚠️ Could not extract redirect address from error");
-//                     }
-//                 }
-//                 return Err(e);
-//             }
-//         }
-//     }
-
-//     /// Helper method to extract redirect address from error message
-//     fn extract_redirect_address(&self, error_msg: &str) -> Option<String> {
-//         println!("🔍 Extracting redirect from: {}", error_msg);
-        
-//         // Look for pattern: `server_name:port` or `server_name\instance:port`
-//         if let Some(start) = error_msg.find('`') {
-//             if let Some(end) = error_msg[start + 1..].find('`') {
-//                 let full_addr = &error_msg[start + 1..start + 1 + end];
-//                 println!("🔍 Found redirect address: '{}'", full_addr);
-                
-//                 // Handle SQL Server instance format: server\instance:port
-//                 if let Some(colon_pos) = full_addr.rfind(':') {
-//                     let server_part = &full_addr[..colon_pos];
-//                     println!("🔍 Extracted server part: '{}'", server_part);
-//                     return Some(server_part.to_string());
-//                 }
-//                 return Some(full_addr.to_string());
-//             }
-//         }
-        
-//         // Alternative pattern: look for "alternative address: " followed by the address
-//         if let Some(alt_start) = error_msg.find("alternative address: ") {
-//             let remainder = &error_msg[alt_start + "alternative address: ".len()..];
-//             if let Some(end_quote) = remainder.find('`') {
-//                 let addr = &remainder[..end_quote];
-//                 if let Some(colon_pos) = addr.rfind(':') {
-//                     let server_part = &addr[..colon_pos];
-//                     println!("🔍 Alternative extraction found: '{}'", server_part);
-//                     return Some(server_part.to_string());
-//                 }
-//             }
-//         }
-        
-//         None
-//     }
-
-//     /// Helper method to attempt connection to a specific server
-//     async fn try_connect(&self, server_name: &str, token: &str) -> ElusionResult<TiberiusClient<Compat<TcpStream>>> {
-//         println!("🔗 Attempting connection to server: '{}'", server_name);
-        
-//         let mut config = TiberiusConfig::new();
-        
-//         // Parse server name for SQL Server instance format (server\instance)
-//         // Handle both single and double backslashes (from redirect parsing)
-//         let normalized_server = server_name.replace("\\\\", "\\");
-//         println!("🔍 Normalized server name: '{}'", normalized_server);
-        
-//         let (host, instance) = if normalized_server.contains('\\') {
-//             let parts: Vec<&str> = normalized_server.split('\\').collect();
-//             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
-//                 println!("🔍 Parsed server: host='{}', instance='{}'", parts[0], parts[1]);
-//                 (parts[0], Some(parts[1]))
-//             } else if parts.len() > 2 {
-//                 // Handle multiple backslashes - take first and last non-empty parts
-//                 let host_part = parts.iter().copied().find(|p| !p.is_empty()).unwrap_or("");
-//                 let instance_part = parts.iter().rev().copied().find(|p| !p.is_empty()).unwrap_or("");
-//                 if host_part != instance_part {
-//                     println!("🔍 Multi-part server parsed: host='{}', instance='{}'", host_part, instance_part);
-//                     (host_part, Some(instance_part))
-//                 } else {
-//                     println!("⚠️ Could not parse server format: {}, using as-is", normalized_server);
-//                     (normalized_server.as_str(), None)
-//                 }
-//             } else {
-//                 println!("⚠️ Unexpected server format: {}, using as-is", normalized_server);
-//                 (normalized_server.as_str(), None)
-//             }
-//         } else {
-//             println!("🔍 Simple server name (no instance): '{}'", normalized_server);
-//             (normalized_server.as_str(), None)
-//         };
-        
-//         config.host(host);
-//         config.port(self.config.port.unwrap_or(1433));
-        
-//         // Set instance name if present
-//         if let Some(instance_name) = instance {
-//             config.instance_name(instance_name);
-//             println!("🔗 Using SQL Server instance: {}", instance_name);
-//         }
-        
-//         // Handle database configuration
-//         if self.config.is_fabric {
-//             if let Some(ref database_name) = self.config.database_name {
-//                 config.database(database_name);
-//                 println!("🔗 Connecting to Fabric database: {}", database_name);
-//             } else {
-//                 println!("🔗 Connecting to Fabric Data Warehouse (no specific database)");
-//             }
-//         } else {
-//             if let Some(ref database_name) = self.config.database_name {
-//                 config.database(database_name); 
-//                 println!("🔗 Connecting to Azure SQL database: {}", database_name);
-//             }
-//         }
-        
-//         config.authentication(AuthMethod::AADToken(token.to_string()));
-//         config.encryption(tiberius::EncryptionLevel::Required);
-        
-//         println!("🔗 Final connection details: host='{}', port={}, instance={:?}", 
-//                 host, 
-//                 self.config.port.unwrap_or(1433),
-//                 instance);
-        
-//         let tcp = match TcpStream::connect(config.get_addr()).await {
-//             Ok(stream) => {
-//                 println!("✅ TCP connection established to {}", server_name);
-//                 stream
-//             },
-//             Err(e) => {
-//                 let error_msg = format!("Failed to connect to server '{}': {}. \n\
-//                        💡 Connection troubleshooting:\n\
-//                        - Verify the server address is correct\n\
-//                        - Check network connectivity\n\
-//                        - Ensure the service is running", server_name, e);
-//                 return Err(ElusionError::Custom(error_msg));
-//             }
-//         };
-        
-//         let client = match TiberiusClient::connect(config, tcp.compat_write()).await {
-//             Ok(client) => {
-//                 println!("✅ Successfully authenticated and connected to: {}", server_name);
-//                 client
-//             },
-//             Err(e) => {
-//                 // Check if this is a redirect error and let the caller handle it
-//                 let error_str = format!("{:?}", e);
-//                 if error_str.contains("Server requested a connection to an alternative address") {
-//                     println!("🔄 Redirect error detected, passing up to caller");
-//                     return Err(ElusionError::Custom(error_str));
-//                 }
-                
-//                 let error_msg = if self.config.is_fabric {
-//                     format!("Failed to authenticate with Fabric Data Warehouse: {}. \n\
-//                            💡 Authentication troubleshooting:\n\
-//                            - Try: az login --scope https://analysis.windows.net/powerbi/api/.default\n\
-//                            - Ensure you have proper permissions to the Fabric workspace\n\
-//                            - Check if the Data Warehouse is active", e)
-//                 } else {
-//                     format!("Failed to authenticate with Azure SQL Server: {}. \n\
-//                            💡 Check your Azure permissions and token scope", e)
-//                 };
-//                 return Err(ElusionError::Custom(error_msg));
-//             }
-//         };
-        
-//         Ok(client)
-//     }
-
-//     /// Execute a query and return results (similar to your PostgreSQL implementation)
-//     pub async fn query(&mut self, sql: &str) -> ElusionResult<Vec<tiberius::Row>> {
-//         let mut client = self.connect().await?;
-        
-//         println!("🔍 Executing query: {}", 
-//                 if sql.len() > 100 { 
-//                     format!("{}...", &sql[..100]) 
-//                 } else { 
-//                     sql.to_string() 
-//                 });
-        
-//         let stream = client.query(sql, &[]).await
-//             .map_err(|e| {
-//                 let error_msg = if self.config.is_fabric {
-//                     format!("Fabric query execution failed: {}. \n\
-//                            💡 Fabric-specific tips:\n\
-//                            - Use T-SQL syntax compatible with Fabric\n\
-//                            - Check table/view names and schemas\n\
-//                            - Ensure the lakehouse/warehouse is properly configured", e)
-//                 } else {
-//                     format!("Azure SQL query execution failed: {}", e)
-//                 };
-//                 ElusionError::Custom(error_msg)
-//             })?;
-        
-//         let rows = stream.into_results().await
-//             .map_err(|e| ElusionError::Custom(format!("Failed to collect results: {}", e)))?;
-        
-//         let row_vec: Vec<tiberius::Row> = rows.into_iter().flatten().collect();
-//         println!("✅ Query completed, returned {} rows", row_vec.len());
-        
-//         Ok(row_vec)
 //     }
 // }
 
@@ -5344,8 +4977,8 @@ impl CustomDataFrame {
         
         Ok(CustomDataFrame {
             df: normalized_df,
-            table_alias: alias.to_string(),          
-            from_table: alias.to_string(),          
+            table_alias: alias.to_string(),           // Use provided alias
+            from_table: alias.to_string(),            // Use provided alias
             selected_columns: Vec::new(),
             alias_map: Vec::new(),
             aggregations: Vec::new(),
@@ -5366,7 +4999,7 @@ impl CustomDataFrame {
         })
     }
 
-    // Stub implementation
+    // Stub implementation for when sharepoint feature is not enabled
     #[cfg(not(feature = "sharepoint"))]
     pub async fn load_from_sharepoint(
         _tenant_id: &str,
@@ -5589,7 +5222,7 @@ impl CustomDataFrame {
         client_id: &str,
         site_url: &str,
         folder_path: &str,
-        file_extensions: Option<Vec<&str>>, 
+        file_extensions: Option<Vec<&str>>, // Filter by extensions, e.g., vec!["xlsx", "csv"]
         result_alias: &str,
     ) -> ElusionResult<Self> {
         let config = SharePointConfig::new(
@@ -6082,178 +5715,7 @@ impl CustomDataFrame {
         })
     }
 
-    // =========== AZURE SQL
-    /// Create a DataFrame from an Azure SQL Server query
-    // #[cfg(feature = "azuresql")]
-    // pub async fn from_azure_sql(
-    //     server_name: &str,
-    //     database_name: &str,
-    //     query: &str,
-    //     alias: &str
-    // ) -> ElusionResult<Self> {
-    //     let config = AzureSqlConfig::new(server_name.to_string(), database_name.to_string());
-    //     let mut client = AzureSqlClient::new(config);
-        
-    //     let rows = client.query(query).await?;
-        
-    //     if rows.is_empty() {
-    //         return Err(ElusionError::Custom("Query returned no rows".to_string()));
-    //     }
-
-    //     Self::convert_sql_rows_to_dataframe(rows, alias).await
-    // }
-
-    // /// Create a DataFrame from Azure SQL Server with specific tenant/client (like SharePoint)
-    // #[cfg(feature = "azuresql")]
-    // pub async fn from_azure_sql_with_auth(
-    //     tenant_id: &str,
-    //     client_id: &str,
-    //     server_name: &str,
-    //     database_name: Option<&str>,
-    //     query: &str,
-    //     alias: &str
-    // ) -> ElusionResult<Self> {
-    //     let config = AzureSqlConfig::new_with_auth(
-    //         server_name.to_string(),
-    //         database_name.map(|s| s.to_string()),
-    //         tenant_id.to_string(),
-    //         client_id.to_string(),
-    //     );
-    //     let mut client = AzureSqlClient::new(config);
-        
-    //     let rows = client.query(query).await?;
-        
-    //     if rows.is_empty() {
-    //         return Err(ElusionError::Custom("Query returned no rows".to_string()));
-    //     }
-
-    //     Self::convert_sql_rows_to_dataframe(rows, alias).await
-    // }
-
-    // /// Helper method to convert SQL rows to DataFrame (shared by both methods)
-    // #[cfg(feature = "azuresql")]
-    // async fn convert_sql_rows_to_dataframe(
-    //     rows: Vec<tiberius::Row>,
-    //     alias: &str
-    // ) -> ElusionResult<Self> {
-
-    //     // Get column metadata from the first row
-    //     let first_row = &rows[0];
-    //     let num_columns = first_row.len();
-        
-    //     // Create Arrow schema - we'll use a simplified approach
-    //     let mut fields = Vec::with_capacity(num_columns);
-    //     for col_idx in 0..num_columns {
-    //         let column_name = format!("column_{}", col_idx); // Tiberius doesn't provide column names easily
-    //         // Default to Utf8 for now - we'll detect types from the data
-    //         fields.push(Field::new(&column_name, ArrowDataType::Utf8, true));
-    //     }
-        
-    //     let schema = Arc::new(Schema::new(fields));
-        
-    //     // Build arrays - simplified approach using mostly strings
-    //     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(num_columns);
-        
-    //     for col_idx in 0..num_columns {
-    //         let mut builder = StringBuilder::new();
-            
-    //         for row in &rows {
-    //             // Try to get the value as different types and convert to string
-    //             if let Ok(Some(value)) = row.try_get::<&str, usize>(col_idx) {
-    //                 builder.append_value(value);
-    //             } else if let Ok(Some(value)) = row.try_get::<i32, usize>(col_idx) {
-    //                 builder.append_value(value.to_string());
-    //             } else if let Ok(Some(value)) = row.try_get::<i64, usize>(col_idx) {
-    //                 builder.append_value(value.to_string());
-    //             } else if let Ok(Some(value)) = row.try_get::<f32, usize>(col_idx) {
-    //                 builder.append_value(value.to_string());
-    //             } else if let Ok(Some(value)) = row.try_get::<f64, usize>(col_idx) {
-    //                 builder.append_value(value.to_string());
-    //             } else if let Ok(Some(value)) = row.try_get::<bool, usize>(col_idx) {
-    //                 builder.append_value(value.to_string());
-    //             } else if let Ok(Some(value)) = row.try_get::<&[u8], usize>(col_idx) {
-    //                 // Convert binary to base64 for readability
-    //                 use base64::{Engine as _, engine::general_purpose};
-    //                 builder.append_value(general_purpose::STANDARD.encode(value));
-    //             } else {
-    //                 // If we can't get the value, it's null or unsupported type
-    //                 builder.append_null();
-    //             }
-    //         }
-            
-    //         arrays.push(Arc::new(builder.finish()));
-    //     }
-        
-    //     // Create a record batch
-    //     let batch = RecordBatch::try_new(schema.clone(), arrays)
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to create record batch: {}", e)))?;
-        
-    //     // Create a DataFusion DataFrame
-    //     let ctx = SessionContext::new();
-    //     let mem_table = MemTable::try_new(schema, vec![vec![batch]])
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
-        
-    //     ctx.register_table(alias, Arc::new(mem_table))
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to register table: {}", e)))?;
-        
-    //     let df = ctx.table(alias).await
-    //         .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame: {}", e)))?;
-        
-    //     // Return CustomDataFrame following your established pattern
-    //     Ok(Self {
-    //         df,
-    //         table_alias: alias.to_string(),
-    //         from_table: alias.to_string(),
-    //         selected_columns: Vec::new(),
-    //         alias_map: Vec::new(),
-    //         aggregations: Vec::new(),
-    //         group_by_columns: Vec::new(),
-    //         where_conditions: Vec::new(),
-    //         having_conditions: Vec::new(),
-    //         order_by_columns: Vec::new(),
-    //         limit_count: None,
-    //         joins: Vec::new(),
-    //         window_functions: Vec::new(),
-    //         ctes: Vec::new(),
-    //         subquery_source: None,
-    //         set_operations: Vec::new(),
-    //         query: String::new(),
-    //         aggregated_df: None,
-    //         union_tables: None,
-    //         original_expressions: Vec::new(),
-    //     })
-    // }
-
-    // #[cfg(not(feature = "azuresql"))]
-    // pub async fn from_azure_sql(
-    //     _server_name: &str,
-    //     _database_name: &str,
-    //     _query: &str,
-    //     _alias: &str
-    // ) -> ElusionResult<Self> {
-    //     Err(ElusionError::InvalidOperation {
-    //         operation: "Azure SQL Server Loading".to_string(),
-    //         reason: "Azure SQL feature not enabled".to_string(),
-    //         suggestion: "💡 Add 'azuresql' to your features: features = [\"azuresql\"]".to_string(),
-    //     })
-    // }
-
-    // #[cfg(not(feature = "azuresql"))]
-    // pub async fn from_azure_sql_with_auth(
-    //     _tenant_id: &str,
-    //     _client_id: &str,
-    //     _server_name: &str,
-    //     _database_name: Option<&str>,
-    //     _query: &str,
-    //     _alias: &str
-    // ) -> ElusionResult<Self> {
-    //     Err(ElusionError::InvalidOperation {
-    //         operation: "Azure SQL Server Loading".to_string(),
-    //         reason: "Azure SQL feature not enabled".to_string(),
-    //         suggestion: "💡 Add 'azuresql' to your features: features = [\"azuresql\"]".to_string(),
-    //     })
-    // }
-
+    
     // ====== POSTGRESS
 
     /// Create a DataFrame from a PostgreSQL query
@@ -11211,6 +10673,8 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
+    // ============== LOADING LOCAL FILES ===========================
+
     /// Unified load function that determines the file type based on extension
     pub async fn load(
         file_path: &str,
@@ -11257,7 +10721,762 @@ impl CustomDataFrame {
         })
     }
 
-// -------------------- PLOTING -------------------------- //
+    // ==================== LOADING LOCAL FILES FROM FOLDERS ===============================
+    /// Load all files from a local folder and union them if they have compatible schemas
+    /// Supports CSV, Excel, JSON, and Parquet files
+    pub async fn load_folder(
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>, 
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        use std::fs;
+        use std::path::Path;
+        
+        let folder_path_obj = Path::new(folder_path);
+        if !folder_path_obj.exists() {
+            return Err(ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: "Folder not found".to_string(),
+                suggestion: "💡 Check if the folder path is correct".to_string(),
+            });
+        }
+        
+        if !folder_path_obj.is_dir() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Local Folder Loading".to_string(),
+                reason: "Path is not a directory".to_string(),
+                suggestion: "💡 Provide a valid directory path".to_string(),
+            });
+        }
+        
+        let entries = fs::read_dir(folder_path)
+            .map_err(|e| ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: format!("Failed to read directory: {}", e),
+                suggestion: "💡 Check directory permissions".to_string(),
+            })?;
+        
+        let mut dataframes = Vec::new();
+        
+        for entry in entries {
+            let entry = entry.map_err(|e| ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: format!("Failed to read directory entry: {}", e),
+                suggestion: "💡 Check directory permissions".to_string(),
+            })?;
+            
+            let file_path = entry.path();
+
+            if !file_path.is_file() {
+                continue;
+            }
+            
+            let file_name = file_path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            if file_name.starts_with('.') {
+                continue;
+            }
+            
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                    continue;
+                }
+            }
+            
+            let file_path_str = file_path.to_str().ok_or_else(|| ElusionError::InvalidOperation {
+                operation: "Local Folder Loading".to_string(),
+                reason: format!("Invalid file path: {:?}", file_path),
+                suggestion: "💡 Ensure file paths contain valid UTF-8 characters".to_string(),
+            })?;
+            
+            match file_name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match Self::load_csv(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded CSV: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_csv".to_string(),
+                                from_table: "local_csv".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match Self::load_excel(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded Excel: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_excel".to_string(),
+                                from_table: "local_excel".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match Self::load_json(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded JSON: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_json".to_string(),
+                                from_table: "local_json".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match Self::load_parquet(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded Parquet: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_parquet".to_string(),
+                                from_table: "local_parquet".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_name);
+                }
+            }
+        }
+        
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Local Folder Loading".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains CSV, Excel, JSON, or Parquet files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded, returning as-is");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        // Check schema compatibility by column names AND types
+        println!("🔍 Checking schema compatibility for {} files (names + types)...", dataframes.len());
+        
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        // Print first file schema for reference
+        println!("📋 File 1 schema:");
+        for (i, field) in first_schema.fields().iter().enumerate() {
+            println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+        }
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            println!("📋 File {} schema:", file_idx + 1);
+            for (i, field) in current_schema.fields().iter().enumerate() {
+                println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+            }
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names and types match (case insensitive names)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    // Check column name (case insensitive)
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                    
+                    // Check column type
+                    if first_field.data_type() != current_field.data_type() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} ('{}') type is {:?}, but first file has {:?}", 
+                            file_idx + 1, col_idx + 1, current_field.name(), 
+                            current_field.data_type(), first_field.data_type()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            // Get the column order from the first file
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                // Select columns in the same order as first file
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                // Create temporary alias
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        println!("🔗 Unioning {} files with compatible schemas...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Local Folder Union All".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files using UNION ALL", total_files);
+
+        result.elusion(result_alias).await
+    }
+
+    /// Load all files from local folder and add filename as a column
+    /// Same as load_folder but adds a "filename" column to track source files
+    pub async fn load_folder_with_filename_column(
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        use std::fs;
+        use std::path::Path;
+        
+        // Check if folder exists
+        let folder_path_obj = Path::new(folder_path);
+        if !folder_path_obj.exists() {
+            return Err(ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: "Folder not found".to_string(),
+                suggestion: "💡 Check if the folder path is correct".to_string(),
+            });
+        }
+        
+        if !folder_path_obj.is_dir() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Local Folder Loading with Filename".to_string(),
+                reason: "Path is not a directory".to_string(),
+                suggestion: "💡 Provide a valid directory path".to_string(),
+            });
+        }
+        
+        // Read directory contents
+        let entries = fs::read_dir(folder_path)
+            .map_err(|e| ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: format!("Failed to read directory: {}", e),
+                suggestion: "💡 Check directory permissions".to_string(),
+            })?;
+        
+        let mut dataframes = Vec::new();
+        
+        for entry in entries {
+            let entry = entry.map_err(|e| ElusionError::WriteError {
+                path: folder_path.to_string(),
+                operation: "read".to_string(),
+                reason: format!("Failed to read directory entry: {}", e),
+                suggestion: "💡 Check directory permissions".to_string(),
+            })?;
+            
+            let file_path = entry.path();
+            
+            // Skip if not a file
+            if !file_path.is_file() {
+                continue;
+            }
+            
+            let file_name = file_path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string();
+            
+            // Skip hidden files
+            if file_name.starts_with('.') {
+                continue;
+            }
+            
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                    continue;
+                }
+            }
+            
+            let file_path_str = file_path.to_str().ok_or_else(|| ElusionError::InvalidOperation {
+                operation: "Local Folder Loading with Filename".to_string(),
+                reason: format!("Invalid file path: {:?}", file_path),
+                suggestion: "💡 Ensure file paths contain valid UTF-8 characters".to_string(),
+            })?;
+            
+            // Load file based on extension and add filename column
+            let mut loaded_df = None;
+            
+            match file_name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match Self::load_csv(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded CSV: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_csv".to_string(),
+                                from_table: "local_csv".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match Self::load_excel(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded Excel: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_excel".to_string(),
+                                from_table: "local_excel".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match Self::load_json(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded JSON: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_json".to_string(),
+                                from_table: "local_json".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match Self::load_parquet(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded Parquet: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_parquet".to_string(),
+                                from_table: "local_parquet".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                            };
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_name);
+                }
+            }
+            
+            // Add filename column to the loaded dataframe
+            if let Some(mut df) = loaded_df {
+                // Add filename as a new column using select with literal value
+                df = df.select_vec(vec![
+                    &format!("'{}' AS filename_added", file_name), 
+                    "*"
+                ]);
+                
+                // Execute the selection to create the dataframe with filename column
+                let temp_alias = format!("file_with_filename_{}", dataframes.len());
+                match df.elusion(&temp_alias).await {
+                    Ok(filename_df) => {
+                        println!("✅ Added filename column to {}", file_name);
+                        dataframes.push(filename_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to add filename to {}: {}", file_name, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Local Folder Loading with Filename".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains supported files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded with filename column");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        // Check schema compatibility (all files should now have filename as first column)
+        println!("🔍 Checking schema compatibility for {} files with filename columns...", dataframes.len());
+        
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names match (should be identical now with filename column)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            // Reorder columns by name to match first file
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        // Union the compatible dataframes
+        println!("🔗 Unioning {} files with filename tracking...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Local Folder Union with Filename".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files with filename tracking", total_files);
+
+        result.elusion(result_alias).await
+    }
+
+// ================================== PLOTING====================================== //
     ///Create line plot
      #[cfg(feature = "dashboard")]
     pub async fn plot_linee(
