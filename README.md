@@ -166,7 +166,7 @@ elusion = { version = "3.13.0", features = ["all"] }
 #### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
 #### All DataFrame query expresions, functions, aliases and column names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
 ---
-## Schema 
+## SCHEMA
 #### SCHEMA IS DYNAMICALLY INFERED
 ---
 # Usage examples:
