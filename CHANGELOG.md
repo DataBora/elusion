@@ -1,3 +1,11 @@
+## [3.13.2] - 2025-08-02
+### Bug Fixed
+- Fixed unpivot() column name normalization - Column names now properly converted to lowercase
+
+## [3.13.1] - 2025-08-02
+### Fixed
+- Features dependency clash
+
 ## [3.13.0] - 2025-08-02
 ### BREAKING CHANGE
 - REMOVED: Individul Sharepoint functions: load_csv_from_sharepoint(),load_excel_from_sharepoint(),load_json_from_sharepoint(),load_parquet_from_sharepoint(),

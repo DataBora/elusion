@@ -85,7 +85,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.13.1"
+elusion = "3.13.2"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -137,25 +137,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.13.1", features = ["postgres"] }
+elusion = { version = "3.13.2", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.13.1"
+elusion = "3.13.2"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.1", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.13.2", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.1", features = ["all"] }
+elusion = { version = "3.13.2", features = ["all"] }
 ```
 
 ### Feature Implications
