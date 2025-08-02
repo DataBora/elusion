@@ -7351,9 +7351,9 @@ impl CustomDataFrame {
                 id_cols_str,
                 val_col,
                 // label,
-                name_column,
+                name_column.to_lowercase(),
                 val_col,
-                value_column,
+                value_column.to_lowercase(),
                 self.from_table,
                 self.table_alias
             )
