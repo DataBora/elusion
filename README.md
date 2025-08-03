@@ -1,4 +1,4 @@
-# Elusion 🦀 DataFrame / Data Engineering Library
+# Elusion 🦎 DataFrame / Data Engineering Library
 
 <div align="center">
 
