@@ -16,7 +16,7 @@
 #### Click ⬇️
 [Buy me a coffee](https://coff.ee/elusion.rust)
 ---
-#### Quickest way to start with Elusion
+### Quickest way to start with Elusion
 #### Click ⬇️
 [Udemy Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 ---
