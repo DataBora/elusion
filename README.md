@@ -1,9 +1,13 @@
 # Elusion 🦀 DataFrame / Data Engineering Library
----
-[![Crates.io downloads](https://img.shields.io/crates/d/elusion)](link)
-[![Crates.io version](https://img.shields.io/crates/v/elusion)](link)
-[![docs.rs](https://docs.rs/elusion/badge.svg)](https://docs.rs/elusion)
-[![GitHub license](https://img.shields.io/github/license/DataBora/elusion)](link)
+
+<div align="center">
+
+[![Crates.io downloads](https://img.shields.io/crates/d/elusion?style=for-the-badge&color=orange&logo=rust)](https://crates.io/crates/elusion)
+[![Crates.io version](https://img.shields.io/crates/v/elusion?style=for-the-badge&color=brightgreen&logo=rust)](https://crates.io/crates/elusion)
+[![docs.rs](https://img.shields.io/docsrs/elusion?style=for-the-badge&color=blue&logo=docs.rs)](https://docs.rs/elusion)
+[![GitHub license](https://img.shields.io/github/license/DataBora/elusion?style=for-the-badge&color=green&logo=github)](https://github.com/DataBora/elusion/blob/main/LICENSE)
+
+</div>
 ---
 ![Elusion Logo](images/elusion.png)
 ---
