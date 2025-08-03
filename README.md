@@ -13,7 +13,12 @@
 ![Elusion Logo](images/elusion.png)
 ---
 ### If you find Elusion useful, buy me a coffee! ☕
+#### Click ⬇️
 [Buy me a coffee](https://coff.ee/elusion.rust)
+---
+#### Quickest way to start with Elusion
+#### Click ⬇️
+[Udemy Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 ---
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
