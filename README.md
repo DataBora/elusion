@@ -1,5 +1,8 @@
 # Elusion 🦀 DataFrame / Data Engineering Library
 
+[![Crates.io downloads](https://img.shields.io/crates/d/elusion)](link) - Total downloads
+[![Crates.io version](https://img.shields.io/crates/v/elusion)](link) - Latest version
+[![docs.rs](https://docs.rs/elusion/badge.svg)](https://docs.rs/elusion) - Documentation
 
 ![Elusion Logo](images/elusion.png)
 ---
