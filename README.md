@@ -1820,32 +1820,32 @@ sudo dnf install azure-cli
 sudo pacman -S azure-cli
 
 # For other distributions, visit:
-# https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+- https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-linux
 
-2. Login to Azure
+### 2. Login to Azure
 Open Command Prompt and write:
 ```rust
 "az login"
 ```
 This will open a browser window for authentication. Sign in with your Microsoft account that has access to your SharePoint site.
-3. Verify Login
+### 3. Verify Login
 ```rust
 "az account show"
 ```
 This should display your account information and confirm you're logged in.
 
-- Grant necessary SharePoint permissions:
-Sites.Read.All or Sites.ReadWrite.All
-Files.Read.All or Files.ReadWrite.All
+### Grant necessary SharePoint permissions:
+- Sites.Read.All or Sites.ReadWrite.All
+- Files.Read.All or Files.ReadWrite.All
 
 #### Single file loading auto-recognize file extension (csv, excel, parquet, json):
 ```rust
 //Example:
 let df = CustomDataFrame::load_from_sharepoint(
-    "your-tenant-id",
-    "your-client-id", 
-    "https://contoso.sharepoint.com/sites/MySite",
-    "Shared Documents/Data/customer_data.csv",
+    "your-tenant-id", //tenant id
+    "your-client-id", //clientid
+    "https://contoso.sharepoint.com/sites/MySite", //siteid
+    "Shared Documents/Data/customer_data.csv", //file path
     "combined_data" //dataframe alias
 ).await?;
 
@@ -1854,24 +1854,19 @@ let sales_data = df
     .elusion("my_sales_data").await?;
 
 sales_data.display().await?;
-//RUN THE PROGRAM
-cargo run --features sharepoint
 ```
 #### Reading ALL Files from a folder into single DataFrame example:
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint(
-    "your-tenant-id",
-    "your-client-id", 
-    "http://companyname.sharepoint.com/sites/SiteName", 
-    "Shared Documents/MainFolder/SubFolder",
+    "your-tenant-id",//tenant id
+    "your-client-id", //client id
+    "http://companyname.sharepoint.com/sites/SiteName", //site id
+    "Shared Documents/MainFolder/SubFolder",//folder path
     None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
     "combined_data" //dataframe alias
 ).await?;
 
 dataframes.display().await?;
-
-//RUN THE PROGRAM
-cargo run --features sharepoint
 ```
 #### Reading ALL Files from a folder into single DataFrame with Addind filename into new column:
 ```rust
