@@ -1862,7 +1862,7 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint(
     "your-client-id", //client id
     "http://companyname.sharepoint.com/sites/SiteName", //site id
     "Shared Documents/MainFolder/SubFolder",//folder path
-    None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
     "combined_data" //dataframe alias
 ).await?;
 
@@ -1875,7 +1875,7 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_colu
     "your-client-id", 
     "http://companyname.sharepoint.com/sites/SiteName", 
     "Shared Documents/MainFolder/SubFolder",
-    None, // None will read any file type, or you can filter by extension vec!["xlsx", "csv"]
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
     "combined_data" //dataframe alias
 ).await?;
 
