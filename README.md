@@ -32,7 +32,6 @@ Tailored for Data Engineers and Data Analysts seeking a powerful abstraction ove
 Elusion wants you to be you!
 
 Elusion offers flexibility in constructing queries without enforcing specific patterns or chaining orders, unlike SQL, PySpark, Polars, or Pandas. You can build your queries in ANY SEQUENCE THAT BEST FITS YOUR LOGIC, writing functions in ANY ORDER or a manner that makes sense to you. Regardless of the order of function calls, Elusion ensures consistent results.
-### ALL DataFrame OPERATIONS AND EXAMPLES, that you will need, are bellow.
 
 ## Platform Compatibility
 Tested for MacOS, Linux and Windows
@@ -51,9 +50,7 @@ Async Support: Built on tokio for non-blocking operations.
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
-
-### 🌐 SharePoint Integration 
-- Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
+- SharePoint: Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
 
 ### 🚀 High-Performance DataFrame Query Operations
 Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
@@ -184,6 +181,7 @@ elusion = { version = "3.13.2", features = ["all"] }
 #### SCHEMA IS DYNAMICALLY INFERED
 ---
 # Usage examples:
+## Most DataFrame OPERATIONS AND EXAMPLES, that you will need, are bellow.
 
 ### MAIN function 
 
