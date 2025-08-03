@@ -1804,9 +1804,9 @@ test_data.display().await?;
 # SharePoint
 ### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a Folder into Single DataFrame
 ### To connect to SharePoint you need AzureCLI installed and to be logged in 
-1. Install Azure CLI
-Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
-Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
+### 1. Install Azure CLI
+- Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+- Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
 - 🍎 macOS: brew install azure-cli
 - 🐧 Linux: 
 ### Ubuntu/Debian
