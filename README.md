@@ -8,7 +8,7 @@
 [![GitHub license](https://img.shields.io/github/license/DataBora/elusion?style=for-the-badge&color=green&logo=github)](https://github.com/DataBora/elusion/blob/main/LICENSE)
 
 </div>
----
+
 
 ![Elusion Logo](images/elusion.png)
 ---
