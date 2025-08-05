@@ -295,6 +295,87 @@ let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
 ).await?;
 ```
 ---
+# SharePoint connector
+### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame
+### To connect to SharePoint you need AzureCLI installed and to be logged in 
+### 1. Install Azure CLI
+- Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
+- Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
+- 🍎 macOS: brew install azure-cli
+- 🐧 Linux: 
+### Ubuntu/Debian
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+### CentOS/RHEL/Fedora
+sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+sudo dnf install azure-cli
+
+### Arch Linux
+sudo pacman -S azure-cli
+
+# For other distributions, visit:
+- https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-linux
+
+### 2. Login to Azure
+Open Command Prompt and write:
+```rust
+"az login"
+```
+This will open a browser window for authentication. Sign in with your Microsoft account that has access to your SharePoint site.
+### 3. Verify Login
+```rust
+"az account show"
+```
+This should display your account information and confirm you're logged in.
+
+### Grant necessary SharePoint permissions:
+- Sites.Read.All or Sites.ReadWrite.All
+- Files.Read.All or Files.ReadWrite.All
+
+#### Single file loading auto-recognize file extension (csv, excel, parquet, json):
+```rust
+//Example:
+let df = CustomDataFrame::load_from_sharepoint(
+    "your-tenant-id", //tenant id
+    "your-client-id", //clientid
+    "https://contoso.sharepoint.com/sites/MySite", //siteid
+    "Shared Documents/Data/customer_data.csv", //file path
+    "combined_data" //dataframe alias
+).await?;
+
+let sales_data = df
+    .select(["Column_1","Column_2","Column_3"])
+    .elusion("my_sales_data").await?;
+
+sales_data.display().await?;
+```
+#### Reading ALL Files from a folder into single DataFrame example:
+```rust
+let dataframes = CustomDataFrame::load_folder_from_sharepoint(
+    "your-tenant-id",//tenant id
+    "your-client-id", //client id
+    "http://companyname.sharepoint.com/sites/SiteName", //site id
+    "Shared Documents/MainFolder/SubFolder",//folder path
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+    "combined_data" //dataframe alias
+).await?;
+
+dataframes.display().await?;
+```
+#### Reading ALL Files from a folder into single DataFrame with Addind filename into new column:
+```rust
+let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
+    "your-tenant-id",
+    "your-client-id", 
+    "http://companyname.sharepoint.com/sites/SiteName", 
+    "Shared Documents/MainFolder/SubFolder",
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+    "combined_data" //dataframe alias
+).await?;
+
+dataframes.display().await?;
+```
+---
 ### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
 let df = CustomDataFrame::from_azure_with_sas_token(
@@ -1802,87 +1883,6 @@ let data_df = df.select(["*"]);
 
 let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
-```
----
-# SharePoint connector
-### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a Folder into Single DataFrame
-### To connect to SharePoint you need AzureCLI installed and to be logged in 
-### 1. Install Azure CLI
-- Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
-- Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
-- 🍎 macOS: brew install azure-cli
-- 🐧 Linux: 
-### Ubuntu/Debian
-curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-### CentOS/RHEL/Fedora
-sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
-sudo dnf install azure-cli
-
-### Arch Linux
-sudo pacman -S azure-cli
-
-# For other distributions, visit:
-- https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-linux
-
-### 2. Login to Azure
-Open Command Prompt and write:
-```rust
-"az login"
-```
-This will open a browser window for authentication. Sign in with your Microsoft account that has access to your SharePoint site.
-### 3. Verify Login
-```rust
-"az account show"
-```
-This should display your account information and confirm you're logged in.
-
-### Grant necessary SharePoint permissions:
-- Sites.Read.All or Sites.ReadWrite.All
-- Files.Read.All or Files.ReadWrite.All
-
-#### Single file loading auto-recognize file extension (csv, excel, parquet, json):
-```rust
-//Example:
-let df = CustomDataFrame::load_from_sharepoint(
-    "your-tenant-id", //tenant id
-    "your-client-id", //clientid
-    "https://contoso.sharepoint.com/sites/MySite", //siteid
-    "Shared Documents/Data/customer_data.csv", //file path
-    "combined_data" //dataframe alias
-).await?;
-
-let sales_data = df
-    .select(["Column_1","Column_2","Column_3"])
-    .elusion("my_sales_data").await?;
-
-sales_data.display().await?;
-```
-#### Reading ALL Files from a folder into single DataFrame example:
-```rust
-let dataframes = CustomDataFrame::load_folder_from_sharepoint(
-    "your-tenant-id",//tenant id
-    "your-client-id", //client id
-    "http://companyname.sharepoint.com/sites/SiteName", //site id
-    "Shared Documents/MainFolder/SubFolder",//folder path
-    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
-    "combined_data" //dataframe alias
-).await?;
-
-dataframes.display().await?;
-```
-#### Reading ALL Files from a folder into single DataFrame with Addind filename into new column:
-```rust
-let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
-    "your-tenant-id",
-    "your-client-id", 
-    "http://companyname.sharepoint.com/sites/SiteName", 
-    "Shared Documents/MainFolder/SubFolder",
-    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
-    "combined_data" //dataframe alias
-).await?;
-
-dataframes.display().await?;
 ```
 ---
 # Pipeline Scheduler
