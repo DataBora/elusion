@@ -313,7 +313,7 @@ let df = CustomDataFrame::from_postgres(&conn, query, "df_alias").await?;
 let df = CustomDataFrame::from_mysql(&conn, query, "df_alias").await?;
 ```
 ---
-## CREATE EMPTY DATA FRAME
+## CREATE EMPTY DataFrame
 #### Create empty() DataFrame and populate it with data
 ```rust
  let temp_df = CustomDataFrame::empty().await?;
@@ -338,7 +338,7 @@ RESULT:
 +--------------+---------------------+---------------------+--------------+------------------+
 ```
 ---
-## CREATE DATE TABLE
+## CREATE DATE TABLE DataFrame
 #### Create Date Table from Range of Dates
 ```rust
 let date_table = CustomDataFrame::create_date_range_table(
@@ -366,7 +366,7 @@ RESULT:
 +------------+------+-------+-----+---------+----------+-------------+------------------+-------------+------------+-------------+---------------+------------+------------+
 ```
 ---
-## CREATE DATE TABLE WITH CUSTOM FORMATS
+## CREATE DATE TABLE DataFrame WITH CUSTOM FORMATS
 #### You can create Date Table with Custom formats (ISO, Compact, Human Readable...) and week, month, quarter, year Ranges (start-end)
 ```rust
 let date_table = CustomDataFrame::create_formatted_date_range_table(
@@ -479,6 +479,7 @@ let num_ops_sales = sales_order_df
 let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
 num_ops_res.display().await?;
 ```
+---
 ### FILTER (evaluated before aggregations)
 ```rust
 let filter_df = sales_order_df
@@ -516,6 +517,7 @@ let filter_query = sales_order_df
         ("max_abs_billable", true), // Then by max_abs_billable ascending
     ])
 ```
+---
 ### HAVING (evaluated after aggregations)
 ```rust
 //Example 1 with aggregatied column names
@@ -563,6 +565,7 @@ let df_having= sales_df
 let result = df_having.elusion("sales_res").await?;
 result.display().await?;
 ```
+---
 ### FILL_DOWN function - fill_down() - that fills down null values in column with firs non null values above
 #### Imagine you have DataFrame like bellow with lots of null values.
 ```rust
@@ -615,7 +618,7 @@ sales_data.display().await?;
 | Babaluga            | Terrace  | Wine         | 18774.9  | 21685    |
 +---------------------+----------+--------------+----------+----------+
 ```
-
+---
 ### SCALAR functions
 ```rust
 let scalar_df = sales_order_df
@@ -681,7 +684,6 @@ let mix_query = sales_order_df
 let mix_res = mix_query.elusion("scalar_df").await?;
 mix_res.display().await?;
 ```
----
 ### Supported Aggregation functions
 ```rust
 SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX,  
@@ -1620,6 +1622,7 @@ post_df.from_api_with_dates(
     "C:\\Borivoj\\RUST\\Elusion\\JSON\\extraction_df2.json",  // path where json will be stored
 ).await?;
 ```
+---
 ## CREATE VIEWS and CACHING
 ### Materialized Views:
 For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
@@ -1679,7 +1682,6 @@ CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
 CustomDataFrame::list_views().await; // Get info about all views
 ```
 ---
----
 # Postgres Database Connector 
 ### Create Config, Conn and Query, and pass it to from_postgres() function.
 ```rust
@@ -1714,6 +1716,7 @@ let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "postgre
 
 sales_by_customer_df.display().await?;
 ```
+---
 # MySQL Database Connector 
 ### Create Config, Conn and Query, and pass it to from_mysql() function.
 ```rust
@@ -1801,7 +1804,7 @@ let test_data = data_df.elusion("data_df").await?;
 test_data.display().await?;
 ```
 ---
-# SharePoint
+# SharePoint connector
 ### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a Folder into Single DataFrame
 ### To connect to SharePoint you need AzureCLI installed and to be logged in 
 ### 1. Install Azure CLI
@@ -2005,7 +2008,7 @@ let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
 let json_df = CustomDataFrame::new(json_path, "test2").await?;
 ```
 ---
-# REST API
+# REST API connectors
 ### Creating JSON files from REST API's
 #### Customizable Headers, Params, Pagination, Date Ranges...
 ### FROM API
@@ -2222,6 +2225,7 @@ movie_db.from_api_with_headers_and_sort(
     Some("string_interop") // Optional sheet name. Can be None
 ).await?;
 ```
+---
 ## Writing to Parquet File
 #### We have 2 writing modes: **Overwrite** and **Append**
 ```rust
@@ -2241,6 +2245,7 @@ df.write_to_parquet(
 ) 
 .await?;
 ```
+---
 ## Writing to CSV File
 
 #### CSV Writing options are **mandatory**
@@ -2273,6 +2278,7 @@ df.write_to_csv(
 .await?;
 
 ```
+---
 ## Writing to JSON File
 
 #### JSON writer can only overwrite, so only 2 arguments needed
@@ -2283,6 +2289,7 @@ df.write_to_json(
     true // pretty-printed JSON, false for compact JSON
 ).await?;
 ```
+---
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
 #### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
@@ -2305,6 +2312,7 @@ df.write_to_delta_table(
 .await
 .expect("Failed to append to Delta table");
 ```
+---
 ## Writing Parquet to Azure BLOB Storage 
 #### We have 2 writing options "overwrite" and "append"
 #### Writing is set to Default, Compression: SNAPPY and Parquet 2.0
@@ -2332,6 +2340,7 @@ data.write_parquet_to_azure_with_sas(
     sas_write_token
 ).await?;
 ```
+---
 ## Writing JSON to Azure BLOB Storage 
 #### Only can create new or overwrite exisitng file
 #### Threshold file size is 1GB
