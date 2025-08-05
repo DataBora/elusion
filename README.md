@@ -441,65 +441,6 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
-## CREATE VIEWS and CACHING
-### Materialized Views:
-For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
-### Query Caching:
-For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.
-```rust
-let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
-let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
-let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
-
-let sales_df = CustomDataFrame::new(sales, "s").await?;
-let customers_df = CustomDataFrame::new(customers, "c").await?;
-let products_df = CustomDataFrame::new(products, "p").await?;
-
-// Example 1: Using materialized view for customer count
-// The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
-customers_df
-    .select(["COUNT(*) as count"])
-    .limit(10)
-    .create_view("customer_count_view", Some(3600)) 
-    .await?;
-
-// Access the view by name - no recomputation needed
-let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
-
-// Example 2: Using query caching with complex joins and aggregations
-// First execution computes and stores the result
-let join_result = sales_df
-    .join_many([
-        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
-    ])
-    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .agg([
-        "SUM(s.OrderQuantity) AS total_quantity",
-        "AVG(s.OrderQuantity) AS avg_quantity"
-    ])
-    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
-    .having_many([
-        ("total_quantity > 10"),
-        ("avg_quantity < 100")
-    ])
-    .order_by_many([
-        ("total_quantity", true),
-        ("p.ProductName", false)
-    ])
-    .elusion_with_cache("sales_join") // caching query with DataFrame alias 
-    .await?;
-
-join_result.display().await?;
-
-// Other useful cache/view management functions:
-CustomDataFrame::invalidate_cache(&["table_name".to_string()]); // Clear cache for specific tables
-CustomDataFrame::clear_cache(); // Clear entire cache
-CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
-CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
-CustomDataFrame::list_views().await; // Get info about all views
-```
----
 # DATAFRAME WRANGLING
 ---
 ## SELECT
@@ -712,19 +653,6 @@ let scalar_df = sales_order_df
 let scalar_res = scalar_df.elusion("scalar_df").await?;
 scalar_res.display().await?;
 ```
-### STRING functions
-```rust
-let df = sales_df
-    .select(["FirstName", "LastName"])
-    .string_functions([
-        "'New' AS new_old_customer",
-        "TRIM(c.EmailAddress) AS trimmed_email",
-        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
-    ]);
-
-let result_df = df.elusion("df").await?;
-result_df.display().await?;
-```
 ### Numerical Operators, Scalar Functions, Aggregated Functions...
 ```rust
 let mix_query = sales_order_df
@@ -771,6 +699,123 @@ COS, COSH, COT, DEGREES, EXP,
 SIN, SINH, TAN, TANH, TRUNC, CBRT,  
 ATAN, ATAN2, ATANH, GCD, LCM, LN,  
 LOG, LOG10, LOG2, NANVL, SIGNUM
+```
+---
+### STRING functions (basic)
+```rust
+let df = sales_df
+    .select(["FirstName", "LastName"])
+    .string_functions([
+        "'New' AS new_old_customer",
+        "TRIM(c.EmailAddress) AS trimmed_email",
+        "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+    ]);
+
+let result_df = df.elusion("df").await?;
+result_df.display().await?;
+```
+### STRING functions (extended)
+```rust
+let string_functions_df = df_sales
+    .join_many([
+        (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
+    ]) 
+    .select([
+        "c.CustomerKey",
+        "c.FirstName",
+        "c.LastName",
+        "c.EmailAddress",
+        "p.ProductName"
+    ])
+    .string_functions([
+    // Basic String Functions
+    "TRIM(c.EmailAddress) AS trimmed_email",
+    "LTRIM(c.EmailAddress) AS left_trimmed_email",
+    "RTRIM(c.EmailAddress) AS right_trimmed_email",
+    "UPPER(c.FirstName) AS upper_first_name",
+    "LOWER(c.LastName) AS lower_last_name",
+    "LENGTH(c.EmailAddress) AS email_length",
+    "LEFT(p.ProductName, 10) AS product_start",
+    "RIGHT(p.ProductName, 10) AS product_end",
+    "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
+    // Concatenation
+    "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
+    "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
+    // Position and Search
+    "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
+    "STRPOS(c.EmailAddress, '@') AS email_at_pos",
+    // Replacement and Modification
+    "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
+    "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
+    "REPEAT('*', 5) AS stars",
+    "REVERSE(c.FirstName) AS reversed_name",
+    // Padding
+    "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
+    "RPAD(c.FirstName, 20, '.') AS padded_name",
+    // Case Formatting
+    "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
+    // String Extraction
+    "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
+    // Type Conversion
+    "TO_CHAR(s.OrderDate, 'YYYY-MM-DD') AS formatted_date"
+    ])
+    .agg([
+        "COUNT(*) AS total_records",
+        "STRING_AGG(p.ProductName, ', ') AS all_products"
+    ])
+    .filter("c.emailaddress IS NOT NULL")
+    .group_by_all()
+    .having("COUNT(*) > 1")
+    .order_by(["c.CustomerKey"], [true]);   
+
+let str_df = string_functions_df.elusion("df_joins").await?;
+str_df.display().await?;    
+```
+#### Currently Available String functions
+```rust
+1.Basic String Functions:
+TRIM() - Remove leading/trailing spaces
+LTRIM() - Remove leading spaces
+RTRIM() - Remove trailing spaces
+UPPER() - Convert to uppercase
+LOWER() - Convert to lowercase
+LENGTH() or LEN() - Get string length
+LEFT() - Extract leftmost characters
+RIGHT() - Extract rightmost characters
+SUBSTRING() - Extract part of string
+2. String concatenation:
+CONCAT() - Concatenate strings
+CONCAT_WS() - Concatenate with separator
+3. String Position and Search:
+POSITION() - Find position of substring
+STRPOS() - Find position of substring
+INSTR() - Find position of substring
+LOCATE() - Find position of substring
+4. String Replacement and Modification:
+REPLACE() - Replace all occurrences of substring
+TRANSLATE() - Replace characters
+OVERLAY() - Replace portion of string
+REPEAT() - Repeat string
+REVERSE() - Reverse string characters
+5. String Pattern Matching:
+LIKE() - Pattern matching with wildcards
+REGEXP() or RLIKE() - Pattern matching with regular expressions
+6. String Padding:
+LPAD() - Pad string on left
+RPAD() - Pad string on right
+SPACE() - Generate spaces
+7. String Case Formatting:
+INITCAP() - Capitalize first letter of each word
+8. String Extraction:
+SPLIT_PART() - Split string and get nth part
+SUBSTR() - Get substring
+9. String Type Conversion:
+TO_CHAR() - Convert to string
+CAST() - Type conversion
+CONVERT() - Type conversion
+10. Control Flow:
+CASE()
 ```
 ---
 ## JOIN
@@ -952,110 +997,6 @@ join_str_df3.display().await?;
 "INNER", "LEFT", "RIGHT", "FULL", 
 "LEFT SEMI", "RIGHT SEMI", 
 "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
-```
----
-### STRING FUNCTIONS
-```rust
-let string_functions_df = df_sales
-    .join_many([
-        (df_customers, ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
-    ]) 
-    .select([
-        "c.CustomerKey",
-        "c.FirstName",
-        "c.LastName",
-        "c.EmailAddress",
-        "p.ProductName"
-    ])
-    .string_functions([
-    // Basic String Functions
-    "TRIM(c.EmailAddress) AS trimmed_email",
-    "LTRIM(c.EmailAddress) AS left_trimmed_email",
-    "RTRIM(c.EmailAddress) AS right_trimmed_email",
-    "UPPER(c.FirstName) AS upper_first_name",
-    "LOWER(c.LastName) AS lower_last_name",
-    "LENGTH(c.EmailAddress) AS email_length",
-    "LEFT(p.ProductName, 10) AS product_start",
-    "RIGHT(p.ProductName, 10) AS product_end",
-    "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
-    // Concatenation
-    "CONCAT(c.FirstName, ' ', c.LastName) AS full_name",
-    "CONCAT_WS(' ', c.FirstName, c.LastName, c.EmailAddress) AS all_info",
-    // Position and Search
-    "POSITION('@' IN c.EmailAddress) AS at_symbol_pos",
-    "STRPOS(c.EmailAddress, '@') AS email_at_pos",
-    // Replacement and Modification
-    "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
-    "TRANSLATE(c.FirstName, 'AEIOU', '12345') AS vowels_replaced",
-    "REPEAT('*', 5) AS stars",
-    "REVERSE(c.FirstName) AS reversed_name",
-    // Padding
-    "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
-    "RPAD(c.FirstName, 20, '.') AS padded_name",
-    // Case Formatting
-    "INITCAP(LOWER(c.FirstName)) AS proper_case_name",
-    // String Extraction
-    "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
-    // Type Conversion
-    "TO_CHAR(s.OrderDate, 'YYYY-MM-DD') AS formatted_date"
-    ])
-    .agg([
-        "COUNT(*) AS total_records",
-        "STRING_AGG(p.ProductName, ', ') AS all_products"
-    ])
-    .filter("c.emailaddress IS NOT NULL")
-    .group_by_all()
-    .having("COUNT(*) > 1")
-    .order_by(["c.CustomerKey"], [true]);   
-
-let str_df = string_functions_df.elusion("df_joins").await?;
-str_df.display().await?;    
-```
-#### Currently Available String functions
-```rust
-1.Basic String Functions:
-TRIM() - Remove leading/trailing spaces
-LTRIM() - Remove leading spaces
-RTRIM() - Remove trailing spaces
-UPPER() - Convert to uppercase
-LOWER() - Convert to lowercase
-LENGTH() or LEN() - Get string length
-LEFT() - Extract leftmost characters
-RIGHT() - Extract rightmost characters
-SUBSTRING() - Extract part of string
-2. String concatenation:
-CONCAT() - Concatenate strings
-CONCAT_WS() - Concatenate with separator
-3. String Position and Search:
-POSITION() - Find position of substring
-STRPOS() - Find position of substring
-INSTR() - Find position of substring
-LOCATE() - Find position of substring
-4. String Replacement and Modification:
-REPLACE() - Replace all occurrences of substring
-TRANSLATE() - Replace characters
-OVERLAY() - Replace portion of string
-REPEAT() - Repeat string
-REVERSE() - Reverse string characters
-5. String Pattern Matching:
-LIKE() - Pattern matching with wildcards
-REGEXP() or RLIKE() - Pattern matching with regular expressions
-6. String Padding:
-LPAD() - Pad string on left
-RPAD() - Pad string on right
-SPACE() - Generate spaces
-7. String Case Formatting:
-INITCAP() - Capitalize first letter of each word
-8. String Extraction:
-SPLIT_PART() - Split string and get nth part
-SUBSTR() - Get substring
-9. String Type Conversion:
-TO_CHAR() - Convert to string
-CAST() - Type conversion
-CONVERT() - Type conversion
-10. Control Flow:
-CASE()
 ```
 ---
 ### DATETIME FUNCTIONS
@@ -1679,6 +1620,65 @@ post_df.from_api_with_dates(
     "C:\\Borivoj\\RUST\\Elusion\\JSON\\extraction_df2.json",  // path where json will be stored
 ).await?;
 ```
+## CREATE VIEWS and CACHING
+### Materialized Views:
+For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
+### Query Caching:
+For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.
+```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
+// Example 1: Using materialized view for customer count
+// The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
+customers_df
+    .select(["COUNT(*) as count"])
+    .limit(10)
+    .create_view("customer_count_view", Some(3600)) 
+    .await?;
+
+// Access the view by name - no recomputation needed
+let customer_count = CustomDataFrame::from_view("customer_count_view").await?;
+
+// Example 2: Using query caching with complex joins and aggregations
+// First execution computes and stores the result
+let join_result = sales_df
+    .join_many([
+        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", true),
+        ("p.ProductName", false)
+    ])
+    .elusion_with_cache("sales_join") // caching query with DataFrame alias 
+    .await?;
+
+join_result.display().await?;
+
+// Other useful cache/view management functions:
+CustomDataFrame::invalidate_cache(&["table_name".to_string()]); // Clear cache for specific tables
+CustomDataFrame::clear_cache(); // Clear entire cache
+CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
+CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
+CustomDataFrame::list_views().await; // Get info about all views
+```
+---
 ---
 # Postgres Database Connector 
 ### Create Config, Conn and Query, and pass it to from_postgres() function.
