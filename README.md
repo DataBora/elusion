@@ -362,7 +362,7 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint(
 
 dataframes.display().await?;
 ```
-#### Reading ALL Files from a folder into single DataFrame with Addind filename into new column:
+#### Reading ALL Files from a folder into single DataFrame with Adding filename column automatically:
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
     "your-tenant-id",
