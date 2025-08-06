@@ -20,7 +20,7 @@ pub use datafusion::datasource::MemTable;
 pub use std::sync::Arc;
 pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use chrono::NaiveDate;
-pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder};
+pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
 
 pub use arrow::record_batch::RecordBatch;
 pub use ArrowDataType::*;
@@ -67,7 +67,9 @@ pub use arrow::array::StringArray;
 
 //PLOTTING
 #[cfg(feature = "dashboard")]
-pub use plotly::{Plot, Scatter, Bar, Histogram, BoxPlot, Pie};
+pub use plotly::Plot as PlotlyPlot;
+#[cfg(feature = "dashboard")]
+pub use plotly::{Scatter, Bar, Histogram, BoxPlot, Pie};
 #[cfg(feature = "dashboard")]
 pub use plotly::common::{Mode, Line, Marker, Orientation};
 #[cfg(feature = "dashboard")]
@@ -78,10 +80,10 @@ pub use plotly::color::Rgb;
 pub use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
 #[cfg(feature = "dashboard")]
 pub use plotly::layout::{DragMode, RangeSlider};
-
-pub use arrow::array::{Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
 #[cfg(feature = "dashboard")]
 pub use std::cmp::Ordering;
+#[cfg(not(feature = "dashboard"))]
+pub struct PlotlyPlot;
 
 #[cfg(not(feature = "dashboard"))]
 pub struct Plot;
