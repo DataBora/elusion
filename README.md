@@ -12,6 +12,13 @@
 
 ![Elusion Logo](images/elusion.png)
 ---
+## Contributing
+I appreciate the interest in contributing to Elusion! However, I'm not currently accepting contributions.
+- **Feature requests**: Feel free to message me if you need any new features - if possible, I'll be happy to implement them
+- **Modifications**: You're welcome to fork the repository for your own changes
+- **Issues**: Bug reports are always appreciated
+
+Thanks for understanding!
 ### If you find Elusion useful, buy me a coffee! ☕
 #### Click ⬇️
 [Buy me a coffee](https://coff.ee/elusion.rust)
