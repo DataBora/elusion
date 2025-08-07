@@ -48,7 +48,7 @@ url = {version = "2.5", optional = true}
 default = []
 dashboard = ["dep:plotly"]
 api = ["dep:reqwest", "dep:urlencoding"]
-azure = ["dep:azure_storage_blobs", "dep:azure_storage"]
+azure = ["dep:azure_storage_blobs", "dep:azure_storage", "dep:reqwest"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
