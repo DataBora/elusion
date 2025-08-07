@@ -282,14 +282,19 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
         })
     }
 
-
-     /// Writes the DataFrame to an Excel file with formatting options
+    /// Writes the DataFrame to an Excel file with formatting options
     #[cfg(feature = "excel")]
     pub async fn write_to_excel_impl(
         df: &CustomDataFrame,
         path: &str,
         sheet_name: Option<&str>
     ) -> ElusionResult<()> {
+
+        if !path.ends_with(".xlsx") {
+            return Err(ElusionError::Custom(
+                "❌ Invalid file extension. Excel files must end with '.xlsx'".to_string()
+            ));
+        }
 
         if let Some(parent) = LocalPath::new(path).parent() {
             if !parent.exists() {

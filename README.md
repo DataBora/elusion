@@ -104,7 +104,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.13.2"
+elusion = "3.13.3"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -156,25 +156,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.13.2", features = ["postgres"] }
+elusion = { version = "3.13.3", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.13.2"
+elusion = "3.13.3"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.2", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.13.3", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.2", features = ["all"] }
+elusion = { version = "3.13.3", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1883,7 +1883,7 @@ let sas_token = "your_sas_token";
 let df = CustomDataFrame::from_azure_with_sas_token(
         dfs_url, 
         sas_token, 
-        Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
+        Some("folder-name/file-name.csv"), // FILTERING is optional. Can be None if you want to take everything from Container
         "data" // alias for registering table
     ).await?;
 
@@ -2332,19 +2332,19 @@ let query = df.select(["*"]);
 
 let data = query.elusion("df_sales").await?;
 
-let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
+let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
 let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
 
 data.write_parquet_to_azure_with_sas(
     "overwrite",
-    url_to_folder,
+    url_to_folder_and_file_name,
     sas_write_token
 ).await?;
 
 // append version
 data.write_parquet_to_azure_with_sas(
     "append",
-    url_to_folder,
+    url_to_folder_and_file_name,
     sas_write_token
 ).await?;
 ```
@@ -2359,11 +2359,11 @@ let query = df.select(["*"]);
 
 let data = query.elusion("df_sales").await?;
 
-let url_to_folder = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/data.json";
+let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/data.json";
 let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
 
 data.write_json_to_azure_with_sas(
-    url_to_folder,
+    url_to_folder_and_file_name,
     sas_write_token,
     true  // Set to true for pretty-printed JSON, false for compact JSON
 ).await?;
