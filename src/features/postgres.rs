@@ -21,6 +21,7 @@ pub struct PostgresConfig {
     pub database: String,
     pub pool_size: Option<usize>,
 }
+
 #[cfg(feature = "postgres")]
 impl Default for PostgresConfig {
     fn default() -> Self {
@@ -247,9 +248,9 @@ impl From<tokio_postgres::error::Error> for ElusionError {
         // Extract column info from the first row
         let first_row = &rows[0];
         let columns = first_row.columns();
-        for (i, column) in first_row.columns().iter().enumerate() {
-    println!("Column {}: '{}' -> PG type: {:?}", i, column.name(), column.type_());
-}
+//         for (i, column) in first_row.columns().iter().enumerate() {
+//     println!("Column {}: '{}' -> PG type: {:?}", i, column.name(), column.type_());
+// }
         // Create schema from column metadata
         let mut fields = Vec::with_capacity(columns.len());
         for column in columns {

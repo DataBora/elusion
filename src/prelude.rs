@@ -6,7 +6,8 @@ pub use crate::{ElusionError, ElusionResult};
 pub use crate::features::postgres::PostgresConfig;
 pub use crate::features::postgres::PostgresConnection;
 //========= mysql
-pub use crate::{MySqlConfig, MySqlConnection};
+pub use crate::features::mysql::MySqlConfig;
+pub use crate::features::mysql::MySqlConnection;
 //====== dashboard
 pub use crate::{ReportLayout, TableOptions};
 
