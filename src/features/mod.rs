@@ -4,3 +4,4 @@ pub mod dashboard;
 pub mod azure;
 pub mod api;
 pub mod postgres;
+pub mod mysql;

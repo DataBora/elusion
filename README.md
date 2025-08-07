@@ -1778,7 +1778,7 @@ CustomDataFrame::list_views().await; // Get info about all views
         host: "localhost".to_string(),
         port: 5432,
         user: "borivoj".to_string(),
-        password: "djavolak1".to_string(),
+        password: "pass123".to_string(),
         database: "db_test".to_string(),
         pool_size: Some(5), 
     };
@@ -1814,7 +1814,7 @@ let mysql_config = MySqlConfig {
     port: 3306,
     user: "borivoj".to_string(),
     password: "pass123".to_string(),
-    database: "brewery".to_string(),
+    database: "db_test".to_string(),
     pool_size: Some(5),
 };
 
@@ -1849,7 +1849,7 @@ let mysql_query = "
 
 let df = CustomDataFrame::from_mysql(&conn, mysql_query, "mysql_df").await?;
 
-result.display().await?;
+df.display().await?;
 ```
 ---
 # AZURE Blob Storage Connector 
