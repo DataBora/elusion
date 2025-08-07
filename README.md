@@ -1776,9 +1776,9 @@ CustomDataFrame::list_views().await; // Get info about all views
 ```rust
  let pg_config = PostgresConfig {
         host: "localhost".to_string(),
-        port: 5433,
+        port: 5432,
         user: "borivoj".to_string(),
-        password: "pass123".to_string(),
+        password: "djavolak1".to_string(),
         database: "db_test".to_string(),
         pool_size: Some(5), 
     };

@@ -3,7 +3,8 @@ pub use crate::PipelineScheduler;
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
 //====== postgres
-pub use crate::{PostgresConfig, PostgresConnection};
+pub use crate::features::postgres::PostgresConfig;
+pub use crate::features::postgres::PostgresConnection;
 //========= mysql
 pub use crate::{MySqlConfig, MySqlConnection};
 //====== dashboard
