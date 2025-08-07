@@ -12,7 +12,7 @@
 
 ![Elusion Logo](images/elusion.png)
 ---
-## Contributing
+# Contributing
 I appreciate the interest in contributing to Elusion! However, I'm not currently accepting contributions.
 - **Feature requests**: Feel free to message me if you need any new features - if possible, I'll be happy to implement them
 - **Modifications**: You're welcome to fork the repository for your own changes
