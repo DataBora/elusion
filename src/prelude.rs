@@ -160,7 +160,7 @@ pub use reqwest::Client;
 #[cfg(feature = "api")]
 pub use urlencoding::encode;
 
-pub use crate::ElusionApi;
+pub use crate::features::api::ElusionApi;
 
 #[cfg(not(feature = "api"))]
 pub struct Client;
