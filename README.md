@@ -19,6 +19,7 @@ I appreciate the interest in contributing to Elusion! However, I'm not currently
 - **Issues**: Bug reports are always appreciated
 
 Thanks for understanding!
+---
 ### If you find Elusion useful, buy me a coffee! ☕
 #### Click ⬇️
 [Buy me a coffee](https://coff.ee/elusion.rust)
