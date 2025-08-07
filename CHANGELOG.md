@@ -1,6 +1,12 @@
 ## [3.13.3] - 2025-08-07
 ### Bug Fixed
 - Postgres SQL timestamp conversion
+### Added
+- Azure Blob Storage timeout for controlled reading times
+### Enhanced
+- Azure blob storage direct file reading vs full path reading
+- Skiping empty/small json files < 3kb for blob reading
+- Writers extension check
 
 ## [3.13.2] - 2025-08-02
 ### Bug Fixed

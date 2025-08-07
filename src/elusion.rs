@@ -2296,6 +2296,8 @@ async fn write_to_delta_impl(
     overwrite: bool,
     write_mode: WriteMode,
 ) -> Result<(), DeltaTableError> {
+    validate_delta_path_simple(path)?;
+
     let path_manager = DeltaPathManager::new(path);
 
     // get the Arrow schema
@@ -2493,6 +2495,25 @@ async fn write_to_delta_impl(
     Ok(())
 }
 
+fn validate_delta_path_simple(path: &str) -> Result<(), DeltaTableError> {
+    let common_file_extensions = [
+        ".csv", ".json", ".parquet", ".txt", ".xlsx", 
+        ".xml", ".avro", ".orc", ".sql", ".yaml", ".yml"
+    ];
+    
+    let path_lower = path.to_lowercase();
+    
+    for ext in &common_file_extensions {
+        if path_lower.ends_with(ext) {
+            return Err(DeltaTableError::Generic(
+                format!("❌ Invalid Delta table path. Delta tables are directories, not files. Remove the '{}' extension from '{}'", 
+                    ext, path)
+            ));
+        }
+    }
+    
+    Ok(())
+}
 
 // Auxiliary struct to hold aliased DataFrame
 pub struct AliasedDataFrame {
@@ -5644,6 +5665,13 @@ impl CustomDataFrame {
         path: &str,
         pretty: bool,
     ) -> ElusionResult<()> {
+
+        if !path.ends_with(".json") {
+            return Err(ElusionError::Custom(
+                "❌ Invalid file extension. Json files must end with '.json'".to_string()
+            ));
+        }
+
         if let Some(parent) = LocalPath::new(path).parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
@@ -5807,6 +5835,13 @@ impl CustomDataFrame {
         path: &str,
         options: Option<DataFrameWriteOptions>,
     ) -> ElusionResult<()> {
+
+        if !path.ends_with(".parquet") {
+            return Err(ElusionError::Custom(
+                "❌ Invalid file extension. Parquet files must end with '.parquet'".to_string()
+            ));
+        }
+
         let write_options = options.unwrap_or_else(DataFrameWriteOptions::new);
 
         if let Some(parent) = LocalPath::new(path).parent() {
@@ -5995,6 +6030,13 @@ impl CustomDataFrame {
         path: &str,
         csv_options: CsvWriteOptions,
     ) -> ElusionResult<()> {
+
+        if !path.ends_with(".csv") {
+            return Err(ElusionError::Custom(
+                "❌ Invalid file extension. CSV files must end with '.csv'".to_string()
+            ));
+        }
+
         csv_options.validate()?;
         
         if let Some(parent) = LocalPath::new(path).parent() {
@@ -6388,7 +6430,7 @@ impl CustomDataFrame {
     ) -> ElusionResult<()> {
         Err(ElusionError::Custom("*** Warning ***: Excel feature not enabled. Add feature excel under [dependencies]".to_string()))
     }
-    // ========= AZURE WRITING
+    // ============== AZURE WRITING ======================
     #[cfg(feature = "azure")]
     pub async fn write_parquet_to_azure_with_sas(
         &self,
@@ -6429,7 +6471,7 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
-    // Static method (no &self) - constructor function
+     // ============== AZURE READING ======================
     #[cfg(feature = "azure")]
     pub async fn from_azure_with_sas_token(
         url: &str,
@@ -6450,24 +6492,8 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
-    #[cfg(feature = "azure")]
-    pub async fn test_azure_connection(
-        url: &str,
-        sas_token: &str,
-    ) -> ElusionResult<()> {
-        crate::features::azure::test_azure_connection_impl(url, sas_token).await
-    }
+    //=================== LOCAL LOADERS ============================= //
 
-    #[cfg(not(feature = "azure"))]
-    pub async fn test_azure_connection(
-        _url: &str,
-        _sas_token: &str,
-    ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
-    }
-   
-
-    //=================== LOADERS ============================= //
     /// LOAD function for CSV file type
     pub async fn load_csv(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
         let ctx = SessionContext::new();
@@ -6531,7 +6557,6 @@ impl CustomDataFrame {
                     return Err(ElusionError::DataFusion(err));
                 }
             };
-
             
             let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
             let schema = df.schema().clone();
