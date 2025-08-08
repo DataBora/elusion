@@ -6,5 +6,4 @@ pub mod api;
 pub mod postgres;
 pub mod mysql;
 pub mod scheduler;
-pub mod registertable;
 pub mod cashandview;
