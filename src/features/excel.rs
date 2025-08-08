@@ -572,4 +572,3 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
         
         Ok(())
     }
-

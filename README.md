@@ -104,7 +104,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.13.3"
+elusion = "3.14.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -145,6 +145,7 @@ Enables data visualization and dashboard creation capabilities.
 ["excel"]
 ```
 Enables writing DataFrame to Excel file.
+#### You only need this enabled if writing to excel
 ```rust 
 ["all"]
 ```
@@ -156,25 +157,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.13.3", features = ["postgres"] }
+elusion = { version = "3.14.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.13.3"
+elusion = "3.14.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.3", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "3.14.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.13.3", features = ["all"] }
+elusion = { version = "3.14.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -530,6 +531,222 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
+# DATA INSPECTION, PREVIEW FUNCTIONS AND STATISTICAL FUNCTIONS
+---
+### Quickly preview your data with SHOW_HEAD(), SHOW_TAIL(), and PEEK() functions
+#### Display the first n rows of your DataFrame for quick data inspection
+#### 1 argument needed: Number of Rows
+```rust
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales_data.csv";
+let df = CustomDataFrame::new(csv_path, "sales").await?;
+
+// Show first 5 rows
+df.show_head(5).await?;
+
+// Show last 10 rows
+df.show_tail(10).await?;
+
+// Show first 3 and last 3 rows
+df.peek(3).await?;
+```
+---
+### STATISTICAL FUNCTIONS
+#### These Functions can give you quick statistical overview of your DataFrame columns and correlations
+#### Currently available: display_stats(), display_null_analysis(), display_correlation_matrix()
+```rust
+df.display_stats(&[
+    "abs_billable_value",
+    "sqrt_billable_value",
+    "double_billable_value",
+    "percentage_billable"
+]).await?;
+
+=== Column Statistics ===
+--------------------------------------------------------------------------------
+Column: abs_billable_value
+------------------------------------------------------------------------------
+| Metric               |           Value |             Min |             Max |
+------------------------------------------------------------------------------
+| Records              |              10 | -               | -               |
+| Non-null Records     |              10 | -               | -               |
+| Mean                 |         1025.71 | -               | -               |
+| Standard Dev         |          761.34 | -               | -               |
+| Value Range          |               - | 67.4            | 2505.23         |
+------------------------------------------------------------------------------
+
+Column: sqrt_billable_value
+------------------------------------------------------------------------------
+| Metric               |           Value |             Min |             Max |
+------------------------------------------------------------------------------
+| Records              |              10 | -               | -               |
+| Non-null Records     |              10 | -               | -               |
+| Mean                 |           29.48 | -               | -               |
+| Standard Dev         |           13.20 | -               | -               |
+| Value Range          |               - | 8.21            | 50.05           |
+------------------------------------------------------------------------------
+    
+// Display null analysis
+// Keep None if you want all columns to be analized
+df.display_null_analysis(None).await?;
+
+----------------------------------------------------------------------------------------
+| Column                         |      Total Rows |      Null Count | Null Percentage |
+----------------------------------------------------------------------------------------
+| total_billable                 |              10 |               0 |           0.00% |
+| order_count                    |              10 |               0 |           0.00% |
+| customer_name                  |              10 |               0 |           0.00% |
+| order_date                     |              10 |               0 |           0.00% |
+| abs_billable_value             |              10 |               0 |           0.00% |
+----------------------------------------------------------------------------------------
+
+// Display correlation matrix
+df.display_correlation_matrix(&[
+    "abs_billable_value",
+    "sqrt_billable_value",
+    "double_billable_value",
+    "percentage_billable"
+]).await?;
+
+=== Correlation Matrix ===
+-------------------------------------------------------------------------------------------
+|                 | abs_billable_va | sqrt_billable_v | double_billable | percentage_bill |
+-------------------------------------------------------------------------------------------
+| abs_billable_va |            1.00 |            0.98 |            1.00 |            1.00 |
+| sqrt_billable_v |            0.98 |            1.00 |            0.98 |            0.98 |
+| double_billable |            1.00 |            0.98 |            1.00 |            1.00 |
+| percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
+-------------------------------------------------------------------------------------------
+```
+---
+# NULL VALUE HANDLING
+---
+### FILL NULL VALUES
+#### Handle missing data with advanced null detection and cleaning functions
+#### These functions detect: NULL, empty strings (''), 'null'/'NULL', 'na'/'NA', 'n/a'/'N/A', 'none'/'NONE', '-', '?', 'NaN'/'nan'
+#### Replace null-like values in specific columns with a replacement value
+#### 2 arguments needed: Array of Column Names, Fill Value
+```rust
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\customer_data.csv";
+let df = CustomDataFrame::new(csv_path, "customers").await?;
+
+// Fill nulls in single column
+let cleaned_df = df
+    .fill_null(["age"], "0")
+    .elusion("cleaned_customers").await?;
+
+// Fill nulls in multiple columns
+let cleaned_df = df
+    .fill_null(["age", "salary", "phone"], "Unknown")
+    .elusion("cleaned_customers").await?;
+
+// Chain with other operations
+let processed_df = df
+    .fill_null(["age"], "0")
+    .fill_null(["name"], "Anonymous")
+    .filter("age > 18")
+    .select(["name", "age", "salary"])
+    .elusion("processed_data").await?;
+```
+---
+### DROP NULL VALUES
+#### Remove rows that contain null-like values in specified columns
+#### 1 argument needed: Array of Column Names
+```rust
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\customer_data.csv";
+let df = CustomDataFrame::new(csv_path, "customers").await?;
+
+// Drop rows with nulls in single column
+let cleaned_df = df
+    .drop_null(["email"])
+    .elusion("customers_with_email").await?;
+
+// Drop rows with nulls in multiple columns
+let cleaned_df = df
+    .drop_null(["email", "phone", "address"])
+    .elusion("complete_customers").await?;
+
+// Chain with other operations
+let processed_df = df
+    .drop_null(["customer_id"])
+    .fill_null(["age"], "0")
+    .filter("age > 21")
+    .elusion("adult_customers").await?;
+```
+---
+### FILL_DOWN function - fill_down() - that fills down null values in column with firs non null values above
+#### Imagine you have DataFrame like bellow with lots of null values.
+```rust
++---------------------+---------------+----------------+----------+----------+
+| site                | location      | centre         | net      | gross    |
++---------------------+---------------+----------------+----------+----------+
+| null                | null          | null           | null     | null     |
+| null                | null          | null           | null     | null     |
+|                     |               |                | Dinner   | null     |
+| Site Name           | Location Name | Revenue Centre | Net      | Gross    |
+| Babaluga            | Bar           | Beer           | 95.24    | 110      |
+| null                | null          | Food           | 1080.04  | 1247.4   |
+| null                | null          | Liquor         | 0        | 0        |
+| null                | null          | Non Alc. Bev   | 51.08    | 59       |
+| null                | null          | Wine           | 64.94    | 75       |
+| null                | Terrace       | Beer           | 2642.89  | 3052.5   |
+| null                | null          | Champagne      | 450.2    | 520      |
+| null                | null          | Food           | 77974.82 | 90060.93 |
+| null                | null          | Liquor         | 21258.71 | 24554    |
+| null                | null          | Non Alc. Bev   | 15560.95 | 17973.5  |
+| null                | null          | Tobacco        | 19939.11 | 23030    |
+| null                | null          | Wine           | 18774.9  | 21685    |
++---------------------+---------------+----------------+----------+----------+
+```
+#### Now to remove null rows, empty value rows and to fill down this Dataframe we can write this:
+```rust
+let sales_data = df
+    .select(["Site","Location","Centre","Net","Gross"])
+    .filter("Centre != 'Revenue Centre'")
+    .drop_null(["gross"])
+    .fill_down(["Site", "Location"])
+    .elusion("my_sales_data").await?;
+
+sales_data.display().await?;
+
+//THEN WE GET THIS RESULT
++---------------------+----------+--------------+----------+----------+
+| site                | location | centre       | net      | gross    |
++---------------------+----------+--------------+----------+----------+
+| Babaluga            | Bar      | Beer         | 95.24    | 110      |
+| Babaluga            | Bar      | Food         | 1080.04  | 1247.4   |
+| Babaluga            | Bar      | Liquor       | 0        | 0        |
+| Babaluga            | Bar      | Non Alc. Bev | 51.08    | 59       |
+| Babaluga            | Bar      | Wine         | 64.94    | 75       |
+| Babaluga            | Terrace  | Beer         | 2642.89  | 3052.5   |
+| Babaluga            | Terrace  | Champagne    | 450.2    | 520      |
+| Babaluga            | Terrace  | Food         | 77974.82 | 90060.93 |
+| Babaluga            | Terrace  | Liquor       | 21258.71 | 24554    |
+| Babaluga            | Terrace  | Non Alc. Bev | 15560.95 | 17973.5  |
+| Babaluga            | Terrace  | Tobacco      | 19939.11 | 23030    |
+| Babaluga            | Terrace  | Wine         | 18774.9  | 21685    |
++---------------------+----------+--------------+----------+----------+
+```
+---
+### ROW SKIPPING AND DATA EXTRACTION
+#### Skip unwanted rows
+#### 1 argument needed: Number of Rows to Skip
+```rust
+let excel_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\report.xlsx";
+let df = CustomDataFrame::new(excel_path, "report").await?;
+
+// Skip first 3 rows (common for Excel reports with titles)
+let data_df = df
+    .skip_rows(3)
+    .elusion("clean_report").await?;
+
+// Chain with other operations
+let processed_df = df
+    .skip_rows(2)                    // Skip title and empty row
+    .filter("amount > 0")            // Filter valid amounts
+    .fill_null(["category"], "Other") // Fill missing categories
+    .elusion("processed_report").await?;
+```
+---
 # DATAFRAME WRANGLING
 ---
 ## SELECT
@@ -653,59 +870,6 @@ let df_having= sales_df
 
 let result = df_having.elusion("sales_res").await?;
 result.display().await?;
-```
----
-### FILL_DOWN function - fill_down() - that fills down null values in column with firs non null values above
-#### Imagine you have DataFrame like bellow with lots of null values.
-```rust
-+---------------------+---------------+----------------+----------+----------+
-| site                | location      | centre         | net      | gross    |
-+---------------------+---------------+----------------+----------+----------+
-| null                | null          | null           | null     | null     |
-| null                | null          | null           | null     | null     |
-|                     |               |                | Dinner   | null     |
-| Site Name           | Location Name | Revenue Centre | Net      | Gross    |
-| Babaluga            | Bar           | Beer           | 95.24    | 110      |
-| null                | null          | Food           | 1080.04  | 1247.4   |
-| null                | null          | Liquor         | 0        | 0        |
-| null                | null          | Non Alc. Bev   | 51.08    | 59       |
-| null                | null          | Wine           | 64.94    | 75       |
-| null                | Terrace       | Beer           | 2642.89  | 3052.5   |
-| null                | null          | Champagne      | 450.2    | 520      |
-| null                | null          | Food           | 77974.82 | 90060.93 |
-| null                | null          | Liquor         | 21258.71 | 24554    |
-| null                | null          | Non Alc. Bev   | 15560.95 | 17973.5  |
-| null                | null          | Tobacco        | 19939.11 | 23030    |
-| null                | null          | Wine           | 18774.9  | 21685    |
-+---------------------+---------------+----------------+----------+----------+
-```
-#### Now to remove null rows, empty value rows and to fill down this Dataframe we can write this:
-```rust
-let sales_data = df
-    .select(["Site","Location","Centre","Net","Gross"])
-    .filter_many([("Centre != 'null'"), ("Centre != ''"),("Centre != 'Revenue Centre'")])
-    .fill_down(["Site", "Location"])
-    .elusion("my_sales_data").await?;
-
-sales_data.display().await?;
-
-//THEN WE GET THIS RESULT
-+---------------------+----------+--------------+----------+----------+
-| site                | location | centre       | net      | gross    |
-+---------------------+----------+--------------+----------+----------+
-| Babaluga            | Bar      | Beer         | 95.24    | 110      |
-| Babaluga            | Bar      | Food         | 1080.04  | 1247.4   |
-| Babaluga            | Bar      | Liquor       | 0        | 0        |
-| Babaluga            | Bar      | Non Alc. Bev | 51.08    | 59       |
-| Babaluga            | Bar      | Wine         | 64.94    | 75       |
-| Babaluga            | Terrace  | Beer         | 2642.89  | 3052.5   |
-| Babaluga            | Terrace  | Champagne    | 450.2    | 520      |
-| Babaluga            | Terrace  | Food         | 77974.82 | 90060.93 |
-| Babaluga            | Terrace  | Liquor       | 21258.71 | 24554    |
-| Babaluga            | Terrace  | Non Alc. Bev | 15560.95 | 17973.5  |
-| Babaluga            | Terrace  | Tobacco      | 19939.11 | 23030    |
-| Babaluga            | Terrace  | Wine         | 18774.9  | 21685    |
-+---------------------+----------+--------------+----------+----------+
 ```
 ---
 ### SCALAR functions
@@ -1519,74 +1683,6 @@ let result_unpivot_scalar = unpivot_scalar.elusion("unpivoted_df2").await?;
 result_unpivot_scalar.display().await?;
 ```
 ---
-## Statistical Functions
-#### These Functions can give you quick statistical overview of your DataFrame columns and correlations
-#### Currently available: display_stats(), display_null_analysis(), display_correlation_matrix()
-```rust
-df.display_stats(&[
-    "abs_billable_value",
-    "sqrt_billable_value",
-    "double_billable_value",
-    "percentage_billable"
-]).await?;
-
-=== Column Statistics ===
---------------------------------------------------------------------------------
-Column: abs_billable_value
-------------------------------------------------------------------------------
-| Metric               |           Value |             Min |             Max |
-------------------------------------------------------------------------------
-| Records              |              10 | -               | -               |
-| Non-null Records     |              10 | -               | -               |
-| Mean                 |         1025.71 | -               | -               |
-| Standard Dev         |          761.34 | -               | -               |
-| Value Range          |               - | 67.4            | 2505.23         |
-------------------------------------------------------------------------------
-
-Column: sqrt_billable_value
-------------------------------------------------------------------------------
-| Metric               |           Value |             Min |             Max |
-------------------------------------------------------------------------------
-| Records              |              10 | -               | -               |
-| Non-null Records     |              10 | -               | -               |
-| Mean                 |           29.48 | -               | -               |
-| Standard Dev         |           13.20 | -               | -               |
-| Value Range          |               - | 8.21            | 50.05           |
-------------------------------------------------------------------------------
-    
-// Display null analysis
-// Keep None if you want all columns to be analized
-df.display_null_analysis(None).await?;
-
-----------------------------------------------------------------------------------------
-| Column                         |      Total Rows |      Null Count | Null Percentage |
-----------------------------------------------------------------------------------------
-| total_billable                 |              10 |               0 |           0.00% |
-| order_count                    |              10 |               0 |           0.00% |
-| customer_name                  |              10 |               0 |           0.00% |
-| order_date                     |              10 |               0 |           0.00% |
-| abs_billable_value             |              10 |               0 |           0.00% |
-----------------------------------------------------------------------------------------
-
-// Display correlation matrix
-df.display_correlation_matrix(&[
-    "abs_billable_value",
-    "sqrt_billable_value",
-    "double_billable_value",
-    "percentage_billable"
-]).await?;
-
-=== Correlation Matrix ===
--------------------------------------------------------------------------------------------
-|                 | abs_billable_va | sqrt_billable_v | double_billable | percentage_bill |
--------------------------------------------------------------------------------------------
-| abs_billable_va |            1.00 |            0.98 |            1.00 |            1.00 |
-| sqrt_billable_v |            0.98 |            1.00 |            0.98 |            0.98 |
-| double_billable |            1.00 |            0.98 |            1.00 |            1.00 |
-| percentage_bill |            1.00 |            0.98 |            1.00 |            1.00 |
--------------------------------------------------------------------------------------------
-```
----
 ## EXTRACTING VALUES: extract_value_from_df()
 #### Example how you can extract values from DataFrame and use it within REST API
 ```rust
@@ -1712,8 +1808,9 @@ post_df.from_api_with_dates(
 ).await?;
 ```
 ---
-## CREATE VIEWS and CACHING
-### Materialized Views:
+# CREATE VIEWS and CACHING
+---
+## Materialized Views:
 For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
 ### Query Caching:
 For transparent performance optimization. When the same query might be run multiple times in a session. For interactive analysis scenarios. Example: Dashboard queries, repeated data exploration.

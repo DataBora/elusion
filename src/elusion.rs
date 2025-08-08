@@ -85,258 +85,29 @@ use crate::features::postgres::PostgresConnection;
 //================ MYSQL
 use crate::features::mysql::MySqlConnection;
 
+// Generic struct for DataFrame row representation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataFrameRow {
+    pub fields: HashMap<String, String>,
+}
 
-// #[cfg(feature = "azuresql")]
-// use reqwest;
-// #[cfg(feature = "azuresql")]
-// use serde_json;
+impl DataFrameRow {
+    pub fn new() -> Self {
+        Self {
+            fields: HashMap::new(),
+        }
+    }
+    
+    pub fn insert(&mut self, key: String, value: String) {
+        self.fields.insert(key, value);
+    }
+    
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.fields.get(key)
+    }
+}
 
-// #[cfg(feature = "azuresql")]
-// #[derive(Debug, Clone)]
-// pub struct FabricSqlConfig {
-//     pub sql_endpoint: String,  // The SQL Analytics Endpoint URL
-//     pub tenant_id: Option<String>,
-//     pub client_id: Option<String>,
-//     pub use_azure_identity: bool,
-// }
-
-// #[cfg(feature = "azuresql")]
-// impl FabricSqlConfig {
-//     /// Create config with SQL Analytics Endpoint (works for any Fabric artifact)
-//     pub fn new(sql_endpoint: String) -> Self {
-//         Self {
-//             sql_endpoint,
-//             tenant_id: None,
-//             client_id: None,
-//             use_azure_identity: false, // Default to Azure CLI
-//         }
-//     }
-
-//     /// Create config with specific tenant/client for authentication
-//     pub fn new_with_auth(sql_endpoint: String, tenant_id: String, client_id: String) -> Self {
-//         Self {
-//             sql_endpoint,
-//             tenant_id: Some(tenant_id),
-//             client_id: Some(client_id),
-//             use_azure_identity: false,
-//         }
-//     }
-
-//     pub fn with_azure_identity(mut self, use_it: bool) -> Self {
-//         self.use_azure_identity = use_it;
-//         self
-//     }
-// }
-
-// #[cfg(feature = "azuresql")]
-// pub struct FabricSqlClient {
-//     config: FabricSqlConfig,
-//     access_token: Option<String>,
-//     http_client: reqwest::Client,
-// }
-
-// #[cfg(feature = "azuresql")]
-// impl FabricSqlClient {
-//     pub fn new(config: FabricSqlConfig) -> Self {
-//         Self {
-//             config,
-//             access_token: None,
-//             http_client: reqwest::Client::new(),
-//         }
-//     }
-
-//     /// Authenticate for Fabric SQL Analytics Endpoint
-//     async fn authenticate(&mut self) -> ElusionResult<()> {
-//         println!("🔍 Authenticating for Fabric SQL Analytics Endpoint...");
-        
-//         if self.config.use_azure_identity {
-//             self.authenticate_with_azure_identity().await
-//         } else {
-//             self.authenticate_with_azure_cli().await
-//         }
-//     }
-
-//     /// Authenticate using azure_identity
-//     async fn authenticate_with_azure_identity(&mut self) -> ElusionResult<()> {
-//         use azure_identity::DefaultAzureCredential;
-//         use azure_core::credentials::TokenCredential;
-
-//         // SQL Analytics Endpoint uses database scope
-//         let resource_scope = "https://database.windows.net/.default";
-//         println!("🔍 Using azure_identity with scope: {}", resource_scope);
-
-//         let credential = match DefaultAzureCredential::new() {
-//             Ok(cred) => cred,
-//             Err(e) => {
-//                 println!("⚠️ Failed to create DefaultAzureCredential: {}", e);
-//                 println!("💡 Falling back to Azure CLI...");
-//                 return self.authenticate_with_azure_cli().await;
-//             }
-//         };
-
-//         match credential.get_token(&[resource_scope], None).await {
-//             Ok(token) => {
-//                 self.access_token = Some(token.token.secret().to_string());
-//                 println!("✅ Successfully authenticated with azure_identity");
-//                 Ok(())
-//             },
-//             Err(e) => {
-//                 println!("⚠️ azure_identity authentication failed: {}", e);
-//                 println!("💡 Falling back to Azure CLI...");
-//                 self.authenticate_with_azure_cli().await
-//             }
-//         }
-//     }
-
-//     /// Authenticate using Azure CLI
-//     async fn authenticate_with_azure_cli(&mut self) -> ElusionResult<()> {
-//         // Use database scope for SQL Analytics Endpoint
-//         let resource_url = "https://database.windows.net/";
-
-//         match self.execute_az_via_python(&["account", "get-access-token", "--resource", resource_url, "--output", "json"]).await {
-//             Ok(token_output) => {
-//                 if token_output.status.success() {
-//                     let token_json = String::from_utf8_lossy(&token_output.stdout);
-//                     if let Ok(token_data) = serde_json::from_str::<serde_json::Value>(&token_json) {
-//                         if let Some(access_token) = token_data["accessToken"].as_str() {
-//                             self.access_token = Some(access_token.to_string());
-//                             println!("✅ Successfully authenticated with Azure CLI");
-//                             return Ok(());
-//                         }
-//                     }
-//                 }
-//                 let error_text = String::from_utf8_lossy(&token_output.stderr);
-//                 println!("⚠️ Failed to get access token: {}", error_text);
-//             },
-//             Err(e) => {
-//                 println!("⚠️ Token command failed: {}", e);
-//             }
-//         }
-        
-//         Err(ElusionError::Custom("Azure CLI authentication failed".to_string()))
-//     }
-
-//     /// Execute SQL query via HTTP POST to SQL Analytics Endpoint
-//     pub async fn query(&mut self, sql: &str) -> ElusionResult<Vec<Vec<String>>> {
-//         self.authenticate().await?;
-        
-//         let token = self.access_token.as_ref()
-//             .ok_or_else(|| ElusionError::Custom("Not authenticated".to_string()))?;
-
-//         println!("🔍 Executing query on SQL Analytics Endpoint: {}", self.config.sql_endpoint);
-//         println!("📝 Query: {}", if sql.len() > 100 { format!("{}...", &sql[..100]) } else { sql.to_string() });
-
-//         // Try multiple potential SQL execution endpoints
-//         if let Ok(result) = self.try_direct_sql_execution(sql, token).await {
-//             return Ok(result);
-//         }
-
-//         if let Ok(result) = self.try_rest_api_sql_execution(sql, token).await {
-//             return Ok(result);
-//         }
-
-//         // If direct SQL execution isn't available yet, return connection info
-//         println!("💡 Direct SQL execution not available via REST API yet");
-//         println!("🔧 SQL Analytics Endpoint: {}", self.config.sql_endpoint);
-//         println!("💡 This endpoint can be used with SSMS, Power BI, or other SQL tools");
-        
-//         Ok(vec![
-//             vec!["Status".to_string(), "Endpoint".to_string(), "Token_Available".to_string()],
-//             vec!["Connected".to_string(), self.config.sql_endpoint.clone(), "Yes".to_string()],
-//             vec!["Info".to_string(), "SQL Analytics Endpoint ready".to_string(), "Use with SQL tools".to_string()],
-//         ])
-//     }
-
-//     /// Try direct SQL execution (experimental)
-//     async fn try_direct_sql_execution(&self, sql: &str, token: &str) -> ElusionResult<Vec<Vec<String>>> {
-//         // Experimental: Try to execute SQL directly via HTTP
-//         // This might work if Fabric exposes SQL execution via REST
-        
-//         let url = format!("{}/api/sql/execute", self.config.sql_endpoint);
-        
-//         let payload = serde_json::json!({
-//             "query": sql,
-//             "parameters": []
-//         });
-
-//         let response = self.http_client
-//             .post(&url)
-//             .header("Authorization", format!("Bearer {}", token))
-//             .header("Content-Type", "application/json")
-//             .json(&payload)
-//             .send()
-//             .await
-//             .map_err(|e| ElusionError::Custom(format!("SQL execution request failed: {}", e)))?;
-
-//         if response.status().is_success() {
-//             // Try to parse response as JSON
-//             if let Ok(json_response) = response.json::<serde_json::Value>().await {
-//                 println!("✅ Direct SQL execution successful!");
-//                 // Parse the response into rows (format depends on Fabric's response structure)
-//                 return self.parse_sql_response(json_response);
-//             }
-//         }
-
-//         Err(ElusionError::Custom("Direct SQL execution not supported".to_string()))
-//     }
-
-//     /// Try REST API SQL execution
-//     async fn try_rest_api_sql_execution(&self, sql: &str, token: &str) -> ElusionResult<Vec<Vec<String>>> {
-//         // Alternative approach: Use Fabric's REST API for SQL execution
-//         // This is also experimental but might be available
-        
-//         let base_url = self.config.sql_endpoint.replace(".database.windows.net", "");
-//         let api_url = format!("https://api.fabric.microsoft.com/v1/workspaces/{}/items/{}/executeQuery", 
-//                              "workspace-id", "item-id"); // These would need to be extracted from endpoint
-
-//         Err(ElusionError::Custom("REST API SQL execution not implemented yet".to_string()))
-//     }
-
-//     /// Parse SQL response from Fabric
-//     fn parse_sql_response(&self, response: serde_json::Value) -> ElusionResult<Vec<Vec<String>>> {
-//         // This depends on how Fabric returns SQL results
-//         // Common formats might be:
-//         // - rows: [["col1", "col2"], ["val1", "val2"]]
-//         // - columns + data structure
-//         // - standard SQL result format
-        
-//         if let Some(rows) = response.get("rows").and_then(|r| r.as_array()) {
-//             let mut result = Vec::new();
-//             for row in rows {
-//                 if let Some(row_array) = row.as_array() {
-//                     let string_row: Vec<String> = row_array.iter()
-//                         .map(|v| v.as_str().unwrap_or("NULL").to_string())
-//                         .collect();
-//                     result.push(string_row);
-//                 }
-//             }
-//             return Ok(result);
-//         }
-
-//         Err(ElusionError::Custom("Could not parse SQL response".to_string()))
-//     }
-
-//     /// Azure CLI execution method
-//     async fn execute_az_via_python(&self, args: &[&str]) -> ElusionResult<std::process::Output> {
-//         let python_path = r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#;
-        
-//         if !std::path::Path::new(python_path).exists() {
-//             return Err(ElusionError::Custom("Azure CLI Python not found".to_string()));
-//         }
-        
-//         let mut full_args = vec!["-X", "utf8", "-m", "azure.cli"];
-//         full_args.extend(args);
-        
-//         std::process::Command::new(python_path)
-//             .args(&full_args)
-//             .env("PYTHONIOENCODING", "utf-8")
-//             .env("PYTHONUTF8", "1")
-//             .output()
-//             .map_err(|e| ElusionError::Custom(format!("Failed to execute Azure CLI: {}", e)))
-//     }
-// }
-
-
+//Date format for calendar
 pub enum DateFormat {
     IsoDate,            // YYYY-MM-DD
     IsoDateTime,        // YYYY-MM-DD HH:MM:SS
@@ -4747,12 +4518,17 @@ impl CustomDataFrame {
         })
     }
 
-    /// Handle various set operations including FILL_DOWN
+    /// Handle various set operations including 
     fn handle_set_operation(&self, operation: &str, base_sql: String) -> String {
-        if let Some(columns_str) = operation.strip_prefix("FILL_DOWN:") {
+        if let Some(columns_and_value) = operation.strip_prefix("FILL_NULL:") {
+            self.handle_fill_null_operation(columns_and_value, base_sql)
+        } else if let Some(columns_str) = operation.strip_prefix("DROP_NULL:") {
+            self.handle_drop_null_operation(columns_str, base_sql)
+        } else if let Some(columns_str) = operation.strip_prefix("FILL_DOWN:") {
             self.handle_fill_down_operation(columns_str, base_sql)
+        } else if let Some(skip_count) = operation.strip_prefix("SKIP_ROWS:") {
+            self.handle_skip_rows_operation(skip_count, base_sql)
         } else if operation.starts_with("UNION") {
-            // Handle other set operations like UNION if needed in the future
             base_sql
         } else {
             base_sql
@@ -4836,7 +4612,442 @@ impl CustomDataFrame {
         result_sql
     }
 
-    /// SELECT clause using const generics
+    /// Skip the first n rows of the DataFrame 
+    pub fn skip_rows(mut self, n: u64) -> Self {
+        if n == 0 {
+            // No-op if trying to skip 0 rows
+            return self;
+        }
+
+        let operation = format!("SKIP_ROWS:{}", n);
+        self.set_operations.push(operation);
+        self
+    }
+
+    /// Handle SKIP_ROWS operation 
+    fn handle_skip_rows_operation(&self, skip_count_str: &str, base_sql: String) -> String {
+        let skip_count = match skip_count_str.parse::<u64>() {
+            Ok(n) => n,
+            Err(_) => return base_sql, // Invalid number, return unchanged
+        };
+
+        if skip_count == 0 {
+            return base_sql; // No-op for skip 0
+        }
+
+        format!(
+            r#"WITH skip_rows_base AS (
+                {}
+            ), 
+            skip_rows_numbered AS (
+                SELECT *, 
+                       ROW_NUMBER() OVER () as rn
+                FROM skip_rows_base
+            )
+            SELECT * EXCEPT (rn)
+            FROM skip_rows_numbered 
+            WHERE rn > {}"#,
+            base_sql,
+            skip_count
+        )
+    }
+
+    /// Fill null values in specified columns with a given value 
+    pub fn fill_null<const N: usize>(mut self, columns: [&str; N], fill_value: &str) -> Self {
+        if N == 0 {
+            // Skip invalid operations - will be caught during elusion()
+            return self;
+        }
+
+        // Add fill null operation to set_operations
+        let columns_str = columns.join(",");
+        let operation = format!("FILL_NULL:{}:{}", columns_str, fill_value);
+        self.set_operations.push(operation);
+        self
+    }
+
+    /// Drop rows that contain null values in specified columns (chainable - similar to Polars drop_nulls())
+    pub fn drop_null<const N: usize>(mut self, columns: [&str; N]) -> Self {
+        if N == 0 {
+            // Skip invalid operations - will be caught during elusion()
+            return self;
+        }
+
+        let columns_str = columns.join(",");
+        let operation = format!("DROP_NULL:{}", columns_str);
+        self.set_operations.push(operation);
+        self
+    }
+
+    fn handle_fill_null_operation(&self, columns_and_value: &str, base_sql: String) -> String {
+        let parts: Vec<&str> = columns_and_value.split(':').collect();
+        if parts.len() != 2 {
+            return base_sql; // Invalid format, return unchanged
+        }
+        
+        let columns_str = parts[0];
+        let fill_value = parts[1];
+        let columns: Vec<&str> = columns_str.split(',').collect();
+        
+        let all_columns = if self.selected_columns.is_empty() {
+            self.df.schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().clone())
+                .collect::<Vec<_>>()
+        } else {
+            self.selected_columns
+                .iter()
+                .map(|col| {
+                    if col.contains(" AS ") {
+                        col.split(" AS ")
+                            .nth(1)
+                            .unwrap_or(col)
+                            .trim_matches('"')
+                            .trim()
+                            .to_string()
+                    } else {
+                        col.trim_matches('"')
+                            .split('.')
+                            .last()
+                            .unwrap_or(col)
+                            .trim_matches('"')
+                            .to_string()
+                    }
+                })
+                .collect()
+        };
+        
+        let select_expressions: Vec<String> = all_columns
+            .iter()
+            .map(|col_name| {
+                let quoted_col = format!("\"{}\"", col_name);
+                let normalized_col = col_name.trim().replace(" ", "_").to_lowercase();
+                
+                // Check if this column should have nulls filled
+                let should_fill = columns.iter().any(|&target_col| {
+                    let normalized_target = target_col.trim().replace(" ", "_").to_lowercase();
+                    normalized_col == normalized_target
+                });
+                
+                if should_fill {
+                    format!(
+                        r#"CASE 
+                            WHEN {0} IS NULL OR 
+                                 TRIM({0}) = '' OR 
+                                 UPPER(TRIM({0})) = 'NULL' OR
+                                 UPPER(TRIM({0})) = 'NA' OR
+                                 UPPER(TRIM({0})) = 'N/A' OR
+                                 UPPER(TRIM({0})) = 'NONE' OR
+                                 TRIM({0}) = '-' OR
+                                 TRIM({0}) = '?' OR
+                                 TRIM({0}) = 'NaN' OR
+                                 UPPER(TRIM({0})) = 'NAN'
+                            THEN '{1}'
+                            ELSE {0}
+                        END AS {0}"#,
+                        quoted_col, fill_value
+                    )
+                } else {
+                    quoted_col
+                }
+            })
+            .collect();
+        
+        format!(
+            r#"WITH fill_null_base AS (
+                {}
+            )
+            SELECT {} 
+            FROM fill_null_base"#,
+            base_sql,
+            select_expressions.join(", ")
+        )
+    }
+
+    /// Handle DROP_NULL operation with enhanced null detection
+    fn handle_drop_null_operation(&self, columns_str: &str, base_sql: String) -> String {
+        let columns: Vec<&str> = columns_str.split(',').collect();
+        
+        let where_conditions: Vec<String> = columns
+            .iter()
+            .map(|&col| {
+                let normalized_col = col.trim().replace(" ", "_").to_lowercase();
+                let quoted_col = format!("\"{}\"", normalized_col);
+                format!(
+                    r#"({0} IS NOT NULL AND 
+                       TRIM({0}) != '' AND 
+                       UPPER(TRIM({0})) != 'NULL' AND
+                       UPPER(TRIM({0})) != 'NA' AND
+                       UPPER(TRIM({0})) != 'N/A' AND
+                       UPPER(TRIM({0})) != 'NONE' AND
+                       TRIM({0}) != '-' AND
+                       TRIM({0}) != '?' AND
+                       TRIM({0}) != 'NaN' AND
+                       UPPER(TRIM({0})) != 'NAN')"#,
+                    quoted_col
+                )
+            })
+            .collect();
+        
+        format!(
+            r#"WITH drop_null_base AS (
+                {}
+            )
+            SELECT * 
+            FROM drop_null_base 
+            WHERE {}"#,
+            base_sql,
+            where_conditions.join(" AND ")
+        )
+    }
+
+    /// Head funciton that returns the first n rows of the DataFrame
+    pub async fn head(&self, n: u64) -> ElusionResult<Self> {
+        let limit = n;
+        
+        if limit == 0 {
+            return Err(ElusionError::LimitError {
+                message: "Head limit cannot be zero".to_string(),
+                value: 0,
+                suggestion: "💡 Use a positive number for head() limit".to_string(),
+            });
+        }
+
+        let ctx = SessionContext::new();
+        
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        let sql = format!(
+            "SELECT * FROM {} LIMIT {}",
+            normalize_alias(&self.table_alias),
+            limit
+        );
+        
+        let head_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Head Operation".to_string(),
+                reason: format!("Failed to execute head query: {}", e),
+                suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+            })?;
+
+        let result_alias = format!("{}_head", self.table_alias);
+        
+        let batches = head_df.clone().collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Head Data Collection".to_string(),
+                reason: format!("Failed to collect head results: {}", e),
+                suggestion: "💡 Verify DataFrame contains data".to_string(),
+            })?;
+
+        let mem_table = MemTable::try_new(head_df.schema().clone().into(), vec![batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create head result table: {}", e),
+                schema: Some(head_df.schema().to_string()),
+                suggestion: "💡 Check schema compatibility".to_string(),
+            })?;
+
+        ctx.register_table(&result_alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Head Result Registration".to_string(),
+                reason: format!("Failed to register head result: {}", e),
+                suggestion: "💡 Try using a different result alias".to_string(),
+            })?;
+
+        let result_df = ctx.table(&result_alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Head Result Creation".to_string(),
+                reason: format!("Failed to create head result DataFrame: {}", e),
+                suggestion: "💡 Verify table registration succeeded".to_string(),
+            })?;
+
+        Ok(CustomDataFrame {
+            df: result_df,
+            table_alias: result_alias.clone(),
+            from_table: result_alias.clone(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: Some(limit),
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql,
+            aggregated_df: Some(head_df),
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
+
+    /// TAIL funcitons showing the last n rows of the DataFrame
+    pub async fn tail(&self, n: u64) -> ElusionResult<Self> {
+        let limit = n;
+        
+        if limit == 0 {
+            return Err(ElusionError::LimitError {
+                message: "Tail limit cannot be zero".to_string(),
+                value: 0,
+                suggestion: "💡 Use a positive number for tail() limit".to_string(),
+            });
+        }
+
+        let ctx = SessionContext::new();
+        
+        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        let count_sql = format!(
+            "SELECT COUNT(*) as total_count FROM {}",
+            normalize_alias(&self.table_alias)
+        );
+        
+        let count_df = ctx.sql(&count_sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Count Operation".to_string(),
+                reason: format!("Failed to count rows for tail: {}", e),
+                suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+            })?;
+
+        let count_batches = count_df.collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Count Collection".to_string(),
+                reason: format!("Failed to collect count results: {}", e),
+                suggestion: "💡 Verify DataFrame contains data".to_string(),
+            })?;
+
+        if count_batches.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Tail Operation".to_string(),
+                reason: "No data found in DataFrame".to_string(),
+                suggestion: "💡 Ensure DataFrame contains data before using tail()".to_string(),
+            });
+        }
+
+        let total_count = count_batches[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| ElusionError::InvalidOperation {
+                operation: "Tail Count Extraction".to_string(),
+                reason: "Failed to extract row count".to_string(),
+                suggestion: "💡 This is an internal error, please report it".to_string(),
+            })?
+            .value(0);
+
+        if total_count == 0 {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Tail Operation".to_string(),
+                reason: "DataFrame is empty".to_string(),
+                suggestion: "💡 Ensure DataFrame contains data before using tail()".to_string(),
+            });
+        }
+
+        let offset = if total_count <= limit as i64 {
+            0 // If total rows <= requested rows, start from beginning
+        } else {
+            total_count - limit as i64
+        };
+
+        let sql = format!(
+            "SELECT * FROM {} LIMIT {} OFFSET {}",
+            normalize_alias(&self.table_alias),
+            limit,
+            offset
+        );
+        
+        let tail_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Operation".to_string(),
+                reason: format!("Failed to execute tail query: {}", e),
+                suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+            })?;
+
+        let result_alias = format!("{}_tail", self.table_alias);
+        
+        let batches = tail_df.clone().collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Data Collection".to_string(),
+                reason: format!("Failed to collect tail results: {}", e),
+                suggestion: "💡 Verify DataFrame contains data".to_string(),
+            })?;
+
+        let mem_table = MemTable::try_new(tail_df.schema().clone().into(), vec![batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create tail result table: {}", e),
+                schema: Some(tail_df.schema().to_string()),
+                suggestion: "💡 Check schema compatibility".to_string(),
+            })?;
+
+        ctx.register_table(&result_alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Result Registration".to_string(),
+                reason: format!("Failed to register tail result: {}", e),
+                suggestion: "💡 Try using a different result alias".to_string(),
+            })?;
+
+        let result_df = ctx.table(&result_alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Tail Result Creation".to_string(),
+                reason: format!("Failed to create tail result DataFrame: {}", e),
+                suggestion: "💡 Verify table registration succeeded".to_string(),
+            })?;
+
+        Ok(CustomDataFrame {
+            df: result_df,
+            table_alias: result_alias.clone(),
+            from_table: result_alias.clone(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: Some(limit),
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql,
+            aggregated_df: Some(tail_df),
+            union_tables: None,
+            original_expressions: self.original_expressions.clone(),
+        })
+    }
+
+    /// Display the first n rows  head() + display()
+    pub async fn show_head(&self, n: u64) -> ElusionResult<()> {
+        let head_df = self.head(n).await?;
+        head_df.display().await
+    }
+
+    /// Display the last n rows tail() + display()
+    pub async fn show_tail(&self, n: u64) -> ElusionResult<()> {
+        let tail_df = self.tail(n).await?;
+        tail_df.display().await
+    }
+
+    /// PEEK function that shows quick overview of the DataFrame showing both head and tail
+    pub async fn peek(&self, n: u64) -> ElusionResult<()> {
+        let limit = n;
+        
+        println!("📊 DataFrame Overview:");
+        println!("🔝 First {} rows:", limit);
+        self.show_head(limit).await?;
+        
+        println!("\n🔽 Last {} rows:", limit);
+        self.show_tail(limit).await?;
+        
+        Ok(())
+    }
+
+     /// SELECT clause using const generics
     pub fn select<const N: usize>(self, columns: [&str; N]) -> Self {
         self.select_vec(columns.to_vec())
     }
@@ -5053,7 +5264,7 @@ impl CustomDataFrame {
                     alias
                 );
             } else {
-                continue; // Skip expressions that don't use the explicit format
+                continue; 
             }
             
             json_expressions.push(sql_expr);
@@ -5063,6 +5274,58 @@ impl CustomDataFrame {
         
         self
     }
+
+    // /// Convert DataFrame to Vec<DataFrameRow> for easy manipulation
+    // pub async fn convert_to_vec(&self) -> ElusionResult<Vec<DataFrameRow>> {
+    //     let batches = self.df.clone().collect().await
+    //         .map_err(|e| ElusionError::InvalidOperation {
+    //             operation: "DataFrame to Vec".to_string(),
+    //             reason: format!("Failed to collect DataFrame: {}", e),
+    //             suggestion: "💡 Verify DataFrame contains valid data".to_string(),
+    //         })?;
+
+    //     if batches.is_empty() {
+    //         return Ok(Vec::new());
+    //     }
+
+    //     let mut rows = Vec::new();
+    //     let schema = self.df.schema();
+
+    //     for batch in batches.iter() {
+    //         let row_count = batch.num_rows();
+            
+    //         for row_idx in 0..row_count {
+    //             let mut row = DataFrameRow::new();
+                
+    //             for (col_idx, field) in schema.fields().iter().enumerate() {
+    //                 let array = batch.column(col_idx);
+    //                 let col_name = field.name().to_lowercase(); 
+
+    //                 let value = if array.is_null(row_idx) {
+    //                     "".to_string()
+    //                 } else {
+    //                     match array_value_to_json(array, row_idx)? {
+    //                         serde_json::Value::Null => "".to_string(),
+    //                         serde_json::Value::String(s) => s,
+    //                         other => other.to_string().trim_matches('"').to_string(),
+    //                     }
+    //                 };
+
+    //                 row.insert(col_name, value); 
+    //             }
+                
+    //             rows.push(row);
+    //         }
+    //     }
+
+    //     Ok(rows)
+    // }
+
+    // /// Convert DataFrame to Vec<HashMap<String, String>> 
+    // pub async fn convert_to_vec_hashmap(&self) -> ElusionResult<Vec<HashMap<String, String>>> {
+    //     let rows = self.convert_to_vec().await?;
+    //     Ok(rows.into_iter().map(|row| row.fields).collect())
+    // }
 
     /// Construct the SQL query based on the current state, including joins
     fn construct_sql(&self) -> String {
@@ -6833,7 +7096,7 @@ impl CustomDataFrame {
             other => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Unsupported file extension: {other}"),
-                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, or Delta table".to_string(),
+                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, .xlsx, .xls or Delta table".to_string(),
             }),
         };
 
