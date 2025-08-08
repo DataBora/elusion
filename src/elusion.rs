@@ -63,16 +63,11 @@ use std::io::BufReader;
 use serde_json::Deserializer;
 use base64::Engine;
 
-//  ==================== Pipeline Scheduler
-use std::future::Future;
-use tokio_cron_scheduler::{JobScheduler, Job};
-
 //========== VIEWS
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
 use chrono::{DateTime, Utc};
-use std::sync::Mutex;
-use lazy_static::lazy_static;
+use crate::features::cashandview::MATERIALIZED_VIEW_MANAGER;
+use crate::features::cashandview::QUERY_CACHE;
+use crate::features::cashandview::QueryCache;
 
 // =========== DATE TABLE BUILDER
 use arrow::array::Int32Builder;
@@ -84,6 +79,9 @@ use crate::features::postgres::PostgresConnection;
 
 //================ MYSQL
 use crate::features::mysql::MySqlConnection;
+
+//============ REgister table
+use crate::features::registertable::register_df_as_table;
 
 // Generic struct for DataFrame row representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,247 +145,141 @@ impl DateFormat {
         }
     }
 }
-pub struct MaterializedView {
-    // Name of the materialized view
-    pub(crate) name: String,
-    // The SQL query that defines this view
-    definition: String,
-    // The actual data stored as batches
-    data: Vec<RecordBatch>,
-    // Time when this view was created/refreshed
-    refresh_time: DateTime<Utc>,
-    // Optional time-to-live in seconds
-    ttl: Option<u64>,
-}
 
-impl MaterializedView {
-    fn is_valid(&self) -> bool {
-        if let Some(ttl) = self.ttl {
-            let now = Utc::now();
-            let age = now.signed_duration_since(self.refresh_time).num_seconds();
-            return age < ttl as i64;
-        }
-        true
+/// Extract row from a DataFrame as a HashMap based on row index
+pub async fn extract_row_from_df(df: &CustomDataFrame, row_index: usize) -> ElusionResult<HashMap<String, String>> {
+    let ctx = SessionContext::new();
+   
+    let batches = df.df.clone().collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Data Collection".to_string(),
+            reason: format!("Failed to collect DataFrame: {}", e),
+            suggestion: "💡 Check if DataFrame contains valid data".to_string()
+        })?;
+    
+    let schema = df.df.schema();
+    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+        .map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to create in-memory table: {}", e),
+            schema: Some(schema.to_string()),
+            suggestion: "💡 Verify schema compatibility and data types".to_string()
+        })?;
+    
+    ctx.register_table("temp_extract", Arc::new(mem_table))
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Table Registration".to_string(),
+            reason: format!("Failed to register table: {}", e),
+            suggestion: "💡 Check if table name is unique and valid".to_string()
+        })?;
+    
+    let row_df = ctx.sql(&format!("SELECT * FROM temp_extract LIMIT 1 OFFSET {}", row_index)).await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "SQL Execution".to_string(),
+            reason: format!("Failed to execute SQL: {}", e),
+            suggestion: "💡 Verify DataFrame is valid".to_string()
+        })?;
+    
+    let batches = row_df.collect().await
+        .map_err(|e| ElusionError::InvalidOperation {
+            operation: "Result Collection".to_string(),
+            reason: format!("Failed to collect result: {}", e),
+            suggestion: "💡 Check if query returns valid data".to_string()
+        })?;
+    
+    if batches.is_empty() || batches[0].num_rows() == 0 {
+        return Err(ElusionError::Custom(format!("No data found at row {}", row_index)));
     }
-
-    fn display_info(&self) -> String {
-        format!(
-            "View '{}' - Created: {}, TTL: {} seconds",
-            self.name,
-            self.refresh_time.format("%Y-%m-%d %H:%M:%S"),
-            self.ttl.map_or("None".to_string(), |ttl| ttl.to_string())
-        )
-    }
-}
-
-pub struct QueryCache {
-    cached_queries: HashMap<u64, (Vec<RecordBatch>, DateTime<Utc>)>,
-    max_cache_size: usize,
-    ttl_seconds: Option<u64>,
-}
-
-impl QueryCache {
-    pub fn new(max_cache_size: usize, ttl_seconds: Option<u64>) -> Self {
-        Self {
-            cached_queries: HashMap::new(),
-            max_cache_size,
-            ttl_seconds,
-        }
-    }
-
-    pub fn cache_query(&mut self, query: &str, result: Vec<RecordBatch>) {
-        if self.cached_queries.len() >= self.max_cache_size {
-            // Simple LRU eviction - remove the oldest entry
-            if let Some(oldest) = self.cached_queries
-                .iter()
-                .min_by_key(|(_, (_, time))| time) {
-                let key = *oldest.0;
-                self.cached_queries.remove(&key);
-            }
-        }
-
-        let mut hasher = DefaultHasher::new();
-        query.hash(&mut hasher);
-        let query_hash = hasher.finish();
-        self.cached_queries.insert(query_hash, (result, Utc::now()));
-    }
-
-    pub fn get_cached_result(&mut self, query: &str) -> Option<Vec<RecordBatch>> {
-        let mut hasher = DefaultHasher::new();
-        query.hash(&mut hasher);
-        let query_hash = hasher.finish();
-
-        if let Some((result, timestamp)) = self.cached_queries.get(&query_hash) {
-            // Check TTL if set
-            if let Some(ttl) = self.ttl_seconds {
-                let now = Utc::now();
-                let age = now.signed_duration_since(*timestamp).num_seconds();
-                if age > ttl as i64 {
-                    // Cache entry expired, remove it
-                    self.cached_queries.remove(&query_hash);
-                    return None;
+    
+    let mut row_values = HashMap::new();
+    let batch = &batches[0];
+    
+    for (i, field) in schema.fields().iter().enumerate() {
+        let col = batch.column(i);
+        let value = match col.data_type() {
+            ArrowDataType::Utf8 => {
+                let array = col.as_any().downcast_ref::<StringArray>()
+                    .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
+                
+                if array.is_null(0) {
+                    "".to_string()
+                } else {
+                    array.value(0).to_string()
                 }
+            },
+            _ => {
+                format!("{:?}", col.as_ref())
             }
-            return Some(result.clone());
-        }
-        None
-    }
-
-    pub fn clear(&mut self) {
-        self.cached_queries.clear();
-    }
-
-    pub fn invalidate(&mut self, table_names: &[String]) {
-        // if any tables are modified, clear entire cache
-        if !table_names.is_empty() {
-            println!("Invalidating cache due to changes in tables: {:?}", table_names);
-            self.clear();
-        }
-    }
-}
-
-pub struct MaterializedViewManager {
-    views: HashMap<String, MaterializedView>,
-    max_views: usize,
-}
-
-impl MaterializedViewManager {
-    pub fn new(max_views: usize) -> Self {
-        Self {
-            views: HashMap::new(),
-            max_views,
-        }
-    }
-
-    pub async fn create_view(
-        &mut self,
-        ctx: &SessionContext,
-        name: &str,
-        query: &str,
-        ttl: Option<u64>,
-    ) -> ElusionResult<()> {
-        // Check if we've hit the max number of views
-        if self.views.len() >= self.max_views && !self.views.contains_key(name) {
-            return Err(ElusionError::Custom(
-                format!("Maximum number of materialized views ({}) reached", self.max_views)
-            ));
-        }
-
-        // Execute the query
-        let df = ctx.sql(query).await.map_err(|e| ElusionError::Custom(
-            format!("Failed to execute query for materialized view: {}", e)
-        ))?;
-
-        let batches = df.collect().await.map_err(|e| ElusionError::Custom(
-            format!("Failed to collect results for materialized view: {}", e)
-        ))?;
-
-        // Create or update the materialized view
-        let view = MaterializedView {
-            name: name.to_string(),
-            definition: query.to_string(),
-            data: batches,
-            refresh_time: Utc::now(),
-            ttl,
         };
+        row_values.insert(field.name().to_string(), value);
+    }
+    
+    Ok(row_values)
+}
 
-        self.views.insert(name.to_string(), view);
-        Ok(())
+/// Extract a Value from a DataFrame based on column name and row index
+pub async fn extract_value_from_df(df: &CustomDataFrame, column_name: &str, row_index: usize) -> ElusionResult<String>{
+
+    let ctx = SessionContext::new();
+
+    let batches = df.df.clone().collect().await 
+        .map_err(|e| ElusionError::InvalidOperation { 
+            operation: "Data Colleciton".to_string(), 
+            reason: format!("Failed to collect DataFrame: {}", e), 
+            suggestion: "💡 Check if DataFrame contains valid data".to_string() 
+        })?;
+
+    let schema = df.df.schema();
+    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+        .map_err(|e| ElusionError::SchemaError { 
+            message: format!("Failed to create in-memory table: {}", e), 
+            schema: Some(schema.to_string()), 
+            suggestion: "💡 Verify schema compatibility and data types".to_string()
+        })?;
+
+    ctx.register_table("temp_extract", Arc::new(mem_table))
+        .map_err(|e| ElusionError::InvalidOperation { 
+            operation: "Table Registration".to_string(), 
+            reason: format!("Failed to register Table: {}", e), 
+            suggestion: "💡 Check if table is unique or valid".to_string() 
+        })?;
+
+    let value_df = ctx.sql(&format!("SELECT\"{}\" FROM temp_extract LIMIT 1 OFFSET {}", column_name, row_index)).await
+        .map_err(|e| ElusionError::InvalidOperation { 
+            operation: "SQL Execution".to_string(), 
+            reason: format!("Failed to Execute SQL: {}", e), 
+            suggestion: "💡 Verify column name exists in DataFrame".to_string() 
+        })?;
+
+    let batches = value_df.collect().await
+        .map_err(|e| ElusionError::InvalidOperation { 
+            operation: "Result Collection".to_string(), 
+            reason: format!("Failed to collect Result: {}", e), 
+            suggestion: "💡 Check if Query returns valid data".to_string() 
+        })?;
+
+    if batches.is_empty() || batches[0].num_rows() == 0 {
+        return Err(ElusionError::Custom(format!("No data found for column '{}' at row {}", column_name, row_index)));
     }
 
-    pub async fn refresh_view(
-        &mut self,
-        ctx: &SessionContext,
-        name: &str,
-    ) -> ElusionResult<()> {
-        if let Some(view) = self.views.get(name) {
-            let query = view.definition.clone();
-            let ttl = view.ttl;
-            return self.create_view(ctx, name, &query, ttl).await;
-        }
-        Err(ElusionError::Custom(format!("View '{}' not found", name)))
-    }
+    let col = batches[0].column(0);
+    let value = match col.data_type(){
+        ArrowDataType::Utf8=>{
+            let array = col.as_any().downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
 
-    pub async fn get_view_as_dataframe(
-        &self,
-        ctx: &SessionContext,
-        name: &str,
-    ) -> ElusionResult<DataFrame> {
-        if let Some(view) = self.views.get(name) {
-            if !view.is_valid() {
-                return Err(ElusionError::Custom(
-                    format!("View '{}' has expired", name)
-                ));
+            if array.is_null(0){
+                "".to_string()
+            } else {
+                array.value(0).to_string()
             }
-
-            let schema = match view.data.first() {
-                Some(batch) => batch.schema(),
-                None => return Err(ElusionError::Custom(
-                    format!("View '{}' contains no data", name)
-                )),
-            };
-
-            let mem_table = MemTable::try_new(schema.clone(), vec![view.data.clone()])
-                .map_err(|e| ElusionError::Custom(
-                    format!("Failed to create memory table from view: {}", e)
-                ))?;
-
-            let table_name = format!("view_{}", name);
-            ctx.register_table(&table_name, Arc::new(mem_table))
-                .map_err(|e| ElusionError::Custom(
-                    format!("Failed to register table from view: {}", e)
-                ))?;
-
-            let df = ctx.table(&table_name).await
-                .map_err(|e| ElusionError::Custom(
-                    format!("Failed to create DataFrame from view: {}", e)
-                ))?;
-
-            Ok(df)
-        } else {
-            Err(ElusionError::Custom(format!("View '{}' not found", name)))
+        },
+        _ => {
+            format!("{:?}", col.as_ref())
         }
-    }
+    };
 
-    pub fn drop_view(&mut self, name: &str) -> ElusionResult<()> {
-        if self.views.remove(name).is_some() {
-            println!("View '{}' droped.", name);
-            Ok(())
-        } else {
-            Err(ElusionError::Custom(format!("View '{}' not found", name)))
-        }
-    }
-
-    pub fn list_views(&self) -> Vec<(String, DateTime<Utc>, Option<u64>)> {
-        let mut result = Vec::new();
-
-        if self.views.is_empty() {
-            return result;
-        }
-
-        for (view_name, view) in &self.views {
-            println!("{}", view.display_info());
-            result.push((view_name.clone(), view.refresh_time, view.ttl));
-        }
-        result
-    }
-
-
-    pub fn get_view_metadata(&self, name: &str) -> Option<(String, DateTime<Utc>, Option<u64>)> {
-        self.views.get(name).map(|view| (
-            view.definition.clone(),
-            view.refresh_time,
-            view.ttl
-        ))
-    }
+    Ok(value)
 }
-
-// Global state for caching and materialized views
-lazy_static! {
-    static ref QUERY_CACHE: Mutex<QueryCache> = Mutex::new(QueryCache::new(100, Some(3600))); // 1 hour TTL
-    static ref MATERIALIZED_VIEW_MANAGER: Mutex<MaterializedViewManager> = Mutex::new(MaterializedViewManager::new(50));
-}
-
 
 // Helper function to convert Arrow array values to serde_json::Value
 fn array_value_to_json(array: &Arc<dyn Array>, index: usize) -> ElusionResult<serde_json::Value> {
@@ -2884,10 +2776,10 @@ impl CustomDataFrame {
           let ctx = SessionContext::new();
           
           // Register necessary tables
-          Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+          register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
           
           for join in &self.joins {
-              Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
+              register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await?;
           }
           
           // Create the materialized view
@@ -3029,36 +2921,36 @@ impl CustomDataFrame {
       }
 
      /// Helper function to register a DataFrame as a table provider in the given SessionContext
-     async fn register_df_as_table(
-        ctx: &SessionContext,
-        table_name: &str,
-        df: &DataFrame,
-    ) -> ElusionResult<()> {
-        let batches = df.clone().collect().await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Data Collection".to_string(),
-            reason: format!("Failed to collect DataFrame: {}", e),
-            suggestion: "💡 Check if DataFrame contains valid data".to_string()
-        })?;
+    //  async fn register_df_as_table(
+    //     ctx: &SessionContext,
+    //     table_name: &str,
+    //     df: &DataFrame,
+    // ) -> ElusionResult<()> {
+    //     let batches = df.clone().collect().await
+    //     .map_err(|e| ElusionError::InvalidOperation {
+    //         operation: "Data Collection".to_string(),
+    //         reason: format!("Failed to collect DataFrame: {}", e),
+    //         suggestion: "💡 Check if DataFrame contains valid data".to_string()
+    //     })?;
 
-        let schema = df.schema();
+    //     let schema = df.schema();
 
-        let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
-        .map_err(|e| ElusionError::SchemaError {
-            message: format!("Failed to create in-memory table: {}", e),
-            schema: Some(schema.to_string()),
-            suggestion: "💡 Verify schema compatibility and data types".to_string()
-        })?;
+    //     let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+    //     .map_err(|e| ElusionError::SchemaError {
+    //         message: format!("Failed to create in-memory table: {}", e),
+    //         schema: Some(schema.to_string()),
+    //         suggestion: "💡 Verify schema compatibility and data types".to_string()
+    //     })?;
 
-        ctx.register_table(table_name, Arc::new(mem_table))
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Table Registration".to_string(),
-            reason: format!("Failed to register table '{}': {}", table_name, e),
-            suggestion: "💡 Check if table name is unique and valid".to_string()
-        })?;
+    //     ctx.register_table(table_name, Arc::new(mem_table))
+    //     .map_err(|e| ElusionError::InvalidOperation {
+    //         operation: "Table Registration".to_string(),
+    //         reason: format!("Failed to register table '{}': {}", table_name, e),
+    //         suggestion: "💡 Check if table name is unique and valid".to_string()
+    //     })?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     //=========== SHARE POINT
     #[cfg(feature = "sharepoint")]
@@ -3670,14 +3562,14 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering first table".to_string(),
             reason: e.to_string(),
             suggestion: "💡 Check if table name is unique and data is valid".to_string(),
         })?;
 
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        register_df_as_table(&ctx, &other.table_alias, &other.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering second table".to_string(),
             reason: e.to_string(),
@@ -3744,7 +3636,7 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering base table".to_string(),
             reason: e.to_string(),
@@ -3753,7 +3645,7 @@ impl CustomDataFrame {
         
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_source_{}", i);
-            Self::register_df_as_table(&ctx, &alias, &other.df).await
+            register_df_as_table(&ctx, &alias, &other.df).await
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: format!("Registering table {}", i),
                     reason: e.to_string(),
@@ -3811,14 +3703,14 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering first table".to_string(),
             reason: e.to_string(),
             suggestion: "💡 Check if table name is unique and data is valid".to_string(),
         })?;
 
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        register_df_as_table(&ctx, &other.table_alias, &other.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering second table".to_string(),
             reason: e.to_string(),
@@ -3884,7 +3776,7 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering base table".to_string(),
             reason: e.to_string(),
@@ -3893,7 +3785,7 @@ impl CustomDataFrame {
         
         for (i, other) in others.iter().enumerate() {
             let alias = format!("union_all_source_{}", i);
-            Self::register_df_as_table(&ctx, &alias, &other.df).await
+            register_df_as_table(&ctx, &alias, &other.df).await
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: format!("Registering table {}", i),
                     reason: e.to_string(),
@@ -3950,14 +3842,14 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-         Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+         register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering first table".to_string(),
             reason: e.to_string(),
             suggestion: "💡 Check if table name is unique and data is valid".to_string(),
         })?;
 
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        register_df_as_table(&ctx, &other.table_alias, &other.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering second table".to_string(),
             reason: e.to_string(),
@@ -4014,14 +3906,14 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering first table".to_string(),
             reason: e.to_string(),
             suggestion: "💡 Check if table name is unique and data is valid".to_string(),
         })?;
 
-        Self::register_df_as_table(&ctx, &other.table_alias, &other.df).await
+        register_df_as_table(&ctx, &other.table_alias, &other.df).await
         .map_err(|e| ElusionError::InvalidOperation {
             operation: "Registering second table".to_string(),
             reason: e.to_string(),
@@ -4076,7 +3968,7 @@ impl CustomDataFrame {
         let ctx = Arc::new(SessionContext::new());
         
         // current DataFrame
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
         let schema = self.df.schema();
         // println!("Current DataFrame schema fields: {:?}", 
@@ -4261,7 +4153,7 @@ impl CustomDataFrame {
         let ctx = Arc::new(SessionContext::new());
         
         // Register the current DataFrame
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
     
         let schema = self.df.schema();
         // println!("Current DataFrame schema fields: {:?}", 
@@ -4397,7 +4289,7 @@ impl CustomDataFrame {
         let ctx = SessionContext::new();
         
         // Register current DataFrame
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         
         // Get all data first, then process it manually since DataFusion window functions don't work well
         let all_data_sql = format!("SELECT * FROM {}", normalize_alias(&self.table_alias));
@@ -4816,7 +4708,7 @@ impl CustomDataFrame {
 
         let ctx = SessionContext::new();
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         
         let sql = format!(
             "SELECT * FROM {} LIMIT {}",
@@ -4899,7 +4791,7 @@ impl CustomDataFrame {
 
         let ctx = SessionContext::new();
         
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
         
         let count_sql = format!(
             "SELECT COUNT(*) as total_count FROM {}",
@@ -5448,7 +5340,7 @@ impl CustomDataFrame {
         let ctx = Arc::new(SessionContext::new());
 
         // Always register the base table first
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await
         .map_err(|e| ElusionError::SchemaError {
             message: format!("Failed to register base table: {}", e),
             schema: Some(self.df.schema().to_string()),
@@ -5458,7 +5350,7 @@ impl CustomDataFrame {
         // For non-UNION queries, also register joined tables
         if self.union_tables.is_none() {
             for join in &self.joins {
-                Self::register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await
+                register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await
                     .map_err(|e| ElusionError::JoinError {
                         message: format!("Failed to register joined table: {}", e),
                         left_table: self.table_alias.clone(),
@@ -5474,7 +5366,7 @@ impl CustomDataFrame {
                 if ctx.table(table_alias).await.is_ok() {
                     continue;
                 }
-                Self::register_df_as_table(&ctx, table_alias, df).await
+                register_df_as_table(&ctx, table_alias, df).await
                     .map_err(|e| ElusionError::InvalidOperation {
                         operation: "Union Table Registration".to_string(),
                         reason: format!("Failed to register union table '{}': {}", table_alias, e),
@@ -5597,7 +5489,7 @@ impl CustomDataFrame {
         let ctx = Arc::new(SessionContext::new());
 
         // Register the current dataframe as a temporary table
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
         for &column in columns {
             // Find the actual column name from schema
@@ -5674,7 +5566,7 @@ impl CustomDataFrame {
     /// Check for null values in specified columns
     async fn analyze_null_values(&self, columns: Option<&[&str]>) -> ElusionResult<NullAnalysis> {
         let ctx = Arc::new(SessionContext::new());
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
         let columns = match columns {
             Some(cols) => cols.to_vec(),
@@ -5754,7 +5646,7 @@ impl CustomDataFrame {
     /// Compute correlation between two numeric columns
     async fn compute_correlation(&self, col1: &str, col2: &str) -> ElusionResult<f64> {
         let ctx = Arc::new(SessionContext::new());
-        Self::register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
 
         let actual_col1 = self.find_actual_column_name(col1)
         .ok_or_else(|| ElusionError::Custom(
@@ -8053,244 +7945,4 @@ impl CustomDataFrame {
     }
    
 }
-// ============== PIPELINE SCHEDULER
-#[derive(Clone)]
-pub struct PipelineScheduler {
-    scheduler: JobScheduler,
-}
 
-#[derive(Debug)]
-pub enum SchedulerError {
-    InvalidTime(String),
-    InvalidFrequency(String),
-    JobFailed(String),
-}
-
-impl PipelineScheduler {
-    /// Creates new Pipeline Scheduler
-    pub async fn new<F, Fut>(frequency: &str, job: F) -> ElusionResult<Self> 
-    where
-    F: Fn() -> Fut + Send + Sync + 'static,
-   Fut: Future<Output = ElusionResult<()>> + Send + 'static
-{
-    println!("Initializing JobScheduler");
-
-    let scheduler = JobScheduler::new().await
-        .map_err(|e| ElusionError::Custom(format!("Scheduler init failed: {}", e)))?;
-    println!("Jobs are scheduled, and will run with frequency: '{}'", frequency);
-        
-    let cron = Self::parse_schedule(frequency)?;
-    // debug!("Cron expression: {}", cron);
-
-    let job_fn = Arc::new(job);
-
-    let job = Job::new_async(&cron, move |uuid, mut l| {
-        let job_fn = job_fn.clone();
-        Box::pin(async move {
-            let future = job_fn();
-            future.await.unwrap_or_else(|e| eprintln!("❌ Job execution failed: {}", e));
-            
-            let next_tick = l.next_tick_for_job(uuid).await;
-            match next_tick {
-                Ok(Some(ts)) => println!("Next job execution: {:?} UTC Time", ts),
-                _ => println!("Could not determine next job execution"),
-            }
-        })
-    }).map_err(|e| ElusionError::Custom(format!("❌ Job creation failed: {}", e)))?;
-
-
-        scheduler.add(job).await
-            .map_err(|e| ElusionError::Custom(format!("❌ Job scheduling failed: {}", e)))?;
-            
-        scheduler.start().await
-            .map_err(|e| ElusionError::Custom(format!("❌ Scheduler start failed: {}", e)))?;
-        
-       println!("JobScheduler successfully initialized and started.");
-
-        Ok(Self { scheduler })
-    }
-
-    fn parse_schedule(frequency: &str) -> ElusionResult<String> {
-        let cron = match frequency.to_lowercase().as_str() {
-            "1min" => "0 */1 * * * *".to_string(),
-            "2min" => "0 */2 * * * *".to_string(),
-            "5min" => "0 */5 * * * *".to_string(),
-            "10min" => "0 */10 * * * *".to_string(),
-            "15min" => "0 */15 * * * *".to_string(),
-            "30min" => "0 */30 * * * *".to_string(),
-            "1h" => "0 0 * * * *".to_string(),
-            "2h" => "0 0 */2 * * *".to_string(),
-            "3h" => "0 0 */3 * * *".to_string(),
-            "4h" => "0 0 */4 * * *".to_string(),
-            "5h" => "0 0 */5 * * *".to_string(),
-            "6h" => "0 0 */6 * * *".to_string(),
-            "7h" => "0 0 */7 * * *".to_string(),
-            "8h" => "0 0 */8 * * *".to_string(),
-            "9h" => "0 0 */9 * * *".to_string(),
-            "10h" => "0 0 */10 * * *".to_string(),
-            "11h" => "0 0 */11 * * *".to_string(),
-            "12h" => "0 0 */12 * * *".to_string(),
-            "24h" => "0 0 0 * * *".to_string(),
-            "2days" => "0 0 0 */2 * *".to_string(),
-            "3days" => "0 0 0 */3 * *".to_string(),
-            "4days" => "0 0 0 */4 * *".to_string(),
-            "5days" => "0 0 0 */5 * *".to_string(),
-            "6days" => "0 0 0 */6 * *".to_string(),
-            "7days" => "0 0 0 */7 * *".to_string(),
-            "14days" => "0 0 0 */14 * *".to_string(),
-            "30days" => "0 0 1 */1 * *".to_string(),
-            _ => return Err(ElusionError::Custom(
-                "Invalid frequency. Use: 1min,2min,5min,10min,15min,30min,
-                1h,2h,3h,4h,5h,6h,7h,8h,9h,10h,11h,12h,24h,
-                2days,3days,4days,5days,6days,7days,14days,30days".into()
-            ))
-        };
-
-        Ok(cron)
-    }
-    /// Shuts down pipeline job execution
-    pub async fn shutdown(mut self) -> ElusionResult<()> {
-        println!("Shutdown is ready if needed with -> Ctr+C");
-        tokio::signal::ctrl_c().await
-            .map_err(|e| ElusionError::Custom(format!("❌ Ctrl+C handler failed: {}", e)))?;
-        self.scheduler.shutdown().await
-            .map_err(|e| ElusionError::Custom(format!("❌ Shutdown failed: {}", e)))
-    }
-}
-
-
-
-/// Extract row from a DataFrame as a HashMap based on row index
-pub async fn extract_row_from_df(df: &CustomDataFrame, row_index: usize) -> ElusionResult<HashMap<String, String>> {
-    let ctx = SessionContext::new();
-   
-    let batches = df.df.clone().collect().await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Data Collection".to_string(),
-            reason: format!("Failed to collect DataFrame: {}", e),
-            suggestion: "💡 Check if DataFrame contains valid data".to_string()
-        })?;
-    
-    let schema = df.df.schema();
-    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
-        .map_err(|e| ElusionError::SchemaError {
-            message: format!("Failed to create in-memory table: {}", e),
-            schema: Some(schema.to_string()),
-            suggestion: "💡 Verify schema compatibility and data types".to_string()
-        })?;
-    
-    ctx.register_table("temp_extract", Arc::new(mem_table))
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Table Registration".to_string(),
-            reason: format!("Failed to register table: {}", e),
-            suggestion: "💡 Check if table name is unique and valid".to_string()
-        })?;
-    
-    let row_df = ctx.sql(&format!("SELECT * FROM temp_extract LIMIT 1 OFFSET {}", row_index)).await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "SQL Execution".to_string(),
-            reason: format!("Failed to execute SQL: {}", e),
-            suggestion: "💡 Verify DataFrame is valid".to_string()
-        })?;
-    
-    let batches = row_df.collect().await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Result Collection".to_string(),
-            reason: format!("Failed to collect result: {}", e),
-            suggestion: "💡 Check if query returns valid data".to_string()
-        })?;
-    
-    if batches.is_empty() || batches[0].num_rows() == 0 {
-        return Err(ElusionError::Custom(format!("No data found at row {}", row_index)));
-    }
-    
-    let mut row_values = HashMap::new();
-    let batch = &batches[0];
-    
-    for (i, field) in schema.fields().iter().enumerate() {
-        let col = batch.column(i);
-        let value = match col.data_type() {
-            ArrowDataType::Utf8 => {
-                let array = col.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
-                
-                if array.is_null(0) {
-                    "".to_string()
-                } else {
-                    array.value(0).to_string()
-                }
-            },
-            _ => {
-                format!("{:?}", col.as_ref())
-            }
-        };
-        row_values.insert(field.name().to_string(), value);
-    }
-    
-    Ok(row_values)
-}
-
-/// Extract a Value from a DataFrame based on column name and row index
-pub async fn extract_value_from_df(df: &CustomDataFrame, column_name: &str, row_index: usize) -> ElusionResult<String>{
-
-    let ctx = SessionContext::new();
-
-    let batches = df.df.clone().collect().await 
-        .map_err(|e| ElusionError::InvalidOperation { 
-            operation: "Data Colleciton".to_string(), 
-            reason: format!("Failed to collect DataFrame: {}", e), 
-            suggestion: "💡 Check if DataFrame contains valid data".to_string() 
-        })?;
-
-    let schema = df.df.schema();
-    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
-        .map_err(|e| ElusionError::SchemaError { 
-            message: format!("Failed to create in-memory table: {}", e), 
-            schema: Some(schema.to_string()), 
-            suggestion: "💡 Verify schema compatibility and data types".to_string()
-        })?;
-
-    ctx.register_table("temp_extract", Arc::new(mem_table))
-        .map_err(|e| ElusionError::InvalidOperation { 
-            operation: "Table Registration".to_string(), 
-            reason: format!("Failed to register Table: {}", e), 
-            suggestion: "💡 Check if table is unique or valid".to_string() 
-        })?;
-
-    let value_df = ctx.sql(&format!("SELECT\"{}\" FROM temp_extract LIMIT 1 OFFSET {}", column_name, row_index)).await
-        .map_err(|e| ElusionError::InvalidOperation { 
-            operation: "SQL Execution".to_string(), 
-            reason: format!("Failed to Execute SQL: {}", e), 
-            suggestion: "💡 Verify column name exists in DataFrame".to_string() 
-        })?;
-
-    let batches = value_df.collect().await
-        .map_err(|e| ElusionError::InvalidOperation { 
-            operation: "Result Collection".to_string(), 
-            reason: format!("Failed to collect Result: {}", e), 
-            suggestion: "💡 Check if Query returns valid data".to_string() 
-        })?;
-
-    if batches.is_empty() || batches[0].num_rows() == 0 {
-        return Err(ElusionError::Custom(format!("No data found for column '{}' at row {}", column_name, row_index)));
-    }
-
-    let col = batches[0].column(0);
-    let value = match col.data_type(){
-        ArrowDataType::Utf8=>{
-            let array = col.as_any().downcast_ref::<StringArray>()
-                .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
-
-            if array.is_null(0){
-                "".to_string()
-            } else {
-                array.value(0).to_string()
-            }
-        },
-        _ => {
-            format!("{:?}", col.as_ref())
-        }
-    };
-
-    Ok(value)
-}
