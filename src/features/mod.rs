@@ -8,3 +8,4 @@ pub mod mysql;
 pub mod scheduler;
 pub mod cashandview;
 pub mod delta;
+pub mod calendar;
