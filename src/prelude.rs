@@ -1,4 +1,4 @@
-pub use crate::PipelineScheduler;
+pub use crate::features::scheduler::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
 pub use crate::{ElusionError, ElusionResult};
