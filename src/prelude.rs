@@ -1,7 +1,9 @@
 pub use crate::features::scheduler::PipelineScheduler;
 
 pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
-pub use crate::{ElusionError, ElusionResult};
+
+pub use crate::custom_error::cust_error::ElusionError;
+pub use crate::custom_error::cust_error::ElusionResult;
 //====== postgres
 pub use crate::features::postgres::PostgresConfig;
 pub use crate::features::postgres::PostgresConnection;
