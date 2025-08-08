@@ -12,7 +12,9 @@ pub use crate::features::mysql::MySqlConnection;
 pub use crate::{ReportLayout, TableOptions};
 
 pub use crate::DateFormat;
-pub use crate::{extract_row_from_df, extract_value_from_df};
+
+pub use crate::helper_funcs::extrac_row_from_df::extract_row_from_df;
+pub use crate::helper_funcs::extrac_val_from_df::extract_value_from_df;
 
 pub use regex::Regex;
 pub use datafusion::prelude::*;
