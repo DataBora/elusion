@@ -1,6 +1,8 @@
 pub use crate::features::scheduler::PipelineScheduler;
 
-pub use crate::{CustomDataFrame, AliasedDataFrame, CsvWriteOptions};
+pub use crate::{CustomDataFrame, AliasedDataFrame};
+
+pub use crate::csvwrite::csvwriteops::CsvWriteOptions;
 
 pub use crate::custom_error::cust_error::ElusionError;
 pub use crate::custom_error::cust_error::ElusionResult;
@@ -13,7 +15,7 @@ pub use crate::features::mysql::MySqlConnection;
 //====== dashboard
 pub use crate::{ReportLayout, TableOptions};
 
-pub use crate::DateFormat;
+pub use crate::features::calendar::DateFormat;
 
 pub use crate::helper_funcs::extrac_row_from_df::extract_row_from_df;
 pub use crate::helper_funcs::extrac_val_from_df::extract_value_from_df;
