@@ -1,3 +1,13 @@
+## [3.14.0] - 2025-08-08
+### Added
+FUNCTIONS:
+- show_head(n) that Show first n rows
+- show_tail(n) that Show last n rows
+- peek(n) that Show first and last n rows 
+- fill_null() that fill nulls in specified column
+- drop_null() that drop rows with null values in specified column
+- skip_rows() that skip number of specified rows
+
 ## [3.13.3] - 2025-08-07
 ### Bug Fixed
 - Postgres SQL timestamp conversion
