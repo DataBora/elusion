@@ -384,6 +384,13 @@ impl From<mysql_async::Error> for ElusionError {
             aggregated_df: None,
             union_tables: None,
             original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
 

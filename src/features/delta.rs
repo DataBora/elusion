@@ -1,6 +1,5 @@
 use crate::prelude::*;
 
-// ================= DELTA
 /// Attempt to glean the Arrow schema of a DataFusion `DataFrame` by collecting
 /// a **small sample** (up to 1 row). If there's **no data**, returns an empty schema
 /// or an error

@@ -141,7 +141,7 @@ pub use azure_storage::StorageCredentials;
 #[cfg(feature = "azure")]
 pub use azure_storage::CloudLocation;
 pub use futures::stream;
-pub use std::io::BufReader;
+pub use std::io::{BufReader,BufRead};
 pub use futures::pin_mut;
 pub use csv::ReaderBuilder;
 pub use csv::Trim::All;
@@ -200,3 +200,8 @@ pub use calamine::{Reader, Xlsx, open_workbook};
 pub use reqwest;
 #[cfg(feature = "sharepoint")]
 pub use url;
+
+// ------ OPTIMIZATIONS
+pub use std::borrow::Cow;
+pub use once_cell::sync::Lazy;
+pub use arrow::util::display::array_value_to_string as any_other_array_value_to_string;

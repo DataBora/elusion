@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "3.14.0"
+version = "4.0.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -43,6 +43,7 @@ mysql_async = { version = "0.32.2", default-features = false, features = ["minim
 rust_xlsxwriter = {version = "0.87.0", optional = true}
 calamine = "0.23.1"
 url = {version = "2.5", optional = true}
+once_cell = "1.21.3"
 
 [features]
 default = []
