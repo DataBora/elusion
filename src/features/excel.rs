@@ -9,13 +9,9 @@ use crate::array_value_to_json;
 
 // Function to convert Excel date (days since 1900-01-01) to NaiveDate
 fn excel_date_to_naive_date(excel_date: f64) -> Option<NaiveDate> {
-    // Excel dates start at January 0, 1900, which is actually December 31, 1899
-    // There's also a leap year bug in Excel that treats 1900 as a leap year
+ 
     let excel_epoch = NaiveDate::from_ymd_opt(1899, 12, 30)?;
-    
-    // Convert to days, ignoring any fractional part (time component)
     let days = excel_date.trunc() as i64;
-    
     // Add days to epoch
     excel_epoch.checked_add_signed(Duration::days(days))
 }

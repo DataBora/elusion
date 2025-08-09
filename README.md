@@ -964,6 +964,8 @@ let df = sales_df
         "'New' AS new_old_customer",
         "TRIM(c.EmailAddress) AS trimmed_email",
         "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
+        "CONCAT(region, ' - Rank ', CAST(region_rank AS TEXT)) AS region_rank_label",
+        "CASE WHEN region_rank <= 5 THEN 'TOP_5' ELSE 'OTHER' END AS performance_tier"
     ]);
 
 let result_df = df.elusion("df").await?;

@@ -1,6 +1,5 @@
 use crate::prelude::*;
 
-
 pub fn build_record_batch(
     rows: &[HashMap<String, Value>],
     schema: Arc<Schema>

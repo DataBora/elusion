@@ -4,6 +4,7 @@ mod helper_funcs;
 mod custom_error;
 mod normalizers;
 mod csvwrite;
+mod sqlbuilder;
 
 // =========== DataFusion
 use regex::Regex;
@@ -67,7 +68,6 @@ use crate::features::cashandview::QUERY_CACHE;
 use crate::features::cashandview::QueryCache;
 
 // =========== DATE TABLE BUILDER
-
 use chrono::Weekday;
 
 //=========POSTGRESS
@@ -95,8 +95,12 @@ use crate::normalizers::normalize::is_aggregate_expression;
 use crate::normalizers::normalize::normalize_alias_write;
 use crate::normalizers::normalize::normalize_window_function;
 
-//=== csv write
+//======= csv 
+use crate::features::csv::load_csv_with_type_handling;
 use crate::csvwrite::csvwriteops::CsvWriteOptions;
+
+// ======= optimizers
+use crate::sqlbuilder::sqlbuild::SqlBuilder;
 
 // // Generic struct for DataFrame row representation
 // #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,7 +141,7 @@ pub struct Join {
     join_type: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CustomDataFrame {
     df: DataFrame,
     table_alias: String,
@@ -159,6 +163,48 @@ pub struct CustomDataFrame {
     pub aggregated_df: Option<DataFrame>,
     union_tables: Option<Vec<(String, DataFrame, String)>>, 
     original_expressions: Vec<String>,
+
+    needs_normalization: bool,
+    raw_selected_columns: Vec<String>,    
+    raw_group_by_columns: Vec<String>,    
+    raw_where_conditions: Vec<String>,    
+    raw_having_conditions: Vec<String>,  
+    raw_join_conditions: Vec<String>,     
+    raw_aggregations: Vec<String>,
+}
+
+impl Clone for CustomDataFrame {
+    fn clone(&self) -> Self {
+        Self {
+            df: self.df.clone(),
+            table_alias: self.table_alias.clone(),
+            from_table: self.from_table.clone(),
+            query: self.query.clone(),
+            selected_columns: self.selected_columns.clone(),
+            alias_map: self.alias_map.clone(),
+            aggregations: self.aggregations.clone(),
+            group_by_columns: self.group_by_columns.clone(),
+            where_conditions: self.where_conditions.clone(),
+            having_conditions: self.having_conditions.clone(),
+            order_by_columns: self.order_by_columns.clone(),
+            joins: self.joins.clone(),
+            window_functions: self.window_functions.clone(),
+            ctes: self.ctes.clone(),
+            set_operations: self.set_operations.clone(),
+            original_expressions: self.original_expressions.clone(),
+            limit_count: self.limit_count,
+            subquery_source: self.subquery_source.clone(),
+            aggregated_df: self.aggregated_df.clone(),
+            union_tables: self.union_tables.clone(),
+            needs_normalization: self.needs_normalization.clone(),
+            raw_selected_columns: self.raw_selected_columns.clone(),   
+            raw_group_by_columns: self.raw_group_by_columns.clone(),  
+            raw_where_conditions: self.raw_where_conditions.clone(),  
+            raw_having_conditions: self.raw_having_conditions.clone(),
+            raw_join_conditions: self.raw_join_conditions.clone(),
+            raw_aggregations: self.raw_aggregations.clone()
+        }
+    }
 }
 
 // =================== JSON heler functions
@@ -236,6 +282,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
    
@@ -277,9 +330,15 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
-
 
     // ========= CALENDAR
     /// Create a simple date range table with standard date components
@@ -311,7 +370,6 @@ impl CustomDataFrame {
             week_start_day
         ).await
     }
-    
     
       /// Create a materialized view from the current DataFrame state
       pub async fn create_view(
@@ -345,26 +403,33 @@ impl CustomDataFrame {
           let df = manager.get_view_as_dataframe(&ctx, view_name).await?;
           
           Ok(CustomDataFrame {
-              df,
-              table_alias: view_name.to_string(),
-              from_table: view_name.to_string(),
-              selected_columns: Vec::new(),
-              alias_map: Vec::new(),
-              aggregations: Vec::new(),
-              group_by_columns: Vec::new(),
-              where_conditions: Vec::new(),
-              having_conditions: Vec::new(),
-              order_by_columns: Vec::new(),
-              limit_count: None,
-              joins: Vec::new(),
-              window_functions: Vec::new(),
-              ctes: Vec::new(),
-              subquery_source: None,
-              set_operations: Vec::new(),
-              query: String::new(),
-              aggregated_df: None,
-              union_tables: None,
-              original_expressions: Vec::new(),
+            df,
+            table_alias: view_name.to_string(),
+            from_table: view_name.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
           })
       }
       
@@ -416,26 +481,33 @@ impl CustomDataFrame {
                   .map_err(|e| ElusionError::Custom(format!("Failed to create DataFrame from cache: {}", e)))?;
               
               return Ok(CustomDataFrame {
-                  df,
-                  table_alias: alias.to_string(),
-                  from_table: alias.to_string(),
-                  selected_columns: Vec::new(),
-                  alias_map: Vec::new(),
-                  aggregations: Vec::new(),
-                  group_by_columns: Vec::new(),
-                  where_conditions: Vec::new(),
-                  having_conditions: Vec::new(),
-                  order_by_columns: Vec::new(),
-                  limit_count: None,
-                  joins: Vec::new(),
-                  window_functions: Vec::new(),
-                  ctes: Vec::new(),
-                  subquery_source: None,
-                  set_operations: Vec::new(),
-                  query: sql,
-                  aggregated_df: None,
-                  union_tables: None,
-                  original_expressions: self.original_expressions.clone(),
+                df,
+                table_alias: alias.to_string(),
+                from_table: alias.to_string(),
+                selected_columns: Vec::new(),
+                alias_map: Vec::new(),
+                aggregations: Vec::new(),
+                group_by_columns: Vec::new(),
+                where_conditions: Vec::new(),
+                having_conditions: Vec::new(),
+                order_by_columns: Vec::new(),
+                limit_count: None,
+                joins: Vec::new(),
+                window_functions: Vec::new(),
+                ctes: Vec::new(),
+                subquery_source: None,
+                set_operations: Vec::new(),
+                query: sql,
+                aggregated_df: None,
+                union_tables: None,
+                original_expressions: self.original_expressions.clone(),
+                needs_normalization: false,
+                raw_selected_columns: Vec::new(),
+                raw_group_by_columns: Vec::new(),
+                raw_where_conditions: Vec::new(),
+                raw_having_conditions: Vec::new(),
+                raw_join_conditions: Vec::new(),
+                raw_aggregations: Vec::new(),
               });
           }
           
@@ -469,7 +541,6 @@ impl CustomDataFrame {
       pub fn configure_cache(max_size: usize, ttl_seconds: Option<u64>) {
           *QUERY_CACHE.lock().unwrap() = QueryCache::new(max_size, ttl_seconds);
       }
-
 
     //=========== SHARE POINT
     #[cfg(feature = "sharepoint")]
@@ -603,24 +674,53 @@ impl CustomDataFrame {
     // ==================== DATAFRAME Methods ====================
 
     /// Add JOIN clauses 
+    // pub fn join<const N: usize>(
+    //     mut self,
+    //     other: CustomDataFrame,
+    //     conditions: [&str; N],  // Keeping single array of conditions with "="
+    //     join_type: &str
+    // ) -> Self {
+    //     let condition = conditions.iter()
+    //         .map(|&cond| normalize_condition(cond))  // Keeping the "=" in condition
+    //         .collect::<Vec<_>>()
+    //         .join(" AND ");
+    
+    //     self.joins.push(Join {
+    //         dataframe: other,
+    //         condition,
+    //         join_type: join_type.to_string(),
+    //     });
+    //     self
+    // }
     pub fn join<const N: usize>(
         mut self,
         other: CustomDataFrame,
-        conditions: [&str; N],  // Keeping single array of conditions with "="
+        conditions: [&str; N],
         join_type: &str
     ) -> Self {
+        // raw conditions
+        self.raw_join_conditions.extend(conditions.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
         let condition = conditions.iter()
-            .map(|&cond| normalize_condition(cond))  // Keeping the "=" in condition
+            .map(|&cond| normalize_condition(cond))
             .collect::<Vec<_>>()
             .join(" AND ");
-    
+
         self.joins.push(Join {
             dataframe: other,
             condition,
             join_type: join_type.to_string(),
         });
+
+        // Add complexity warning (NEW OPTIMIZATION)
+        if self.should_warn_complexity() {
+            println!("⚠️  Complex query detected - consider calling .elusion() to materialize intermediate results for better performance");
+        }
+
         self
     }
+    
     /// Add multiple JOIN clauses using const generics.
     /// Accepts Array of (DataFrame, conditions, join_type)
     pub fn join_many<const N: usize, const M: usize>(
@@ -653,7 +753,12 @@ impl CustomDataFrame {
     pub fn group_by<const N: usize>(self, group_columns: [&str; N]) -> Self {
         self.group_by_vec(group_columns.to_vec())
     }
+
     pub fn group_by_vec(mut self, columns: Vec<&str>) -> Self {
+        // raw for potential optimization
+        self.raw_group_by_columns.extend(columns.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
         self.group_by_columns = columns
             .into_iter()
             .map(|s| {
@@ -667,7 +772,7 @@ impl CustomDataFrame {
                     normalize_expression(expr_part, &self.table_alias)
                 } else {
                     // Handle expressions without aliases
-                    normalize_expression(s,  &self.table_alias)
+                    normalize_expression(s, &self.table_alias)
                 }
             })
             .collect();
@@ -716,12 +821,21 @@ impl CustomDataFrame {
 
     /// Add multiple WHERE conditions using a Vec<&str>
     pub fn filter_vec(mut self, conditions: Vec<&str>) -> Self {
-        self.where_conditions.extend(conditions.into_iter().map(|c| normalize_condition_filter(c)));
+        // raw for potential batch optimization
+        self.raw_where_conditions.extend(conditions.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
+        self.where_conditions.extend(
+            conditions.into_iter().map(|c| normalize_condition_filter(c))
+        );
         self
     }
-
     /// Add a single WHERE condition
     pub fn filter(mut self, condition: &str) -> Self {
+        // Store raw
+        self.raw_where_conditions.push(condition.to_string());
+        self.needs_normalization = true;
+
         self.where_conditions.push(normalize_condition_filter(condition));
         self
     }
@@ -734,12 +848,22 @@ impl CustomDataFrame {
 
     /// Add multiple HAVING conditions using a Vec<&str>
     pub fn having_conditions_vec(mut self, conditions: Vec<&str>) -> Self {
-        self.having_conditions.extend(conditions.into_iter().map(|c| normalize_condition(c)));
+        // Store raw
+        self.raw_having_conditions.extend(conditions.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
+        self.having_conditions.extend(
+            conditions.into_iter().map(|c| normalize_condition(c))
+        );
         self
     }
 
     /// Add a single HAVING condition
     pub fn having(mut self, condition: &str) -> Self {
+        // Store raw
+        self.raw_having_conditions.push(condition.to_string());
+        self.needs_normalization = true;
+
         self.having_conditions.push(normalize_condition(condition));
         self
     }
@@ -822,10 +946,17 @@ impl CustomDataFrame {
    
     /// Apply multiple string functions to create new columns in the SELECT clause.
     pub fn string_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
+        // Store raw
+        for expr in expressions.iter() {
+            self.raw_selected_columns.push(expr.to_string());
+        }
+        self.needs_normalization = true;
+
+        // Execute original logic (PRESERVED EXACTLY)
         for expr in expressions.iter() {
             // Add to SELECT clause
             self.selected_columns.push(normalize_expression(expr, &self.table_alias));
-    
+
             // If GROUP BY is used, extract the expression part (before AS)
             // and add it to GROUP BY columns
             if !self.group_by_columns.is_empty() {
@@ -841,17 +972,22 @@ impl CustomDataFrame {
      /// Add datetime functions to the SELECT clause
     /// Supports various date/time operations and formats
     pub fn datetime_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
+        // Store raw
+        for expr in expressions.iter() {
+            self.raw_selected_columns.push(expr.to_string());
+        }
+        self.needs_normalization = true;
+
         for expr in expressions.iter() {
             // Add to SELECT clause
             self.selected_columns.push(normalize_expression(expr, &self.table_alias));
-    
+
             // If GROUP BY is used, extract the expression part (before AS)
             if !self.group_by_columns.is_empty() {
                 let expr_part = expr.split(" AS ")
                     .next()
                     .unwrap_or(expr);
-                
-                    self.group_by_columns.push(normalize_expression(expr_part, &self.table_alias));
+                self.group_by_columns.push(normalize_expression(expr_part, &self.table_alias));
             }
         }
         self
@@ -871,6 +1007,10 @@ impl CustomDataFrame {
     /// Add aggregations to the SELECT clause using a `Vec<String>`
     /// Ensures that only valid aggregate expressions are included.
     pub fn agg_vec(mut self, aggregations: Vec<String>) -> Self {
+        // raw for optimization
+        self.raw_aggregations.extend(aggregations.iter().cloned());
+        self.needs_normalization = true;
+
         let valid_aggs = aggregations.into_iter()
             .filter(|expr| is_aggregate_expression(expr))
             .collect::<Vec<_>>();
@@ -948,6 +1088,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     /// Performs APPEND on multiple dataframes
@@ -1034,6 +1181,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     /// Performs UNION on two dataframes
@@ -1098,6 +1252,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     /// Performs UNION on multiple dataframes
@@ -1174,6 +1335,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
 
@@ -1238,6 +1406,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     /// Performs UNIONA_ALL on multiple dataframes
@@ -1314,6 +1489,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     /// Performs EXCEPT on two dataframes
@@ -1377,6 +1559,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     
@@ -1441,6 +1630,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
     
@@ -1805,6 +2001,13 @@ impl CustomDataFrame {
                 aggregated_df: None,
                 union_tables: None,
                 original_expressions: Vec::new(),
+                needs_normalization: false,
+                raw_selected_columns: Vec::new(),
+                raw_group_by_columns: Vec::new(),
+                raw_where_conditions: Vec::new(),
+                raw_having_conditions: Vec::new(),
+                raw_join_conditions: Vec::new(),
+                raw_aggregations: Vec::new(),
             });
         }
         
@@ -1894,6 +2097,13 @@ impl CustomDataFrame {
             aggregated_df: None,
             union_tables: None,
             original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
 
@@ -2261,6 +2471,13 @@ impl CustomDataFrame {
             aggregated_df: Some(head_df),
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
 
@@ -2397,6 +2614,13 @@ impl CustomDataFrame {
             aggregated_df: Some(tail_df),
             union_tables: None,
             original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
     }
 
@@ -2431,16 +2655,18 @@ impl CustomDataFrame {
         self.select_vec(columns.to_vec())
     }
 
-    /// Add selected columns to the SELECT clause using a Vec<&str>
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
-        // Store original expressions with AS clauses
+        // Store original expressions with AS clauses 
         self.original_expressions = columns
             .iter()
             .filter(|&col| col.contains(" AS "))
             .map(|&s| s.to_string())
             .collect();
-    
-        // Instead of replacing selected_columns, merge with existing ones
+
+        // raw columns for lazy processing
+        self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
         let mut all_columns = self.selected_columns.clone();
         
         if !self.group_by_columns.is_empty() {
@@ -2463,7 +2689,7 @@ impl CustomDataFrame {
                 }
             }
         } else {
-            // Handle non-GROUP BY case
+            // Handle non-GROUP BY case (PRESERVED EXACTLY)
             let aggregate_aliases: Vec<String> = self
                 .aggregations
                 .iter()
@@ -2473,7 +2699,7 @@ impl CustomDataFrame {
                         .map(|alias| normalize_alias(alias))
                 })
                 .collect();
-    
+
             all_columns.extend(
                 columns
                     .into_iter()
@@ -2487,14 +2713,14 @@ impl CustomDataFrame {
                     })
             );
         }
-    
-        // Remove duplicates while preserving order
+
+        // Remove duplicates while preserving order (PRESERVED)
         let mut seen = HashSet::new();
         self.selected_columns = all_columns
             .into_iter()
             .filter(|x| seen.insert(x.clone()))
             .collect();
-    
+
         self
     }
 
@@ -2654,6 +2880,13 @@ impl CustomDataFrame {
         self
     }
 
+    fn should_warn_complexity(&self) -> bool {
+        self.joins.len() > 3 || 
+        self.selected_columns.len() > 15 ||
+        self.where_conditions.len() > 8
+    }
+
+
     // /// Convert DataFrame to Vec<DataFrameRow> for easy manipulation
     // pub async fn convert_to_vec(&self) -> ElusionResult<Vec<DataFrameRow>> {
     //     let batches = self.df.clone().collect().await
@@ -2707,209 +2940,183 @@ impl CustomDataFrame {
     // }
 
     /// Construct the SQL query based on the current state, including joins
+    /// Optimized SQL construction with SqlBuilder and reduced allocations
     fn construct_sql(&self) -> String {
-        let mut query = String::new();
+        // Estimate capacity based on data size to reduce reallocations
+        let estimated_capacity = self.estimate_sql_size();
+        let mut builder = SqlBuilder::with_capacity(estimated_capacity);
+        
+        // Handle CTEs
+        builder.with_ctes(&self.ctes);
 
-        // WITH clause for CTEs
-        if !self.ctes.is_empty() {
-            query.push_str("WITH ");
-            query.push_str(&self.ctes.join(", "));
-            query.push_str(" ");
-        }
-
-        // Determine if it's a subquery with no selected columns
+        // Check for subquery pattern
         let is_subquery = self.from_table.starts_with('(') && self.from_table.ends_with(')');
-        let no_selected_columns = self.selected_columns.is_empty() && self.aggregations.is_empty() && self.window_functions.is_empty();
+        let no_selected_columns = self.selected_columns.is_empty() 
+            && self.aggregations.is_empty() 
+            && self.window_functions.is_empty();
 
         if is_subquery && no_selected_columns {
-            // Return only the subquery without wrapping it in SELECT * FROM
-            query.push_str(&format!("{}", self.from_table));
-        } else {
-            // SELECT clause
-            query.push_str("SELECT ");
-            let mut select_parts = Vec::new();
-
-            if !self.group_by_columns.is_empty() {
-                // Add aggregations first
-                select_parts.extend(self.aggregations.clone());
-
-                // Add GROUP BY columns and selected columns
-                for col in &self.selected_columns {
-                    if !select_parts.contains(col) {
-                        select_parts.push(col.clone());
-                    }
-                }
-            } else {
-                // No GROUP BY - add all parts
-                select_parts.extend(self.aggregations.clone());
-                select_parts.extend(self.selected_columns.clone());
-            }
-
-            // Add window functions last
-            select_parts.extend(self.window_functions.clone());
-
-            if select_parts.is_empty() {
-                query.push_str("*");
-            } else {
-                query.push_str(&select_parts.join(", "));
-            }
-
-            // FROM clause
-            query.push_str(" FROM ");
-            if is_subquery {
-                // It's a subquery; do not assign alias here
-                query.push_str(&format!("{}", self.from_table));
-            } else {
-                // Regular table; quote as usual
-                query.push_str(&format!(
-                    "\"{}\" AS {}",
-                    self.from_table.trim(),
-                    self.table_alias
-                ));
-            }
-
-            // Joins
-            for join in &self.joins {
-                query.push_str(&format!(
-                    " {} JOIN \"{}\" AS {} ON {}",
-                    join.join_type,
-                    join.dataframe.from_table,
-                    join.dataframe.table_alias,
-                    join.condition
-                ));
-            }
-
-            // WHERE clause
-            if !self.where_conditions.is_empty() {
-                query.push_str(" WHERE ");
-                query.push_str(&self.where_conditions.join(" AND "));
-            }
-
-            // GROUP BY clause
-            if !self.group_by_columns.is_empty() {
-                query.push_str(" GROUP BY ");
-                query.push_str(&self.group_by_columns.join(", "));
-            }
-
-            // HAVING clause
-            if !self.having_conditions.is_empty() {
-                query.push_str(" HAVING ");
-                query.push_str(&self.having_conditions.join(" AND "));
-            }
-
-            // ORDER BY clause
-            if !self.order_by_columns.is_empty() {
-                query.push_str(" ORDER BY ");
-                let orderings: Vec<String> = self.order_by_columns.iter()
-                    .map(|(col, asc)| format!("{} {}", col, if *asc { "ASC" } else { "DESC" }))
-                    .collect();
-                query.push_str(&orderings.join(", "));
-            }
-
-            // LIMIT clause
-            if let Some(limit) = self.limit_count {
-                query.push_str(&format!(" LIMIT {}", limit));
-            }
+            // Return subquery directly
+            return format!("{}{}", 
+                if self.ctes.is_empty() { "" } else { &builder.buffer },
+                self.from_table
+            );
         }
 
-        // set operations 
-            let mut final_query = query;
-            for operation in &self.set_operations {
-                final_query = self.handle_set_operation(operation, final_query);
-            }
+        // Build SELECT parts
+        let select_parts = self.build_select_parts();
+        
+        // Build the main query
+        builder.select(&select_parts)
+               .from_table(&self.from_table, Some(&self.table_alias))
+               .joins(&self.joins)
+               .where_clause(&self.where_conditions)
+               .group_by(&self.group_by_columns)
+               .having(&self.having_conditions)
+               .order_by(&self.order_by_columns)
+               .limit(self.limit_count);
+
+        // Apply set operations
+        let mut final_query = builder.build();
+        for operation in &self.set_operations {
+            final_query = self.handle_set_operation(operation, final_query);
+        }
 
         final_query
     }
 
+    /// Estimate SQL size to pre-allocate buffer capacity
+    fn estimate_sql_size(&self) -> usize {
+        let base_size = 200; 
+        let select_size = self.selected_columns.iter().map(|s| s.len()).sum::<usize>() 
+                         + self.aggregations.iter().map(|s| s.len()).sum::<usize>()
+                         + self.window_functions.iter().map(|s| s.len()).sum::<usize>();
+        let joins_size = self.joins.iter().map(|j| j.condition.len() + 50).sum::<usize>();
+        let where_size = self.where_conditions.iter().map(|s| s.len()).sum::<usize>();
+        
+        base_size + select_size + joins_size + where_size + self.from_table.len()
+    }
 
+    /// Build SELECT parts with reduced allocations
+    fn build_select_parts(&self) -> Vec<String> {
+        let total_parts = self.aggregations.len() 
+                         + self.selected_columns.len() 
+                         + self.window_functions.len();
+        
+        let mut select_parts = Vec::with_capacity(total_parts);
+
+        if !self.group_by_columns.is_empty() {
+            // Add aggregations first
+            select_parts.extend_from_slice(&self.aggregations);
+
+            // Add GROUP BY columns and selected columns (avoid duplicates)
+            for col in &self.selected_columns {
+                if !select_parts.contains(col) {
+                    select_parts.push(col.clone());
+                }
+            }
+        } else {
+            // No GROUP BY - add all parts
+            select_parts.extend_from_slice(&self.aggregations);
+            select_parts.extend_from_slice(&self.selected_columns);
+        }
+
+        // Add window functions last
+        select_parts.extend_from_slice(&self.window_functions);
+        
+        select_parts
+    }
+    
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
+        // Pre-validate inputs to fail fast
+        if alias.trim().is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Elusion".to_string(),
+                reason: "Alias cannot be empty".to_string(),
+                suggestion: "💡 Provide a valid table alias".to_string()
+            });
+        }
+
         let ctx = Arc::new(SessionContext::new());
 
-        // Always register the base table first
-        register_df_as_table(&ctx, &self.table_alias, &self.df).await
-        .map_err(|e| ElusionError::SchemaError {
-            message: format!("Failed to register base table: {}", e),
-            schema: Some(self.df.schema().to_string()),
-            suggestion: "💡 Check table schema compatibility".to_string()
-        })?;
-
-        // For non-UNION queries, also register joined tables
-        if self.union_tables.is_none() {
-            for join in &self.joins {
-                register_df_as_table(&ctx, &join.dataframe.table_alias, &join.dataframe.df).await
-                    .map_err(|e| ElusionError::JoinError {
-                        message: format!("Failed to register joined table: {}", e),
-                        left_table: self.table_alias.clone(),
-                        right_table: join.dataframe.table_alias.clone(),
-                        suggestion: "💡 Verify join table schemas are compatible".to_string()
-                    })?;
-            }
-        }
-
-        // For UNION queries with joins
-        if let Some(tables) = &self.union_tables {
-            for (table_alias, df, _) in tables {
-                if ctx.table(table_alias).await.is_ok() {
-                    continue;
-                }
-                register_df_as_table(&ctx, table_alias, df).await
-                    .map_err(|e| ElusionError::InvalidOperation {
-                        operation: "Union Table Registration".to_string(),
-                        reason: format!("Failed to register union table '{}': {}", table_alias, e),
-                        suggestion: "💡 Check union table schema compatibility".to_string()
-                    })?;
-            }
-        }
-
-        let sql = if self.from_table.starts_with('(') && self.from_table.ends_with(')') {
-            format!("SELECT * FROM {} AS {}", self.from_table, alias)
+        // spawn_blocking for CPU-intensive SQL construction
+        let sql = if self.is_complex_query() {
+            let self_clone = self.clone(); // Only clone if needed for complex queries
+            tokio::task::spawn_blocking(move || self_clone.construct_sql())
+                .await
+                .map_err(|e| ElusionError::Custom(format!("SQL construction task failed: {}", e)))?
         } else {
             self.construct_sql()
         };
 
-        // println!("Constructed SQL:\n{}", sql);
-        
+        // Batch register tables for better performance
+        self.register_all_tables(&ctx).await?;
+
+        // Handle subquery special case efficiently
+        let final_sql = if self.from_table.starts_with('(') && self.from_table.ends_with(')') {
+            format!("SELECT * FROM {} AS {}", self.from_table, alias)
+        } else {
+            sql
+        };
+        println!("{:?}", final_sql);
+
         // Execute the SQL query
-        let df = ctx.sql(&sql).await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "SQL Execution".to_string(),
-            reason: format!("Failed to execute SQL: {}", e),
-            suggestion: "💡 Verify SQL syntax and table/column references".to_string()
-        })?;
+        let df = ctx.sql(&final_sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "SQL Execution".to_string(),
+                reason: format!("Failed to execute SQL: {}", e),
+                suggestion: "💡 Verify SQL syntax and table/column references".to_string()
+            })?;
 
-        // Collect the results into batches
-        let batches = df.clone().collect().await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Data Collection".to_string(),
-            reason: format!("Failed to collect results: {}", e),
-            suggestion: "💡 Check if query returns valid data".to_string()
-        })?;
+        // Using spawn_blocking for potentially expensive data collection
+        let (batches, schema) = if self.is_large_result_expected() {
+            let df_clone = df.clone();
+            tokio::task::spawn_blocking(move || {
+                futures::executor::block_on(async {
+                    let batches = df_clone.clone().collect().await?;
+                    let schema = df_clone.schema().clone();
+                    Ok::<_, datafusion::error::DataFusionError>((batches, schema))
+                })
+            })
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Data collection task failed: {}", e)))?
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Data Collection".to_string(),
+                reason: format!("Failed to collect results: {}", e),
+                suggestion: "💡 Check if query returns valid data, or check if your file have unreadable column values".to_string()
+            })?
+        } else {
+            let batches = df.clone().collect().await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Data Collection".to_string(),
+                    reason: format!("Failed to collect results: {}", e),
+                    suggestion: "💡 Check if query returns valid data, or check if your file have unreadable column values".to_string()
+                })?;
+            (batches, df.schema().clone())
+        };
 
-        // Create a MemTable from the result batches
-        let result_mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
-        .map_err(|e| ElusionError::SchemaError {
-            message: format!("Failed to create result table: {}", e),
-            schema: Some(df.schema().to_string()),
-            suggestion: "💡 Verify result schema compatibility".to_string()
-        })?;
+        let result_mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create result table: {}", e),
+                schema: Some(schema.to_string()),
+                suggestion: "💡 Verify result schema compatibility".to_string()
+            })?;
 
-        // Register the result as a new table with the provided alias
         ctx.register_table(alias, Arc::new(result_mem_table))
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Result Registration".to_string(),
-            reason: format!("Failed to register result table: {}", e),
-            suggestion: "💡 Try using a different alias name".to_string()
-        })?;
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Registration".to_string(),
+                reason: format!("Failed to register result table: {}", e),
+                suggestion: "💡 Try using a different alias name".to_string()
+            })?;
 
-        // Retrieve the newly registered table
         let result_df = ctx.table(alias).await
-        .map_err(|e| ElusionError::InvalidOperation {
-            operation: "Result Retrieval".to_string(),
-            reason: format!("Failed to retrieve final result: {}", e),
-            suggestion: "💡 Check if result table was properly registered".to_string()
-        })?;
-        // Return a new CustomDataFrame with the new alias
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Retrieval".to_string(),
+                reason: format!("Failed to retrieve final result: {}", e),
+                suggestion: "💡 Check if result table was properly registered".to_string()
+            })?;
+
         Ok(CustomDataFrame {
             df: result_df,
             table_alias: alias.to_string(),
@@ -2927,11 +3134,67 @@ impl CustomDataFrame {
             ctes: Vec::new(),
             subquery_source: None,
             set_operations: Vec::new(),
-            query: sql,
-            aggregated_df: Some(df.clone()),
+            query: final_sql,
+            aggregated_df: Some(df),
             union_tables: None,
-            original_expressions: self.original_expressions.clone(), 
+            original_expressions: self.original_expressions.clone(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
         })
+    }
+
+    /// Batch register all required tables for better performance
+    async fn register_all_tables(&self, ctx: &SessionContext) -> ElusionResult<()> {
+        let mut tables_to_register = Vec::new();
+        
+        tables_to_register.push((&self.table_alias, &self.df));
+        
+        if self.union_tables.is_none() {
+            for join in &self.joins {
+                tables_to_register.push((&join.dataframe.table_alias, &join.dataframe.df));
+            }
+        }
+ 
+        if let Some(tables) = &self.union_tables {
+            for (table_alias, df, _) in tables {
+                if ctx.table(table_alias).await.is_err() {
+                    tables_to_register.push((table_alias, df));
+                }
+            }
+        }
+        // Register all tables
+        for (alias, df) in tables_to_register {
+            register_df_as_table(ctx, alias, df).await
+                .map_err(|e| ElusionError::SchemaError {
+                    message: format!("Failed to register table '{}': {}", alias, e),
+                    schema: Some(df.schema().to_string()),
+                    suggestion: "💡 Check table schema compatibility".to_string()
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Determine if this is a complex query that should use spawn_blocking
+    fn is_complex_query(&self) -> bool {
+        self.joins.len() > 3 ||
+        self.selected_columns.len() + self.aggregations.len() > 20 ||
+        self.where_conditions.len() > 10 ||
+        !self.ctes.is_empty() ||
+        !self.set_operations.is_empty()
+    }
+
+    /// Estimate if the result will be large and should use spawn_blocking
+    fn is_large_result_expected(&self) -> bool {
+        // if many joins or aggregations, expect larger results
+        self.joins.len() > 2 || 
+        self.aggregations.len() > 5 ||
+        self.limit_count.map_or(true, |limit| limit > 10000)
     }
 
     /// Display functions that display results to terminal
@@ -4138,41 +4401,9 @@ impl CustomDataFrame {
 
     /// LOAD function for CSV file type
     pub async fn load_csv(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
-        let ctx = SessionContext::new();
-
-        if !LocalPath::new(file_path).exists() {
-            return Err(ElusionError::WriteError {
-                path: file_path.to_string(),
-                operation: "read".to_string(),
-                reason: "File not found".to_string(),
-                suggestion: "💡 Check if the file path is correct".to_string()
-            });
-        }
-
-        let df = match ctx
-            .read_csv(
-                file_path,
-                CsvReadOptions::new()
-                    .has_header(true)
-                    .schema_infer_max_records(1000),
-            )
-            .await
-        {
-            Ok(df) => df,
-            Err(err) => {
-                eprintln!(
-                    "Error reading CSV file '{}': {}. Ensure the file is UTF-8 encoded and free of corrupt data.",
-                    file_path, err
-                );
-                return Err(ElusionError::DataFusion(err));
-            }
-        };
-
-        Ok(AliasedDataFrame {
-            dataframe: df,
-            alias: alias.to_string(),
-        })
+        load_csv_with_type_handling(file_path, alias).await
     }
+        
 
     /// LOAD function for Parquet file type
     pub fn load_parquet<'a>(
@@ -4209,7 +4440,8 @@ impl CustomDataFrame {
                     suggestion: "💡 Check if the parquet file schema is valid".to_string(),
                 })?;
 
-            let normalized_alias = normalize_alias_write(alias);
+            let normalized_alias = normalize_alias_write(alias).into_owned();
+
             ctx.register_table(&normalized_alias, Arc::new(mem_table))
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: "Table Registration".to_string(),
@@ -4420,15 +4652,22 @@ impl CustomDataFrame {
             let schema = df.schema().clone().into();
             // Build M  emTable
             let mem_table = MemTable::try_new(schema, vec![batches])?;
-            let normalized_alias = normalize_alias_write(alias);
-            ctx.register_table(&normalized_alias, Arc::new(mem_table))?;
-            
-            // Create final DataFrame
-            let aliased_df = ctx.table(&normalized_alias).await?;
-            
-            // Verify final row count
-            // let final_count = aliased_df.clone().count().await?;
-            // println!("Final row count: {}", final_count);
+
+            let normalized_alias = normalize_alias_write(alias).into_owned();
+
+            ctx.register_table(&normalized_alias, Arc::new(mem_table))
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Table Registration".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Try using a different alias name".to_string(),
+                })?;
+
+            let aliased_df = ctx.table(&normalized_alias).await
+                .map_err(|_| ElusionError::InvalidOperation {
+                    operation: "Table Creation".to_string(),
+                    reason: format!("Failed to create table with alias '{}'", alias),
+                    suggestion: "💡 Check if the alias is valid and unique".to_string(),
+                })?;
 
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
@@ -4597,6 +4836,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             dataframes.push(df);
                         },
@@ -4635,6 +4881,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             dataframes.push(df);
                         },
@@ -4673,6 +4926,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             dataframes.push(df);
                         },
@@ -4711,6 +4971,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             dataframes.push(df);
                         },
@@ -4977,6 +5244,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             loaded_df = Some(df);
                         },
@@ -5015,6 +5289,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             loaded_df = Some(df);
                         },
@@ -5053,6 +5334,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             loaded_df = Some(df);
                         },
@@ -5091,6 +5379,13 @@ impl CustomDataFrame {
                                 aggregated_df: None,
                                 union_tables: None,
                                 original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
                             };
                             loaded_df = Some(df);
                         },

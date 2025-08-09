@@ -1,3 +1,37 @@
+## [4.0.0] - 2025-08-09
+
+## Added
+- **CustomDataFrame struct**: Added 6 new fields for state tracking
+### BE AWARE
+- Existing compiled code must be recompiled due to internal struct changes
+- API remains fully backward compatible
+
+## Rewrote
+- **CSV Loading**: Complete rewrite with new type inference system
+- **Column Names**: Now automatically normalized (lowercase, underscored)
+- **Binary Compatibility**: Existing compiled code must be recompiled
+
+## Performance Improvements
+- **Regex Optimization**: Lazy compilation reduces startup time
+- **Async Performance**: CPU-intensive operations moved to thread pool
+- **Memory Efficiency**: Optimized cloning and buffer allocation
+- **SQL Building**: Reduced string allocations in query construction
+
+## New Features
+- **Smart Type Detection**: Email, version number, and edge case handling
+- **Column Normalization**: Automatic cleanup of column names
+- **Enhanced Error Messages**: Better debugging information
+- **State Tracking**: Raw field tracking for optimization
+
+## Bug Fixes
+- Fixed edge cases in date parsing
+- Improved handling of malformed numeric data
+- Better validation for thousand separators
+
+## Dependencies
+- once_cell = "1.21.3"
+- Enhanced Arrow compatibility
+
 ## [3.14.0] - 2025-08-08
 ### Added
 FUNCTIONS:
