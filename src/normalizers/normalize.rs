@@ -365,7 +365,6 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                 eprintln!("DEBUG: Nested function result: '{}'", nested_result);
                 normalized_args.push(nested_result);
             } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
-                // CRITICAL FIX: Table.column reference - preserve the original table reference
                 // This must come BEFORE is_simple_column check to catch table.column patterns
                 let normalized = TABLE_COLUMN_PATTERN
                     .replace_all(arg_trimmed, "\"$1\".\"$2\"")
@@ -641,7 +640,7 @@ pub fn normalize_condition_filter(condition: &str) -> String {
     let trimmed = condition.trim();
     eprintln!("Original condition: '{}'", trimmed);
 
-    let sql_keywords: std::collections::HashSet<&str> = [
+    let sql_keywords: HashSet<&str> = [
         "SELECT", "FROM", "WHERE", "IS", "NOT", "NULL",
     ].into_iter().collect();
 
@@ -651,7 +650,7 @@ pub fn normalize_condition_filter(condition: &str) -> String {
     for cap in STRING_LITERAL_PATTERN.find_iter(trimmed) {
         let before = &trimmed[last_end..cap.start()];
 
-        // Replace table.column with temp markers
+        // replacing table.column with temp markers
         let matches: Vec<_> = TABLE_COLUMN_PATTERN.captures_iter(before).collect();
         let mut temp_replacements: HashMap<String, String> = HashMap::new();
         let mut modified_before = before.to_string();
@@ -668,7 +667,7 @@ pub fn normalize_condition_filter(condition: &str) -> String {
             offset += marker.len() as isize - (end - start) as isize;
         }
 
-        // Replace simple columns
+        // replacing simple columns
         let replaced = SIMPLE_COLUMN_PATTERN.replace_all(&modified_before, |caps: &regex::Captures| {
             let column = caps.get(0).unwrap().as_str();
             let upper_column = column.to_uppercase();
@@ -679,7 +678,7 @@ pub fn normalize_condition_filter(condition: &str) -> String {
             }
         }).to_string();
 
-        // Replace back temp markers
+        // replacing back temp markers
         let mut final_replaced = replaced;
         for (marker, quoted) in temp_replacements {
             final_replaced = final_replaced.replace(&marker, &quoted);

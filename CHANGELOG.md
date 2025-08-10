@@ -1,15 +1,15 @@
 ## [4.0.0] - 2025-08-10
-
-## Added
+## BREAKING CHANGES
 - **CustomDataFrame struct**: Added 6 new fields for state tracking
+- **order_by() and order_by_many()*: Now accept "ASC" and "DESC" insted of true, false
+
 ### BE AWARE
 - Existing compiled code must be recompiled due to internal struct changes
-- API remains fully backward compatible
+- All order_by() and order_by_many() need to comply with new implementation
 
 ## Rewrote
 - **CSV Loading**: Complete rewrite with new type inference system
 - **Column Names**: Now automatically normalized (lowercase, underscored)
-- **Binary Compatibility**: Existing compiled code must be recompiled
 
 ## Performance Improvements
 - **Regex Optimization**: Lazy compilation reduces startup time
@@ -25,7 +25,7 @@
 
 ## Bug Fixes
 - Fixed edge cases in date parsing
- - Fixed complex parsing forneset string functions like CONCAT with nested TRIM, CAST etc.
+- Fixed complex parsing forneset string functions like CONCAT with nested TRIM, CAST etc.
 - Improved handling of malformed numeric data
 - Better validation for thousand separators
 

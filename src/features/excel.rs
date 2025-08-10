@@ -52,6 +52,8 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
     ) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
         Box::pin(async move {
 
+            println!("🔄 Starting Excel loading process...");
+
             if !LocalPath::new(file_path).exists() {
                 return Err(ElusionError::WriteError {
                     path: file_path.to_string(),
@@ -60,7 +62,14 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
                     suggestion: "💡 Check if the file path is correct".to_string(),
                 });
             }
-            
+
+            let read_start = std::time::Instant::now();
+
+            if let Ok(metadata) = std::fs::metadata(file_path) {
+                let file_size = metadata.len();
+                println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
+            }
+
             let mut workbook: Xlsx<_> = open_workbook(file_path)
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: "Excel Reading".to_string(),
@@ -78,7 +87,8 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
             }
             
             let sheet_name = &sheet_names[0];
-            
+            println!("📋 Found {} sheet(s), processing: '{}'", sheet_names.len(), sheet_name);
+
             let range = workbook.worksheet_range(sheet_name)
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: "Excel Reading".to_string(),
@@ -161,6 +171,8 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
             } else {
                 headers
             };
+
+            println!("🔄 Converting Excel data to structured format...");
             
             // Process the data rows
             let mut all_data: Vec<HashMap<String, Value>> = Vec::new();
@@ -239,8 +251,17 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
                     suggestion: "💡 Ensure the Excel file contains data rows after the header row".to_string(),
                 });
             }
-            
+
+            let process_elapsed = read_start.elapsed();
+            println!("✅ Data conversion completed: {} rows processed in {:?}", all_data.len(), process_elapsed);
+
+            println!("🧠 Inferring schema from Excel data...");
+            let schema_start = std::time::Instant::now();
             let schema = infer_schema_from_json(&all_data);
+            let schema_elapsed = schema_start.elapsed();
+
+            println!("🔧 Building record batch and creating table...");
+            let table_start = std::time::Instant::now();
             
             let record_batch = build_record_batch(&all_data, schema.clone())
                 .map_err(|e| ElusionError::SchemaError {
@@ -270,6 +291,13 @@ impl From<rust_xlsxwriter::XlsxError> for ElusionError {
                     reason: format!("Failed to create table: {}", e),
                     suggestion: "💡 Verify table creation parameters".to_string(),
                 })?;
+
+            let table_elapsed = table_start.elapsed();
+            let total_elapsed = read_start.elapsed();
+            
+            println!("✅ Schema inferred and table created in {:?}", schema_elapsed + table_elapsed);
+            println!("🎉 Excel DataFrame loading completed successfully in {:?} for table alias: '{}'", 
+                total_elapsed, alias);
             
             Ok(AliasedDataFrame {
                 dataframe: df,

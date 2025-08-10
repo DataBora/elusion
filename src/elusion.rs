@@ -869,14 +869,23 @@ impl CustomDataFrame {
         self
     }
 
-    /// Add ORDER BY clauses using const generics.
-    /// Allows passing arrays like ["column1", "column2"], [true, false]
-    pub fn order_by<const N: usize>(self, columns: [&str; N], ascending: [bool; N]) -> Self {
-        let normalized_columns: Vec<String> = columns.iter()
-            .map(|c| normalize_column_name(c))
-            .collect();
-        self.order_by_vec(normalized_columns, ascending.to_vec())
-    }
+    // /// Add ORDER BY clauses using const generics.
+    // /// Allows passing arrays like ["column1", "column2"], [true, false]
+    // pub fn order_by<const N: usize>(self, columns: [&str; N], ascending: [bool; N]) -> Self {
+    //     let normalized_columns: Vec<String> = columns.iter()
+    //         .map(|c| normalize_column_name(c))
+    //         .collect();
+    //     self.order_by_vec(normalized_columns, ascending.to_vec())
+    // }
+    
+    // /// Add multiple ORDER BY clauses using const generics.
+    // /// Allows passing arrays of tuples: [ ("column1", true), ("column2", false); N ]
+    // pub fn order_by_many<const N: usize>(self, orders: [( &str, bool ); N]) -> Self {
+    //     let orderings = orders.into_iter()
+    //         .map(|(col, asc)| (normalize_column_name(col), asc))
+    //         .collect::<Vec<_>>();
+    //     self.order_by_many_vec(orderings)
+    // }
 
     /// Add ORDER BY clauses using vectors
     pub fn order_by_vec(mut self, columns: Vec<String>, ascending: Vec<bool>) -> Self {
@@ -893,19 +902,42 @@ impl CustomDataFrame {
         self
     }
 
-    /// Add multiple ORDER BY clauses using const generics.
-    /// Allows passing arrays of tuples: [ ("column1", true), ("column2", false); N ]
-    pub fn order_by_many<const N: usize>(self, orders: [( &str, bool ); N]) -> Self {
-        let orderings = orders.into_iter()
-            .map(|(col, asc)| (normalize_column_name(col), asc))
-            .collect::<Vec<_>>();
-        self.order_by_many_vec(orderings)
-    }
 
     /// Add multiple ORDER BY clauses using a Vec<(String, bool)>
     pub fn order_by_many_vec(mut self, orders: Vec<(String, bool)>) -> Self {
         self.order_by_columns = orders;
         self
+    }
+    /// Order by columns using string directions: "ASC" or "DESC"
+    pub fn order_by<const N: usize>(self, columns: [&str; N], directions: [&str; N]) -> Self {
+        let ascending: Vec<bool> = directions.iter()
+            .map(|&dir| match dir.to_uppercase().as_str() {
+                "ASC" | "ASCENDING" => true,
+                "DESC" | "DESCENDING" => false,
+                _ => panic!("Invalid sort direction: '{}'. Use 'ASC' or 'DESC'", dir),
+            })
+            .collect();
+        
+        let normalized_columns: Vec<String> = columns.iter()
+            .map(|c| normalize_column_name(c))
+            .collect();
+        
+        self.order_by_vec(normalized_columns, ascending)
+    }
+
+    /// Order by with tuples using string directions
+    pub fn order_by_many<const N: usize>(self, orders: [(&str, &str); N]) -> Self {
+        let orderings = orders.into_iter()
+            .map(|(col, dir)| {
+                let ascending = match dir.to_uppercase().as_str() {
+                    "ASC" | "ASCENDING" => true,
+                    "DESC" | "DESCENDING" => false,
+                    _ => panic!("Invalid sort direction: '{}'. Use 'ASC' or 'DESC'", dir),
+                };
+                (normalize_column_name(col), ascending)
+            })
+            .collect::<Vec<_>>();
+        self.order_by_many_vec(orderings)
     }
 
     /// Add LIMIT clause
@@ -3141,7 +3173,7 @@ impl CustomDataFrame {
         } else {
             sql
         };
-        println!("{:?}", final_sql);
+      //  println!("{:?}", final_sql);
 
         // Execute the SQL query
         let df = ctx.sql(&final_sql).await
@@ -4504,11 +4536,43 @@ impl CustomDataFrame {
                 });
             }
 
-            let df = match ctx.read_parquet(file_path, ParquetReadOptions::default()).await {
+             println!("🔄 Starting Parquet loading process...");
+
+             if let Ok(metadata) = std::fs::metadata(file_path) {
+                let file_size = metadata.len();
+                println!("📏 Parquet file size: {} bytes ({:.2} MB)", 
+                    file_size, file_size as f64 / 1024.0 / 1024.0);
+            }
+
+             let read_start = std::time::Instant::now();
+             let df = match ctx.read_parquet(file_path, ParquetReadOptions::default()).await {
                 Ok(df) => {
+                    let read_elapsed = read_start.elapsed();
+                    let schema = df.schema();
+                    let column_count = schema.fields().len();
+                    
+                    println!("✅ Parquet file read successfully in {:?}", read_elapsed);
+                    println!("📊 Schema detected: {} columns with native types", column_count);
+                    
+                    // Show column types (first 8 columns to avoid overwhelming output)
+                    // let column_info: Vec<String> = schema.fields().iter()
+                    //     .take(8)
+                    //     .map(|field| format!("{}: {}", field.name(), field.data_type()))
+                    //     .collect();
+                    
+                    // println!("📋 Column types: [{}{}]", 
+                    //     column_info.join(", "),
+                    //     if schema.fields().len() > 8 { 
+                    //         format!(" ... +{} more", schema.fields().len() - 8) 
+                    //     } else { 
+                    //         String::new() 
+                    //     });
+                    
                     df
                 }
                 Err(err) => {
+                    let read_elapsed = read_start.elapsed();
+                    println!("❌ Failed to read Parquet file after {:?}: {}", read_elapsed, err);
                     return Err(ElusionError::DataFusion(err));
                 }
             };
@@ -4538,6 +4602,10 @@ impl CustomDataFrame {
                     suggestion: "💡 Check if the alias is valid and unique".to_string(),
                 })?;
 
+            let total_elapsed = read_start.elapsed();
+                println!("🎉 Parquet DataFrame loading completed successfully in {:?} for table alias: '{}'", 
+            total_elapsed, alias);
+
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
                 alias: alias.to_string(),
@@ -4545,18 +4613,18 @@ impl CustomDataFrame {
         })
     }
 
-    /// Loads a JSON file into a DataFusion DataFrame
     pub fn load_json<'a>(
         file_path: &'a str,
         alias: &'a str,
     ) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
         Box::pin(async move {
-            // Open file with BufReader for efficient reading
+            println!("🔄 Processing JSON records...");
+
             let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
                 path: file_path.to_string(),
                 operation: "read".to_string(),
                 reason: e.to_string(),
-                suggestion: "💡 heck if the file exists and you have proper permissions".to_string(),
+                suggestion: "💡 Check if the file exists and you have proper permissions".to_string(),
             })?;
             
             let file_size = file.metadata().map_err(|e| ElusionError::WriteError {
@@ -4564,97 +4632,111 @@ impl CustomDataFrame {
                 operation: "metadata reading".to_string(),
                 reason: e.to_string(),
                 suggestion: "💡 Check file permissions and disk status".to_string(),
-            })?.len() as usize;
-                
-            let reader = BufReader::with_capacity(32 * 1024, file); // 32KB buffer
+            })?.len();
+            
+            println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
+            // Larger buffer for big files
+            let reader = BufReader::with_capacity(128 * 1024, file); 
             let stream = Deserializer::from_reader(reader).into_iter::<Value>();
             
-            let mut all_data = Vec::with_capacity(file_size / 3); // Pre-allocate with estimated size
+            let mut all_data: Vec<HashMap<String, Value>> = Vec::new();
+            let mut processed_count = 0;
+            let start_time = std::time::Instant::now();
             
-            // Process the first value to determine if it's an array or object
-            let mut stream = stream.peekable();
-            match stream.peek() {
-                Some(Ok(Value::Array(_))) => {
-                    for value in stream {
-                        match value {
-                            Ok(Value::Array(array)) => {
-                                for item in array {
-                                    if let Value::Object(map) = item {
-                                        let mut base_map = map.clone();
-                                        
-                                        if let Some(Value::Array(fields)) = base_map.remove("fields") {
-                                            for field in fields {
-                                                let mut row = base_map.clone();
-                                                if let Value::Object(field_obj) = field {
-                                                    for (key, val) in field_obj {
-                                                        row.insert(format!("field_{}", key), val);
-                                                    }
-                                                }
-                                                all_data.push(row.into_iter().collect());
-                                            }
-                                        } else {
-                                            all_data.push(base_map.into_iter().collect());
+            
+            for (index, value) in stream.enumerate() {
+            
+                if index % 500 == 0 && index > 0 {
+                    let elapsed = start_time.elapsed();
+                    let rate = index as f64 / elapsed.as_secs_f64();
+                    println!("Processed {} records in {:?} ({:.1} records/sec)", index, elapsed, rate);
+                }
+                
+                match value {
+                    Ok(json_value) => {
+                        match json_value {
+                            Value::Object(map) => {
+                                // Handle single JSON object (your case is unlikely this)
+                                let hash_map: HashMap<String, Value> = map.into_iter().collect();
+                                all_data.push(hash_map);
+                                processed_count += 1;
+                            },
+                            Value::Array(array) => {
+                                // Handle large JSON array (THIS IS YOUR CASE!)
+                                let array_size = array.len();
+                            //  println!("Processing large array with {} items", array_size);
+                                
+                                // Reserve capacity to prevent reallocations
+                                all_data.reserve(array_size);
+                                
+                                // memory management
+                                let batch_size = 1000;
+                                for (batch_start, batch) in array.chunks(batch_size).enumerate() {
+                                    if batch_start % 10 == 0 && batch_start > 0 {
+                                        let items_processed = batch_start * batch_size;
+                                        let progress = (items_processed as f64 / array_size as f64) * 100.0;
+                                        println!("📦 Array progress: {}/{} items ({:.1}%)", 
+                                            items_processed, array_size, progress);
+                                    }
+                                    
+                                    for item in batch {
+                                        if let Value::Object(map) = item {
+                                            //  Map to HashMap 
+                                            let hash_map: HashMap<String, Value> = map.clone().into_iter().collect();
+                                            all_data.push(hash_map);
+                                            processed_count += 1;
                                         }
                                     }
                                 }
+                                
+                                println!("✅ Completed processing array with {} items", array_size);
+                            },
+                            _ => {
+                                println!("⚠️  Skipping non-object/non-array JSON value at index {}", index);
+                                continue;
                             }
-                            Ok(_) => continue,
-                            Err(e) => return Err(ElusionError::InvalidOperation {
-                                operation: "JSON parsing".to_string(),
-                                reason: format!("Failed to parse JSON array: {}", e),
-                                suggestion: "💡 Ensure the JSON file is properly formatted and contains valid data".to_string(),
-                            }),
+                        }
+                    },
+                    Err(e) => {
+                        if e.is_eof() {
+                            println!("📄 Reached end of JSON file at record {}", index);
+                            break;
+                        } else {
+                            println!("❌ JSON parsing error at record {}: {}", index, e);
+                            continue;
                         }
                     }
                 }
-                Some(Ok(Value::Object(_))) => {
-                    for value in stream {
-                        if let Ok(Value::Object(map)) = value {
-                            let mut base_map = map.clone();
-                            if let Some(Value::Array(fields)) = base_map.remove("fields") {
-                                for field in fields {
-                                    let mut row = base_map.clone();
-                                    if let Value::Object(field_obj) = field {
-                                        for (key, val) in field_obj {
-                                            row.insert(format!("field_{}", key), val);
-                                        }
-                                    }
-                                    all_data.push(row.into_iter().collect());
-                                }
-                            } else {
-                                all_data.push(base_map.into_iter().collect());
-                            }
-                        }
-                    }
-                }
-                Some(Err(e)) => return Err(ElusionError::InvalidOperation {
-                    operation: "JSON parsing".to_string(),
-                    reason: format!("Invalid JSON format: {}", e),
-                    suggestion: "💡 Check if the JSON file is well-formed and valid".to_string(),
-                }),
-                _ => return Err(ElusionError::InvalidOperation {
-                    operation: "JSON reading".to_string(),
-                    reason: "Empty or invalid JSON file".to_string(),
-                    suggestion: "💡 Ensure the JSON file contains valid data in either array or object format".to_string(),
-                }),
             }
-
+            
+            let total_elapsed = start_time.elapsed();
+            println!("✅ JSON parsing completed: {} records in {:?}", processed_count, total_elapsed);
+            
             if all_data.is_empty() {
                 return Err(ElusionError::InvalidOperation {
                     operation: "JSON processing".to_string(),
                     reason: "No valid JSON data found".to_string(),
-                    suggestion: "💡 Check if the JSON file contains the expected data structure".to_string(),
+                    suggestion: "💡 Check if the JSON file contains valid object data".to_string(),
                 });
             }
-
+            
+        //  println!("🔧 Inferring schema from {} records...", all_data.len());
+        //  let schema_start = std::time::Instant::now();
             let schema = infer_schema_from_json(&all_data);
+        //   let schema_elapsed = schema_start.elapsed();
+        //  println!(" Schema inferred with {} fields in {:?}", schema.fields().len(), schema_elapsed);
+            
+            println!("🔧 Building record batch...");
+            let batch_start = std::time::Instant::now();
             let record_batch = build_record_batch(&all_data, schema.clone())
                 .map_err(|e| ElusionError::SchemaError {
                     message: format!("Failed to build RecordBatch: {}", e),
                     schema: Some(schema.to_string()),
                     suggestion: "💡 Check if the JSON data structure is consistent".to_string(),
                 })?;
-
+            let batch_elapsed = batch_start.elapsed();
+            println!("📊 Record batch created with {} rows in {:?}", record_batch.num_rows(), batch_elapsed);
+            
             let ctx = SessionContext::new();
             let mem_table = MemTable::try_new(schema.clone(), vec![vec![record_batch]])
                 .map_err(|e| ElusionError::SchemaError {
@@ -4662,20 +4744,23 @@ impl CustomDataFrame {
                     schema: Some(schema.to_string()),
                     suggestion: "💡 Verify data types and schema compatibility".to_string(),
                 })?;
-
+            
             ctx.register_table(alias, Arc::new(mem_table))
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: "Table registration".to_string(),
                     reason: format!("Failed to register table: {}", e),
                     suggestion: "💡 Try using a different alias or check table compatibility".to_string(),
                 })?;
-
+            
             let df = ctx.table(alias).await.map_err(|e| ElusionError::InvalidOperation {
                 operation: "Table creation".to_string(),
                 reason: format!("Failed to create table: {}", e),
                 suggestion: "💡 Verify table creation parameters and permissions".to_string(),
             })?;
-
+            
+            let total_time = start_time.elapsed();
+            println!("🎉 JSON DataFrame loading completed successfully in {:?} for table alias: {}", total_time, alias);
+            
             Ok(AliasedDataFrame {
                 dataframe: df,
                 alias: alias.to_string(),
@@ -4694,6 +4779,8 @@ impl CustomDataFrame {
             // path manager
             let path_manager = DeltaPathManager::new(file_path);
 
+            println!("🔄 Opening Delta table and reading metadata...");
+            let table_start = std::time::Instant::now();
             // Open Delta table using path manager
             let table = open_table(&path_manager.table_path())
             .await
@@ -4703,6 +4790,14 @@ impl CustomDataFrame {
                 suggestion: "💡 Ensure the path points to a valid Delta table".to_string(),
             })?;
 
+            let table_elapsed = table_start.elapsed();
+            println!("✅ Delta table opened successfully in {:?}", table_elapsed);
+ 
+            let version = table.version();
+            println!("📊 Delta table version: {}", version);
+
+            println!("🔍 Discovering Delta table files...");
+            let files_start = std::time::Instant::now();
             
             let file_paths: Vec<String> = {
                 let raw_uris = table.get_file_uris()
@@ -4715,7 +4810,13 @@ impl CustomDataFrame {
                 raw_uris.map(|uri| path_manager.normalize_uri(&uri))
                     .collect()
             };
+
+            let files_elapsed = files_start.elapsed();
+            let file_count = file_paths.len();
+            println!("📁 Found {} Delta files in {:?}", file_count, files_elapsed);
             
+            println!("🔄 Reading Delta data files as Parquet...");
+            let read_start = std::time::Instant::now();
             // ParquetReadOptions
             let parquet_options = ParquetReadOptions::new()
                 // .schema(&combined_schema)
@@ -4723,8 +4824,15 @@ impl CustomDataFrame {
                 .parquet_pruning(false)
                 .skip_metadata(false);
 
+           
+
             let df = ctx.read_parquet(file_paths, parquet_options).await?;
 
+            let read_elapsed = read_start.elapsed();
+            println!("✅ Delta data read successfully in {:?}", read_elapsed);
+
+            println!("🔄 Loading data into memory and building table...");
+            let collect_start = std::time::Instant::now();
 
             let batches = df.clone().collect().await?;
             // println!("Number of batches: {}", batches.len());
@@ -4734,6 +4842,9 @@ impl CustomDataFrame {
             let schema = df.schema().clone().into();
             // Build M  emTable
             let mem_table = MemTable::try_new(schema, vec![batches])?;
+
+            let collect_elapsed = collect_start.elapsed();
+            println!("✅ Memory table created in {:?}", collect_elapsed);
 
             let normalized_alias = normalize_alias_write(alias).into_owned();
 
@@ -4750,6 +4861,11 @@ impl CustomDataFrame {
                     reason: format!("Failed to create table with alias '{}'", alias),
                     suggestion: "💡 Check if the alias is valid and unique".to_string(),
                 })?;
+
+            let total_elapsed = table_start.elapsed();
+            
+            println!("🎉 Delta table loading completed successfully in {:?} for table alias: '{}'", 
+                total_elapsed, alias);
 
             Ok(AliasedDataFrame {
                 dataframe: aliased_df,
