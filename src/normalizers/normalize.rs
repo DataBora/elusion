@@ -290,6 +290,7 @@ pub fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
 }
 
 /// Enhanced simple expression normalization with better function handling
+/// Enhanced simple expression normalization with better function handling
 pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
     let expr_trimmed = expr.trim();
     
@@ -316,7 +317,12 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                 #[cfg(test)]
                 eprintln!("DEBUG: CAST function - expression: '{}', datatype: '{}'", expression, datatype);
                 
-                let normalized_expr = if is_simple_column(expression) {
+                let normalized_expr = if TABLE_COLUMN_PATTERN.is_match(expression) {
+                    TABLE_COLUMN_PATTERN
+                        .replace_all(expression, "\"$1\".\"$2\"")
+                        .to_string()
+                        .to_lowercase()
+                } else if is_simple_column(expression) {
                     format!("\"{}\".\"{}\"", table_alias.to_lowercase(), expression.to_lowercase())
                 } else {
                     normalize_simple_expression(expression, table_alias)
@@ -337,20 +343,21 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
             let arg_trimmed = arg.trim();
             
             if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
-              
+                // String literal - preserve as-is
                 normalized_args.push(arg_trimmed.to_string());
             } else if arg_trimmed.starts_with('"') && arg_trimmed.ends_with('"') {
-               
+                // Quoted identifier - preserve as-is
                 normalized_args.push(arg_trimmed.to_string());
             } else if arg_trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
-                
+                // Numeric literal - preserve as-is
                 normalized_args.push(arg_trimmed.to_string());
             } else if matches!(arg_trimmed.to_uppercase().as_str(), 
                               "TEXT" | "INTEGER" | "BIGINT" | "VARCHAR" | "FLOAT" | "DOUBLE" | 
                               "BOOLEAN" | "DATE" | "TIMESTAMP") {
+                // Data type - lowercase
                 normalized_args.push(arg_trimmed.to_lowercase());
             } else if FUNCTION_PATTERN.is_match(arg_trimmed) {
-                // Nested function
+                // Nested function - recursively normalize
                 #[cfg(test)]
                 eprintln!("DEBUG: Processing nested function: '{}'", arg_trimmed);
                 let nested_result = normalize_simple_expression(arg_trimmed, table_alias);
@@ -358,20 +365,23 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                 eprintln!("DEBUG: Nested function result: '{}'", nested_result);
                 normalized_args.push(nested_result);
             } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
-                // Table.column reference
+                // CRITICAL FIX: Table.column reference - preserve the original table reference
+                // This must come BEFORE is_simple_column check to catch table.column patterns
                 let normalized = TABLE_COLUMN_PATTERN
                     .replace_all(arg_trimmed, "\"$1\".\"$2\"")
                     .to_string()
                     .to_lowercase();
                 normalized_args.push(normalized);
             } else if is_simple_column(arg_trimmed) {
+                // Simple column without table prefix - add the main table alias
                 normalized_args.push(format!("\"{}\".\"{}\"", 
                     table_alias.to_lowercase(), 
                     arg_trimmed.to_lowercase()));
             } else if OPERATOR_PATTERN.is_match(arg_trimmed) {
-                // Handle operator expressions in arguments
+                // Operator expression - handle recursively
                 normalized_args.push(normalize_expression_with_operators(arg_trimmed, table_alias));
             } else {
+                // Fallback - just lowercase
                 #[cfg(test)]
                 eprintln!("DEBUG: Argument '{}' fell through to default case", arg_trimmed);
                 normalized_args.push(arg_trimmed.to_lowercase());
@@ -732,12 +742,14 @@ pub fn is_simple_column(s: &str) -> bool {
     let is_keyword = SQL_KEYWORDS.contains(upper_s.as_str());
     let is_complex = s.contains('(') || s.contains(')') || s.to_lowercase().contains(" as ") || OPERATOR_PATTERN.is_match(s);
 
+    let has_table_prefix = s.contains('.');
+
     eprintln!("REAL FUNCTION DEBUG: is_simple_column('{}') - matches_pattern: {}, upper: '{}', is_keyword: {}, is_complex: {}", 
         s, matches_pattern, upper_s, is_keyword, is_complex);
     
-    let result = matches_pattern && !is_keyword && !is_complex;
-    eprintln!("REAL FUNCTION DEBUG: final result = {} && !{} && !{} = {}", 
-        matches_pattern, is_keyword, is_complex, result);
+    let result = matches_pattern && !is_keyword && !is_complex && !has_table_prefix;
+    eprintln!("REAL FUNCTION DEBUG: final result = {} && !{} && !{} && !{} = {}", 
+        matches_pattern, is_keyword, is_complex, has_table_prefix, result);
     
     result
 }
@@ -818,6 +830,7 @@ pub fn normalize_datetime_expression(expr: &str, table_alias: &str) -> String {
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
