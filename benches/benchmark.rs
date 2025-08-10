@@ -248,7 +248,7 @@ fn benchmark_memory_optimizations_v4(c: &mut Criterion) {
                 ])
                 .group_by_all()
                 .having("COUNT(*) > 10")
-                .order_by(["net_total"], [false])
+                .order_by(["net_total"],["DESC"] )
                 .limit(500)
                 .elusion("async_efficiency")
                 .await
@@ -318,7 +318,7 @@ fn benchmark_complex_pipelines_800k(c: &mut Criterion) {
                 "CASE WHEN region_rank <= 5 THEN 'TOP_5' ELSE 'OTHER' END AS performance_tier"
                 ])
                 .filter("region_rank <= 10")
-                .order_by(["region", "region_rank"], [true, true])
+                .order_by(["region", "region_rank"], ["ASC", "ASC"])
                 .limit(100)
                 .elusion("pipeline_final")
                 .await

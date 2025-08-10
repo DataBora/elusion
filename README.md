@@ -779,7 +779,7 @@ let num_ops_sales = sales_order_df
         "billable_value / 100 AS percentage_billable"  // Division
     ])
     .filter("billable_value > 100.0")
-    .order_by(["order_date"], [true])
+    .order_by(["order_date"], ["ASC"])
     .limit(10);
 
 let num_ops_res = num_ops_sales.elusion("scalar_df").await?;
@@ -791,7 +791,7 @@ num_ops_res.display().await?;
 let filter_df = sales_order_df
     .select(["customer_name", "order_date", "billable_value"])
     .filter_many([("order_date > '2021-07-04'"), ("billable_value > 100.0")])
-    .order_by(["order_date"], [true])
+    .order_by(["order_date"], ["ASC"])
     .limit(10);
 
 let filtered = filter_df.elusion("result_sales").await?;
@@ -819,8 +819,8 @@ let filter_query = sales_order_df
     .filter(FILTER_CUSTOMER)
     .group_by_all()
     .order_by_many([
-        ("total_billable", false),  // Order by total_billable descending
-        ("max_abs_billable", true), // Then by max_abs_billable ascending
+        ("total_billable", "DESC"),  
+        ("max_abs_billable", "ASC"), 
     ])
 ```
 ---
@@ -843,8 +843,8 @@ let filter_query = sales_order_df
         ("avg_quantity < 100")
     ])
     .order_by_many([
-        ("total_quantity", true ),
-        ("p.ProductName", false)
+        ("total_quantity", "ASC"),
+        ("p.ProductName", "DESC")
     ]);
 
 let result = example1.elusion("sales_res").await?;
@@ -865,7 +865,7 @@ let df_having= sales_df
         ("SUM(s.OrderQuantity) > 10"),
         ("AVG(s.OrderQuantity) < 100")
     ])
-    .order_by(["total_quantity"], [true])
+    .order_by(["total_quantity"], ["ASC"])
     .limit(5);
 
 let result = df_having.elusion("sales_res").await?;
@@ -881,7 +881,7 @@ let scalar_df = sales_order_df
         "ABS(billable_value) AS abs_billable_value",
         "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value"])
     .filter("billable_value > 100.0")
-    .order_by(["order_date"], [true])
+    .order_by(["order_date"], ["ASC"])
     .limit(10);
 
 let scalar_res = scalar_df.elusion("scalar_df").await?;
@@ -903,7 +903,7 @@ let scalar_df = sales_order_df
     ])
     .group_by(["customer_name", "order_date"])
     .filter("billable_value > 100.0")
-    .order_by(["order_date"], [true])
+    .order_by(["order_date"], ["ASC"])
     .limit(10);
 
 let scalar_res = scalar_df.elusion("scalar_df").await?;
@@ -930,8 +930,8 @@ let mix_query = sales_order_df
     .filter("billable_value > 50.0")
     .group_by_all()
     .order_by_many([
-        ("total_billable", false),  // Order by total_billable descending
-        ("max_abs_billable", true), // Then by max_abs_billable ascending
+        ("total_billable", "DESC"),  
+        ("max_abs_billable", "ASC"), 
     ]);
 
 let mix_res = mix_query.elusion("scalar_df").await?;
@@ -1024,7 +1024,7 @@ let string_functions_df = df_sales
     .filter("c.emailaddress IS NOT NULL")
     .group_by_all()
     .having("COUNT(*) > 1")
-    .order_by(["c.CustomerKey"], [true]);   
+    .order_by(["c.CustomerKey"], ["ASC"]);   
 
 let str_df = string_functions_df.elusion("df_joins").await?;
 str_df.display().await?;    
@@ -1087,7 +1087,7 @@ let single_join = df_sales
     ])
     .group_by(["s.OrderDate","c.FirstName","c.LastName"])
     .having("total_quantity > 10") 
-    .order_by(["total_quantity"], [false]) // true is ascending, false is descending
+    .order_by(["total_quantity"], ["DESC"]) 
     .limit(10);
 
 let join_df1 = single_join.elusion("result_query").await?;
@@ -1110,8 +1110,8 @@ let many_joins = df_sales
     .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"]) 
     .having_many([("total_quantity > 10"), ("avg_quantity < 100")]) 
     .order_by_many([
-        ("total_quantity", true), // true is ascending 
-        ("p.ProductName", false)  // false is descending
+        ("total_quantity", "ASC"), 
+        ("p.ProductName", "DESC") 
     ])
     .limit(10); 
 
@@ -1209,7 +1209,7 @@ let result_join_many = order_join_df
     ])
     .group_by_all()
     .having("total_amount > 200")
-    .order_by(["total_amount"], [false]); 
+    .order_by(["total_amount"], ["DESC"]); 
 
 let res_joins_many = result_join_many.elusion("many_join").await?;
 res_joins_many.display().await?;
@@ -1242,8 +1242,8 @@ let str_func_joins = df_sales
     .group_by_all()
     .having_many([("total_order_quantity > 10"),  ("product_count >= 1")])  
     .order_by_many([
-        ("total_order_quantity", true), 
-        ("p.ProductName", false) 
+        ("total_order_quantity", "ASC"), 
+        ("p.ProductName", "DESC") 
     ]); 
 
 let join_str_df3 = str_func_joins.elusion("df_joins").await?;
@@ -1268,7 +1268,7 @@ let dt_query = sales_order_df
     .datetime_functions([
     // Current date/time comparisons
     "CURRENT_DATE() AS today",
-    "CURRENT_TIME() AS current_time",
+    "CURRENT_TIME() AS current_time", 
     "CURRENT_TIMESTAMP() AS now",
     "NOW() AS now_timestamp",
     "TODAY() AS today_timestamp",
@@ -1283,7 +1283,7 @@ let dt_query = sales_order_df
     
     // Basic date components
     "DATE_PART('year', order_date) AS year",
-    "DATE_PART('month', order_date) AS month",
+    "DATE_PART('month', order_date) AS month", 
     "DATE_PART('day', order_date) AS day",
 
     // Quarters and weeks
@@ -1294,13 +1294,13 @@ let dt_query = sales_order_df
     "DATE_PART('dow', order_date) AS day_of_week",
     "DATE_PART('doy', order_date) AS day_of_year",
 
-    // Analysis
-    "DATE_PART('day', delivery_date - order_date) AS delivery_days",
-    "DATE_PART('day', CURRENT_DATE() - order_date) AS days_since_order",
+    // Extract Day
+    "DATE_PART('day', CAST(delivery_date AS DATE) - CAST(order_date AS DATE)) AS delivery_days",
+    "DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) AS days_since_order",
     
     // Date truncation (alternative syntax)
     "DATE_TRUNC('week', order_date) AS week_start",
-    "DATE_TRUNC('quarter', order_date) AS quarter_start",
+    "DATE_TRUNC('quarter', order_date) AS quarter_start", 
     "DATE_TRUNC('month', order_date) AS month_start",
     "DATE_TRUNC('year', order_date) AS year_start",
     
@@ -1312,11 +1312,11 @@ let dt_query = sales_order_df
         ELSE 'Q4'
         END AS fiscal_quarter",
     
-    // Date comparisons with current date
+    // Date comparisons with current date - FIX: Cast for arithmetic
     "CASE 
-        WHEN order_date = CURRENT_DATE() THEN 'Today'
-        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 7 THEN 'Last Week'
-        WHEN DATE_PART('day', CURRENT_DATE() - order_date) <= 30 THEN 'Last Month'
+        WHEN CAST(order_date AS DATE) = CAST(CURRENT_DATE() AS DATE) THEN 'Today'
+        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 7 THEN 'Last Week'
+        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 30 THEN 'Last Month'
         ELSE 'Older'
         END AS order_recency",
 
@@ -1334,18 +1334,18 @@ let dt_query = sales_order_df
         ELSE DATE_PART('year', order_date) 
     END AS fiscal_year",
 
-    // Complex date logic - modified to work with Date32
+    // Complex date logic -
     "CASE 
-        WHEN order_date < MAKE_DATE(2024, 1, 1) THEN 'Past'
+        WHEN CAST(order_date AS DATE) < CAST(MAKE_DATE(2024, 1, 1) AS DATE) THEN 'Past'
         ELSE 'Present'
     END AS temporal_status",
     
     "CASE 
         WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
         ELSE 'Afternoon'
-    END AS time_of_day"
+    END AS time_of_day",
     ])
-    .order_by(["order_date"], [false])
+    .order_by(["order_date"], ["DESC"]);
 
 let dt_res = dt_query.elusion("datetime_df").await?;
 dt_res.display().await?;
@@ -1411,7 +1411,10 @@ rollin_df.display().await?;
 ## JSON functions
 ### .json() 
 #### function works with Columns that only have simple JSON values
-#### example json structure: [{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
+#### example json structure: 
+```rust
+[{"Key1":"Value1","Key2":"Value2","Key3":"Value3"}]
+```
 #### example usage
 ```rust
 let path = "C:\\Borivoj\\RUST\\Elusion\\jsonFile.csv";
@@ -1644,7 +1647,7 @@ let scalar_df = sales_order_df
         "ABS(billable_value) AS abs_billable_value",
         "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value"])
     .filter("billable_value > 100.0")
-    .order_by(["order_date"], [true])
+    .order_by(["order_date"], ["ASC"])
     .limit(10);
 // elusion evaluation
 let scalar_res = scalar_df.elusion("scalar_df").await?;
@@ -1702,7 +1705,7 @@ result_unpivot_scalar.display().await?;
 // take columns from Calendar
 let week_range_2025 = date_calendar
     .select(["DISTINCT(week_start)","week_end", "week_num"])
-    .order_by(["week_num"], [true])
+    .order_by(["week_num"], ["ASC"])
     .elusion("wr")
     .await?;
 
@@ -1769,7 +1772,7 @@ post_df.from_api_with_dates(
 //take columns from calendar
 let week_range_2025 = date_calendar
     .select(["DISTINCT(week_start)","week_end", "week_num"])
-    .order_by(["week_num"], [true])
+    .order_by(["week_num"], ["ASC"])
     .elusion("wr")
     .await?;
 
@@ -1854,8 +1857,8 @@ let join_result = sales_df
         ("avg_quantity < 100")
     ])
     .order_by_many([
-        ("total_quantity", true),
-        ("p.ProductName", false)
+        ("total_quantity", "ASC"),
+        ("p.ProductName", "TRUE")
     ])
     .elusion_with_cache("sales_join") // caching query with DataFrame alias 
     .await?;
@@ -2035,7 +2038,7 @@ let headers_payments = header_df
    ])
    .group_by(["Brand", "Date"])
    .filter("Bill > 0")
-   .order_by(["total_bill"], [true])
+   .order_by(["total_bill"], ["ASC"])
 
 let headers_data = headers_payments.elusion("headers_df").await?;
 
@@ -2496,8 +2499,8 @@ let mix_query = sales_order_df.clone()
 .filter("billable_value > 50.0")
 .group_by_all()
 .order_by_many([
-    ("total_billable", false),  // Order by total_billable descending
-    ("max_abs_billable", true), // Then by max_abs_billable ascending
+    ("total_billable", "DESC"),  
+    ("max_abs_billable", "ASC"), 
 ]);
 
 let mix_res = mix_query.elusion("scalar_df").await?;
@@ -2577,7 +2580,7 @@ let summary_table = mix_res.clone() //Clone for multiple usages
         "percentage_total_billable"
     ])
     .order_by_many([
-        ("total_billable", false)
+        ("total_billable", "DESC")
     ])
     .elusion("summary")
     .await?;
@@ -2591,8 +2594,8 @@ let transactions_table = mix_res
         "percentage_billable"
     ])
     .order_by_many([
-        ("order_date", false),
-        ("abs_billable_value", false)
+        ("order_date", "DESC"),
+        ("abs_billable_value", "DESC")
     ])
     .elusion("transactions")
     .await?;

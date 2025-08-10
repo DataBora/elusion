@@ -51,7 +51,10 @@ pub async fn load_csv_with_type_handling(
             suggestion: "💡 Check if the file path is correct".to_string()
         });
     }
-    
+
+    println!("🔄 Reading CSV file with header detection...");
+    let read_start = std::time::Instant::now();
+
     let df = ctx.read_csv(
         file_path,
         CsvReadOptions::new()
@@ -59,14 +62,23 @@ pub async fn load_csv_with_type_handling(
             .schema_infer_max_records(0) 
     ).await.map_err(ElusionError::DataFusion)?;
 
-    println!("✅ Successfully loaded CSV with all columns as strings");
+    let read_elapsed = read_start.elapsed();
+    let schema = df.schema();
+    let column_count = schema.fields().len();
+    
+    if let Ok(metadata) = std::fs::metadata(file_path) {
+        let file_size = metadata.len();
+        println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
+    }
+
+    println!("✅ Successfully loaded CSV with {} columns as strings in {:?}", column_count, read_elapsed);
 
     let schema = df.schema();
     let sample_data = get_sample_data(&df, &ctx).await?;
     
     // println!("📋 Original columns: {:?}", 
     //     schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
-
+    let casting_start = std::time::Instant::now();
     let cast_sql = generate_smart_casting_sql(&sample_data, schema.fields(), alias)?;
     
     println!("🎯 Applying content-based smart casting...");
@@ -75,6 +87,14 @@ pub async fn load_csv_with_type_handling(
     let final_df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
     
     println!("✅ Successfully applied smart casting");
+   
+
+    let schema_elapsed = casting_start.elapsed();
+    let total_elapsed = read_start.elapsed();
+    
+    println!("✅ Schema inferred and table created in {:?}", schema_elapsed + total_elapsed);
+    println!("🎉 CSV DataFrame loading completed successfully in {:?} for table alias: '{}'", 
+        total_elapsed, alias);
 
     Ok(AliasedDataFrame {
         dataframe: final_df,
