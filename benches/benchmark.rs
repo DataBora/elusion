@@ -98,7 +98,7 @@ fn benchmark_large_window_functions(c: &mut Criterion) {
     group.sample_size(100);
     group.measurement_time(std::time::Duration::from_secs(180));
     
-    group.bench_function("running_totals_800k", |b| b.iter(|| {
+    group.bench_function("running_totals_900k", |b| b.iter(|| {
         rt.block_on(async {
             archive_df.clone()
                 .select([
@@ -118,7 +118,7 @@ fn benchmark_large_window_functions(c: &mut Criterion) {
         })
     }));
     
-    group.bench_function("ranking_functions_800k", |b| b.iter(|| {
+    group.bench_function("ranking_functions900k", |b| b.iter(|| {
         rt.block_on(async {
             archive_df.clone()
                 .select([
@@ -149,7 +149,7 @@ fn benchmark_large_string_operations(c: &mut Criterion) {
     group.sample_size(100);
     group.measurement_time(std::time::Duration::from_secs(90));
     
-    group.bench_function("string_processing_800k", |b| b.iter(|| {
+    group.bench_function("string_processing_900k", |b| b.iter(|| {
         rt.block_on(async {
             archive_df.clone()
                 .select([
@@ -177,7 +177,7 @@ fn benchmark_large_string_operations(c: &mut Criterion) {
         })
     }));
   
-    group.bench_function("text_search_filtering_800k", |b| b.iter(|| {
+    group.bench_function("text_search_filtering_900k", |b| b.iter(|| {
         rt.block_on(async {
             archive_df.clone()
                 .select([
@@ -213,7 +213,7 @@ fn benchmark_memory_optimizations_v4(c: &mut Criterion) {
     group.sample_size(100);
     group.measurement_time(std::time::Duration::from_secs(120));
     
-    group.bench_function("efficient_cloning_800k", |b| b.iter(|| {
+    group.bench_function("efficient_cloning_900k", |b| b.iter(|| {
         rt.block_on(async {
             let _clone1 = archive_df.clone();
             let _clone2 = archive_df.clone();
@@ -229,7 +229,7 @@ fn benchmark_memory_optimizations_v4(c: &mut Criterion) {
         })
     }));
     
-    group.bench_function("async_task_efficiency_800k", |b| b.iter(|| {
+    group.bench_function("async_task_efficiency_900k", |b| b.iter(|| {
         rt.block_on(async {
             archive_df.clone()
                 .select([
@@ -259,15 +259,15 @@ fn benchmark_memory_optimizations_v4(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_complex_pipelines_800k(c: &mut Criterion) {
+fn benchmark_complex_pipelines_900k(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let archive_df = rt.block_on(setup_large_archive()).unwrap();
     
-    let mut group = c.benchmark_group("Complex_Pipelines_800k");
+    let mut group = c.benchmark_group("Complex_Pipelines_900k");
     group.sample_size(100);
     group.measurement_time(std::time::Duration::from_secs(240));
     
-    group.bench_function("analytical_pipeline_800k", |b| b.iter(|| {
+    group.bench_function("analytical_pipeline_900k", |b| b.iter(|| {
         rt.block_on(async {
 
             let base_agg = archive_df.clone()
@@ -326,7 +326,7 @@ fn benchmark_complex_pipelines_800k(c: &mut Criterion) {
         })
     }));
 
-    group.bench_function("etl_pipeline_800k", |b| b.iter(|| {
+    group.bench_function("etl_pipeline_900k", |b| b.iter(|| {
         rt.block_on(async {
             // Let's simplify this to isolate the issue
             let result = archive_df.clone()
@@ -364,59 +364,6 @@ fn benchmark_complex_pipelines_800k(c: &mut Criterion) {
         })
     }));
     
-    // ETL-style transformation pipeline
-    // group.bench_function("etl_pipeline_800k", |b| b.iter(|| {
-    //     rt.block_on(async {
-    //         archive_df.clone()
-    //             // Extract and clean
-    //             .select([
-    //                 "godina",
-    //                 "mesec",
-    //                 "veledrogerija",
-    //                 "ustanova", 
-    //                 "proizvod",
-    //                 "grupa",
-    //                 "neto_vrednost",
-    //                 "neto_cena",
-    //                 "kolicina",
-    //                 "region"
-    //             ])
-    //             .filter("neto_vrednost > 0 AND kolicina > 0 AND region IS NOT NULL")
-                
-    //             // Transform with string functions - now supports complex nested functions!
-    //             .string_functions([
-    //                 "UPPER(TRIM(veledrogerija)) AS clean_pharmacy",
-    //                 "CONCAT(godina::TEXT, '-', LPAD(mesec, 10, '0')) AS year_month",  // Original complex expression!
-    //                 "CASE WHEN neto_vrednost > 10000 THEN 'HIGH_VALUE' WHEN neto_vrednost > 1000 THEN 'MEDIUM_VALUE' ELSE 'LOW_VALUE' END AS value_category"
-    //             ])
-                
-    //             // Add analytical metrics
-    //             .window("SUM(neto_vrednost) OVER (PARTITION BY clean_pharmacy, year_month) AS monthly_pharmacy_total")
-    //             .window("AVG(neto_cena) OVER (PARTITION BY grupa) AS avg_group_price")
-    //             .window("ROW_NUMBER() OVER (PARTITION BY region, year_month ORDER BY neto_vrednost DESC) AS monthly_region_rank")
-                
-    //             // Final aggregation and load
-    //             .agg([
-    //                 "SUM(neto_vrednost) AS total_net_value",
-    //                 "COUNT(DISTINCT ustanova) AS unique_institutions", 
-    //                 "COUNT(DISTINCT proizvod) AS unique_products",
-    //                 "AVG(monthly_pharmacy_total) AS avg_monthly_total"
-    //             ])
-    //             .group_by([
-    //                 "clean_pharmacy",
-    //                 "year_month",
-    //                 "region",
-    //                 "value_category"
-    //             ])
-    //             .having("total_net_value > 50000")
-    //             .order_by(["total_net_value"], [false])
-    //             .limit(200)
-    //             .elusion("etl_pipeline")
-    //             .await
-    //             .unwrap();
-    //     })
-    // }));
-    
     group.finish();
 }
 
@@ -440,9 +387,91 @@ fn benchmark_type_inference_v4(c: &mut Criterion) {
         })
     }));
     
-    group.bench_function("type_inference_large_800k", |b| b.iter(|| {
+    group.bench_function("type_inference_large_900k", |b| b.iter(|| {
         rt.block_on(async {
             let _df = CustomDataFrame::new("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "type_test_large").await.unwrap();
+        })
+    }));
+    
+    group.finish();
+}
+
+fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let archive_path = "C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv";
+    
+    let mut group = c.benchmark_group("Streaming_vs_Regular_900k");
+    group.sample_size(50);  
+    group.measurement_time(std::time::Duration::from_secs(300)); 
+    
+    group.bench_function("regular_new_complex_query", |b| b.iter(|| {
+        rt.block_on(async {
+            let df_arhiva = CustomDataFrame::new(archive_path, "arch_regular").await.unwrap();
+            
+            let complex_result = df_arhiva
+                .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+                .select([
+                    "veledrogerija",
+                    "region", 
+                    "kolicina",
+                    "neto_vrednost",
+                    "mesto"
+                ])
+                .window("ROW_NUMBER() OVER (PARTITION BY region ORDER BY mesto DESC) AS region_rank")
+                .agg([
+                    "COUNT(*) AS broj_transakcija",
+                    "SUM(kolicina) AS ukupna_kolicina", 
+                    "SUM(neto_vrednost) AS ukupna_vrednost"
+                ])
+                .group_by_all()
+                .order_by(["ukupna_vrednost"], ["DESC"])
+                .elusion("analysis_regular")
+                .await
+                .unwrap();
+                
+            complex_result
+        })
+    }));
+
+    group.bench_function("streaming_new_complex_query", |b| b.iter(|| {
+        rt.block_on(async {
+            let df_arhiva = CustomDataFrame::new_with_stream(archive_path, "arch_streaming").await.unwrap();
+            
+            let complex_result = df_arhiva
+                .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+                .select([
+                    "veledrogerija",
+                    "region", 
+                    "kolicina",
+                    "neto_vrednost",
+                    "mesto"
+                ])
+                .window("ROW_NUMBER() OVER (PARTITION BY region ORDER BY mesto DESC) AS region_rank")
+                .agg([
+                    "COUNT(*) AS broj_transakcija",
+                    "SUM(kolicina) AS ukupna_kolicina", 
+                    "SUM(neto_vrednost) AS ukupna_vrednost"
+                ])
+                .group_by_all()
+                .order_by(["ukupna_vrednost"], ["DESC"])
+                .elusion("analysis_streaming")
+                .await
+                .unwrap();
+                
+            complex_result
+        })
+    }));
+
+    // Bonus: Test just the loading performance without the query
+    group.bench_function("regular_new_load_only", |b| b.iter(|| {
+        rt.block_on(async {
+            let _df_arhiva = CustomDataFrame::new(archive_path, "arch_load_regular").await.unwrap();
+        })
+    }));
+
+    group.bench_function("streaming_new_load_only", |b| b.iter(|| {
+        rt.block_on(async {
+            let _df_arhiva = CustomDataFrame::new_with_stream(archive_path, "arch_load_streaming").await.unwrap();
         })
     }));
     
@@ -457,8 +486,9 @@ criterion_group!(
     benchmark_large_window_functions, 
     benchmark_large_string_operations,
     benchmark_memory_optimizations_v4,
-    benchmark_complex_pipelines_800k,
-    benchmark_type_inference_v4
+    benchmark_complex_pipelines_900k,
+    benchmark_type_inference_v4,
+    benchmark_streaming_vs_regular_900k
 );
 
 criterion_main!(benches);  
