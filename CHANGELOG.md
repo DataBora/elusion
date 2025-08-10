@@ -1,4 +1,4 @@
-## [4.0.0] - 2025-08-09
+## [4.0.0] - 2025-08-10
 
 ## Added
 - **CustomDataFrame struct**: Added 6 new fields for state tracking
@@ -25,6 +25,7 @@
 
 ## Bug Fixes
 - Fixed edge cases in date parsing
+ - Fixed complex parsing forneset string functions like CONCAT with nested TRIM, CAST etc.
 - Improved handling of malformed numeric data
 - Better validation for thousand separators
 

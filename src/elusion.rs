@@ -94,6 +94,7 @@ use crate::normalizers::normalize::is_expression;
 use crate::normalizers::normalize::is_aggregate_expression;
 use crate::normalizers::normalize::normalize_alias_write;
 use crate::normalizers::normalize::normalize_window_function;
+use crate::normalizers::normalize::normalize_simple_expression;
 
 //======= csv 
 use crate::features::csv::load_csv_with_type_handling;
@@ -2656,73 +2657,89 @@ impl CustomDataFrame {
     }
 
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
-        // Store original expressions with AS clauses 
-        self.original_expressions = columns
-            .iter()
-            .filter(|&col| col.contains(" AS "))
-            .map(|&s| s.to_string())
-            .collect();
+    // Store original expressions with AS clauses 
+    self.original_expressions = columns
+        .iter()
+        .filter(|&col| col.contains(" AS "))
+        .map(|&s| s.to_string())
+        .collect();
 
-        // raw columns for lazy processing
-        self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
-        self.needs_normalization = true;
+    // raw columns for lazy processing
+    self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
+    self.needs_normalization = true;
 
-        let mut all_columns = self.selected_columns.clone();
-        
-        if !self.group_by_columns.is_empty() {
-            for col in columns {
-                if is_expression(col) {
-                    if is_aggregate_expression(col) {
-                        all_columns.push(normalize_expression(col, &self.table_alias));
-                    } else {
-                        self.group_by_columns.push(col.to_string());
-                        all_columns.push(normalize_expression(col, &self.table_alias));
-                    }
+    let mut all_columns = self.selected_columns.clone();
+    
+    if !self.group_by_columns.is_empty() {
+        // GROUP BY scenario: separate aggregations from non-aggregated expressions
+        for col in columns {
+            if is_expression(col) {
+                if is_aggregate_expression(col) {
+                    // Aggregation goes to SELECT only (not GROUP BY)
+                    all_columns.push(normalize_expression(col, &self.table_alias));
                 } else {
-                    let normalized_col = normalize_column_name(col);
-                    if self.group_by_columns.contains(&normalized_col) {
-                        all_columns.push(normalized_col);
+                    // Non-aggregate expression:
+                    // - Expression without alias goes to GROUP BY
+                    // - Full expression with alias goes to SELECT
+                    let expr_without_alias = if col.contains(" AS ") {
+                        col.split(" AS ").next().unwrap_or(col).trim()
                     } else {
-                        self.group_by_columns.push(normalized_col.clone());
-                        all_columns.push(normalized_col);
+                        col
+                    };
+                    
+                    // Add to GROUP BY without alias
+                    let group_by_expr = normalize_simple_expression(expr_without_alias, &self.table_alias);
+                    if !self.group_by_columns.contains(&group_by_expr) {
+                        self.group_by_columns.push(group_by_expr);
                     }
+                    
+                    // Add to SELECT with alias
+                    all_columns.push(normalize_expression(col, &self.table_alias));
                 }
+            } else {
+                // Simple column
+                let normalized_col = normalize_column_name(col);
+                if !self.group_by_columns.contains(&normalized_col) {
+                    self.group_by_columns.push(normalized_col.clone());
+                }
+                all_columns.push(normalized_col);
             }
-        } else {
-            // Handle non-GROUP BY case (PRESERVED EXACTLY)
-            let aggregate_aliases: Vec<String> = self
-                .aggregations
-                .iter()
-                .filter_map(|agg| {
-                    agg.split(" AS ")
-                        .nth(1)
-                        .map(|alias| normalize_alias(alias))
-                })
-                .collect();
-
-            all_columns.extend(
-                columns
-                    .into_iter()
-                    .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-                    .map(|s| {
-                        if is_expression(s) {
-                            normalize_expression(s, &self.table_alias)
-                        } else {
-                            normalize_column_name(s)
-                        }
-                    })
-            );
         }
-
-        // Remove duplicates while preserving order (PRESERVED)
-        let mut seen = HashSet::new();
-        self.selected_columns = all_columns
-            .into_iter()
-            .filter(|x| seen.insert(x.clone()))
+    } else {
+        // No GROUP BY case - original logic
+        let aggregate_aliases: Vec<String> = self
+            .aggregations
+            .iter()
+            .filter_map(|agg| {
+                agg.split(" AS ")
+                    .nth(1)
+                    .map(|alias| normalize_alias(alias))
+            })
             .collect();
 
-        self
+        all_columns.extend(
+            columns
+                .into_iter()
+                .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+                .map(|s| {
+                    if is_expression(s) {
+                        normalize_expression(s, &self.table_alias)
+                    } else {
+                        normalize_column_name(s)
+                    }
+                })
+        );
     }
+
+    // Remove duplicates while preserving order
+    let mut seen = HashSet::new();
+    self.selected_columns = all_columns
+        .into_iter()
+        .filter(|x| seen.insert(x.clone()))
+        .collect();
+
+    self
+}
 
     /// Extract JSON properties from a column containing JSON strings
     pub fn json<'a, const N: usize>(mut self, columns: [&'a str; N]) -> Self {
@@ -2939,6 +2956,22 @@ impl CustomDataFrame {
     //     Ok(rows.into_iter().map(|row| row.fields).collect())
     // }
 
+    /// Enhanced GROUP BY normalization - strips aliases and ensures proper expression format
+    fn normalize_group_by_columns(&self) -> Vec<String> {
+        self.group_by_columns.iter().map(|col| {
+            // Strip any aliases that might have leaked in
+            if col.contains(" as \"") {
+                if let Some(as_pos) = col.find(" as \"") {
+                    col[..as_pos].trim().to_string()
+                } else {
+                    col.clone()
+                }
+            } else {
+                col.clone()
+            }
+        }).collect()
+    }
+
     /// Construct the SQL query based on the current state, including joins
     /// Optimized SQL construction with SqlBuilder and reduced allocations
     fn construct_sql(&self) -> String {
@@ -2965,13 +2998,19 @@ impl CustomDataFrame {
 
         // Build SELECT parts
         let select_parts = self.build_select_parts();
+
+        let normalized_group_by = if !self.group_by_columns.is_empty() {
+            self.normalize_group_by_columns()
+        } else {
+            Vec::new()
+        };
         
         // Build the main query
         builder.select(&select_parts)
                .from_table(&self.from_table, Some(&self.table_alias))
                .joins(&self.joins)
                .where_clause(&self.where_conditions)
-               .group_by(&self.group_by_columns)
+               .group_by(&normalized_group_by)
                .having(&self.having_conditions)
                .order_by(&self.order_by_columns)
                .limit(self.limit_count);
@@ -2999,33 +3038,76 @@ impl CustomDataFrame {
 
     /// Build SELECT parts with reduced allocations
     fn build_select_parts(&self) -> Vec<String> {
-        let total_parts = self.aggregations.len() 
-                         + self.selected_columns.len() 
-                         + self.window_functions.len();
+    let total_parts = self.aggregations.len() 
+                     + self.selected_columns.len() 
+                     + self.window_functions.len();
+    
+    let mut select_parts = Vec::with_capacity(total_parts);
+
+    if !self.group_by_columns.is_empty() {
+        // GROUP BY scenario: aggregations + group by columns only
         
-        let mut select_parts = Vec::with_capacity(total_parts);
-
-        if !self.group_by_columns.is_empty() {
-            // Add aggregations first
-            select_parts.extend_from_slice(&self.aggregations);
-
-            // Add GROUP BY columns and selected columns (avoid duplicates)
-            for col in &self.selected_columns {
-                if !select_parts.contains(col) {
-                    select_parts.push(col.clone());
+        // 1. Add all aggregations first (these don't go to GROUP BY)
+        select_parts.extend_from_slice(&self.aggregations);
+        
+        // 2. Add GROUP BY columns to SELECT (these are the non-aggregated columns)
+        for group_col in &self.group_by_columns {
+            // Check if this group column isn't already in select as an aggregation
+            let is_already_aggregated = self.aggregations.iter().any(|agg| {
+                if let Some(alias_part) = agg.split(" as \"").nth(1) {
+                    let alias = alias_part.trim_end_matches('"');
+                    group_col.contains(alias) || alias.contains(group_col)
+                } else {
+                    false
                 }
+            });
+            
+            if !is_already_aggregated && !select_parts.contains(group_col) {
+                select_parts.push(group_col.clone());
             }
-        } else {
-            // No GROUP BY - add all parts
-            select_parts.extend_from_slice(&self.aggregations);
-            select_parts.extend_from_slice(&self.selected_columns);
         }
-
-        // Add window functions last
-        select_parts.extend_from_slice(&self.window_functions);
         
-        select_parts
+        // 3. Add any selected columns that are expressions with aliases
+        // These should match what's in GROUP BY (without aliases)
+        for selected_col in &self.selected_columns {
+            if selected_col.contains(" as \"") {
+                // This is an aliased expression - it should be in GROUP BY without alias
+                let expr_part = if let Some(as_pos) = selected_col.find(" as \"") {
+                    selected_col[..as_pos].trim()
+                } else {
+                    selected_col.as_str()
+                };
+                
+                // Check if this expression is in GROUP BY
+                let is_in_group_by = self.group_by_columns.iter().any(|group_col| {
+                    group_col.trim() == expr_part || 
+                    group_col.contains(expr_part) ||
+                    expr_part.contains(group_col.trim())
+                });
+                
+                if is_in_group_by && !select_parts.contains(selected_col) {
+                    select_parts.push(selected_col.clone());
+                }
+            } else if !select_parts.contains(selected_col) {
+                // Simple column, add if not already present
+                select_parts.push(selected_col.clone());
+            }
+        }
+    } else {
+        // No GROUP BY - add all parts normally
+        select_parts.extend_from_slice(&self.aggregations);
+        select_parts.extend_from_slice(&self.selected_columns);
     }
+
+    // Add window functions last
+    select_parts.extend_from_slice(&self.window_functions);
+    
+    // Remove duplicates while preserving order
+    let mut seen = std::collections::HashSet::new();
+    select_parts.retain(|x| seen.insert(x.clone()));
+    
+    select_parts
+}
     
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
