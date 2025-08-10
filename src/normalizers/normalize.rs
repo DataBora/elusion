@@ -66,9 +66,10 @@ static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|
     [
         "TEXT", "INTEGER", "BIGINT", "VARCHAR", "FLOAT", "DOUBLE", "BOOLEAN", "DATE", "TIMESTAMP",
         "SELECT", "FROM", "WHERE", "GROUP", "ORDER", "BY", "HAVING", "JOIN", "INNER", "LEFT", 
-        "RIGHT", "OUTER", "ON", "AS", "AND", "OR", "NOT", "NULL", "TRUE", "FALSE", "CASE", 
+        "RIGHT", "OUTER", "FULL", "LEFT SEMI", "RIGHT SEMI", "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" ,
+        "ON", "AS", "AND", "OR", "NOT", "NULL", "TRUE", "FALSE", "CASE", 
         "WHEN", "THEN", "ELSE", "END", "IN", "EXISTS", "BETWEEN", "LIKE", "IS", "DISTINCT",
-        "ASC", "DESC", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "ALL", "ANY", "SOME"
+        "ASC", "DESC", "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "ALL", "ANY", "SOME", "POSITION", 
     ].into_iter().collect()
 });
 
@@ -290,7 +291,6 @@ pub fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
 }
 
 /// Enhanced simple expression normalization with better function handling
-/// Enhanced simple expression normalization with better function handling
 pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
     let expr_trimmed = expr.trim();
     
@@ -306,6 +306,42 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
         
         #[cfg(test)]
         eprintln!("DEBUG: Function detected - name: '{}', args: '{}'", func_name, args);
+        
+        // Special handling for POSITION function which uses IN instead of comma
+        if func_name.to_uppercase() == "POSITION" {
+            let upper_args = args.to_uppercase();
+            if let Some(in_pos) = upper_args.find(" IN ") {
+                let search_expr = args[..in_pos].trim();
+                let column_expr = args[in_pos + 4..].trim();
+                
+                #[cfg(test)]
+                eprintln!("DEBUG: POSITION function - search: '{}', column: '{}'", search_expr, column_expr);
+                
+                // Handle the search expression (usually a string literal)
+                let normalized_search = if search_expr.starts_with('\'') && search_expr.ends_with('\'') {
+                    search_expr.to_string()
+                } else {
+                    normalize_simple_expression(search_expr, table_alias)
+                };
+                
+                // Handle the column expression
+                let normalized_column = if TABLE_COLUMN_PATTERN.is_match(column_expr) {
+                    TABLE_COLUMN_PATTERN
+                        .replace_all(column_expr, "\"$1\".\"$2\"")
+                        .to_string()
+                        .to_lowercase()
+                } else if is_simple_column(column_expr) {
+                    format!("\"{}\".\"{}\"", table_alias.to_lowercase(), column_expr.to_lowercase())
+                } else {
+                    normalize_simple_expression(column_expr, table_alias)
+                };
+                
+                return format!("{}({} in {})", 
+                    func_name.to_lowercase(), 
+                    normalized_search, 
+                    normalized_column);
+            }
+        }
         
         // Special handling for CAST function which uses AS instead of comma
         if func_name.to_uppercase() == "CAST" {
@@ -638,10 +674,10 @@ pub fn normalize_condition(condition: &str) -> String {
 
 pub fn normalize_condition_filter(condition: &str) -> String {
     let trimmed = condition.trim();
-    eprintln!("Original condition: '{}'", trimmed);
+   // eprintln!("Original condition: '{}'", trimmed);
 
     let sql_keywords: HashSet<&str> = [
-        "SELECT", "FROM", "WHERE", "IS", "NOT", "NULL",
+        "SELECT", "FROM", "WHERE", "IS", "NOT", "IN", "NULL", "LIKE","OR", "AND"
     ].into_iter().collect();
 
     let mut result = String::new();
@@ -725,7 +761,7 @@ pub fn normalize_condition_filter(condition: &str) -> String {
 
     result.push_str(&final_replaced);
 
-    eprintln!("Final normalized condition: '{}'", result);
+   // eprintln!("Final normalized condition: '{}'", result);
 
     result
 }
@@ -743,12 +779,12 @@ pub fn is_simple_column(s: &str) -> bool {
 
     let has_table_prefix = s.contains('.');
 
-    eprintln!("REAL FUNCTION DEBUG: is_simple_column('{}') - matches_pattern: {}, upper: '{}', is_keyword: {}, is_complex: {}", 
-        s, matches_pattern, upper_s, is_keyword, is_complex);
+    // eprintln!("REAL FUNCTION DEBUG: is_simple_column('{}') - matches_pattern: {}, upper: '{}', is_keyword: {}, is_complex: {}", 
+    //     s, matches_pattern, upper_s, is_keyword, is_complex);
     
     let result = matches_pattern && !is_keyword && !is_complex && !has_table_prefix;
-    eprintln!("REAL FUNCTION DEBUG: final result = {} && !{} && !{} && !{} = {}", 
-        matches_pattern, is_keyword, is_complex, has_table_prefix, result);
+    // eprintln!("REAL FUNCTION DEBUG: final result = {} && !{} && !{} && !{} = {}", 
+    //     matches_pattern, is_keyword, is_complex, has_table_prefix, result);
     
     result
 }
@@ -893,8 +929,6 @@ mod tests {
     #[test]
     fn test_simple_column_detection() {
 
-        println!("Testing SQL keyword detection...");
-        
         let test_cases = vec![
             ("region", true),
             ("region_rank", true), 
@@ -988,15 +1022,13 @@ mod tests {
             let result = normalize_expression(expr, "s");
             println!("'{}' -> '{}'", expr, result);
             
-            // Should add table prefix to simple columns
             assert!(result.contains("\"s\"."), "Missing table prefix in: {}", result);
         }
         
-        // Test filter conditions
         let filters = vec![
             "order_date > '2021-07-04'",
             "billable_value > 100.0",
-            "cusTomer_name == 'Customer IRRVL'"  // Your exact filter
+            "cusTomer_name == 'Customer IRRVL'"  
         ];
         
         println!("\n=== FILTER CONDITIONS TEST ===");
@@ -1118,7 +1150,11 @@ mod tests {
             "SUBSTRING(p.ProductName, 1, 5) AS product_substr",
             "REPLACE(c.EmailAddress, '@adventure-works.com', '@newdomain.com') AS new_email",
             "LPAD(c.CustomerKey::TEXT, 10, '0') AS padded_customer_id",
-            "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username"
+            "SPLIT_PART(c.EmailAddress, '@', 1) AS email_username",
+            "POSITION('APOTEKA' IN naziv_ustanove) AS apoteka_pos",
+            "CASE WHEN naziv_proizvoda LIKE '%SENI%' THEN 'SENI_PRODUCT' ELSE 'OTHER' END AS product_category",
+            "CONCAT(region, ' - Rank ', CAST(region_rank AS TEXT)) AS region_rank_label",
+            "CASE WHEN region_rank <= 5 THEN 'TOP_5' ELSE 'OTHER' END AS performance_tier"
         ];
         
         println!("=== STRING FUNCTIONS TEST ===");

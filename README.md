@@ -20,13 +20,11 @@ I appreciate the interest in contributing to Elusion! However, I'm not currently
 
 Thanks for understanding!
 ---
-### If you find Elusion useful, buy me a coffee! ☕
-#### Click ⬇️
-[Buy me a coffee](https://coff.ee/elusion.rust)
+### ⬇️☕ If you find Elusion useful for your DataEngineering tasks, buy me a coffee! ☕⬇️
+#### [Buy me a coffee](https://coff.ee/elusion.rust)
 ---
-### Quickest way to start with Elusion
-#### Click ⬇️
-[Udemy Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
+### ⬇️ Quickest way to start with Elusion⬇️
+#### [Udemy Online Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 ---
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
@@ -49,6 +47,15 @@ Tested for MacOS, Linux and Windows
 Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it is fully prepared for Production.
 
 ## Key Features
+
+## 📩 2 Ways to Load data into DataFrame before query execution:
+### **Regular** Loading with loading all data into memory, good for smaller files
+### **Streaming** Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
+#### Processes data in chunks rather than loading everything at once
+- 🚀 Streaming is ~27% faster for loading (tested on 900k rows of real business data)
+- Regular loading - new(): ~4.95 seconds
+- Streaming loading - new_with_stream(): ~3.62 seconds
+- Performance improvement: ~1.33 seconds faster (26.9% improvement)
 
 ### 🔄 Job Scheduling (PipelineScheduler)
 Flexible Intervals: From 1 minute to 30 days scheduling intervals.
@@ -104,7 +111,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "3.14.0"
+elusion = "4.0.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -157,25 +164,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "3.14.0", features = ["postgres"] }
+elusion = { version = "4.0.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "3.14.0"
+elusion = "4.0.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "3.14.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "4.0.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "3.14.0", features = ["all"] }
+elusion = { version = "4.0.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -226,7 +233,9 @@ async fn main() -> ElusionResult<()> {
 ## Creating CustomDataFrame
 #### 2 arguments needed:  **Path**, **Table Alias**
 #### File extensions are automatically recognized (csv, excel, json, parquet, delta)
-
+---
+## REGULAR LOADING
+---
 ### LOADING data from CSV into CustomDataFrame
 ```rust
 let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
@@ -251,6 +260,16 @@ let df = CustomDataFrame::new(json_path, "json_data").await?;
 ```rust
 let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
 let df = CustomDataFrame::new(delta_path, "delta_data").await?;
+```
+---
+## STREAMING LOADING (optimized for larger files)
+#### currently suppots only CSV files (soon will be adding parquet, json, excel, and delta)
+
+---
+### LOADING data from CSV into CustomDataFrame
+```rust
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
+let df = CustomDataFrame::new_with_stream(csv_path, "csv_data").await?; 
 ```
 ---
 ### LOADING data from LOCAL FOLDER into CustomDataFrame
@@ -531,7 +550,7 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
-# DATA INSPECTION, PREVIEW FUNCTIONS AND STATISTICAL FUNCTIONS
+# DATA INSPECTION, SCHEMA INSPECTION, PREVIEW FUNCTIONS AND STATISTICAL FUNCTIONS
 ---
 ### Quickly preview your data with SHOW_HEAD(), SHOW_TAIL(), and PEEK() functions
 #### Display the first n rows of your DataFrame for quick data inspection
@@ -548,6 +567,9 @@ df.show_tail(10).await?;
 
 // Show first 3 and last 3 rows
 df.peek(3).await?;
+
+// Show Column names and their types
+df_arhiva.df_schema();
 ```
 ---
 ### STATISTICAL FUNCTIONS

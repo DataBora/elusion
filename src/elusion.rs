@@ -6,7 +6,7 @@ mod normalizers;
 mod csvwrite;
 mod sqlbuilder;
 
-// =========== DataFusion
+// =========== DF
 use regex::Regex;
 use datafusion::prelude::*;
 use futures::future::BoxFuture;
@@ -18,7 +18,7 @@ use arrow::array::{ArrayRef, Array, Float64Array,Int64Array};
 use arrow::record_batch::RecordBatch;
 use arrow::csv::writer::WriterBuilder;
 
-// ========= CSV defects
+// ========= CSV
 use std::fs::{self, File, OpenOptions};
 use std::io::{Write, BufWriter};
 
@@ -52,11 +52,11 @@ use crate::custom_error::cust_error::ElusionResult;
 use arrow::compute;
 use arrow::array::StringArray;
 
-// dashboard
+// ======= Dash
 pub use features::dashboard::{ReportLayout, TableOptions};
 use crate::prelude::PlotlyPlot;
 
-// ======== STATISTICS
+// ======== STATS
 use datafusion::common::ScalarValue;
 use std::io::BufReader;
 use serde_json::Deserializer;
@@ -103,27 +103,12 @@ use crate::csvwrite::csvwriteops::CsvWriteOptions;
 // ======= optimizers
 use crate::sqlbuilder::sqlbuild::SqlBuilder;
 
-// // Generic struct for DataFrame row representation
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// pub struct DataFrameRow {
-//     pub fields: HashMap<String, String>,
-// }
+// ====== STREAM
+use datafusion::physical_plan::SendableRecordBatchStream;
+use futures::StreamExt;
+use crate::features::csv::load_csv_smart;
+use crate::features::excel::load_excel;
 
-// impl DataFrameRow {
-//     pub fn new() -> Self {
-//         Self {
-//             fields: HashMap::new(),
-//         }
-//     }
-    
-//     pub fn insert(&mut self, key: String, value: String) {
-//         self.fields.insert(key, value);
-//     }
-    
-//     pub fn get(&self, key: &str) -> Option<&String> {
-//         self.fields.get(key)
-//     }
-// }
 
 // ===== struct to manage ODBC DB connections
 #[derive(Debug, PartialEq, Clone)]
@@ -2140,7 +2125,7 @@ impl CustomDataFrame {
         })
     }
 
-    /// Handle various set operations including 
+    /// Handle various set operations 
     fn handle_set_operation(&self, operation: &str, base_sql: String) -> String {
         if let Some(columns_and_value) = operation.strip_prefix("FILL_NULL:") {
             self.handle_fill_null_operation(columns_and_value, base_sql)
@@ -2149,7 +2134,7 @@ impl CustomDataFrame {
         } else if let Some(columns_str) = operation.strip_prefix("FILL_DOWN:") {
             self.handle_fill_down_operation(columns_str, base_sql)
         } else if let Some(skip_count) = operation.strip_prefix("SKIP_ROWS:") {
-            self.handle_skip_rows_operation(skip_count, base_sql)
+            self.handle_skip_rows_operation(skip_count, base_sql)  
         } else if operation.starts_with("UNION") {
             base_sql
         } else {
@@ -2689,89 +2674,89 @@ impl CustomDataFrame {
     }
 
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
-    // Store original expressions with AS clauses 
-    self.original_expressions = columns
-        .iter()
-        .filter(|&col| col.contains(" AS "))
-        .map(|&s| s.to_string())
-        .collect();
-
-    // raw columns for lazy processing
-    self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
-    self.needs_normalization = true;
-
-    let mut all_columns = self.selected_columns.clone();
-    
-    if !self.group_by_columns.is_empty() {
-        // GROUP BY scenario: separate aggregations from non-aggregated expressions
-        for col in columns {
-            if is_expression(col) {
-                if is_aggregate_expression(col) {
-                    // Aggregation goes to SELECT only (not GROUP BY)
-                    all_columns.push(normalize_expression(col, &self.table_alias));
-                } else {
-                    // Non-aggregate expression:
-                    // - Expression without alias goes to GROUP BY
-                    // - Full expression with alias goes to SELECT
-                    let expr_without_alias = if col.contains(" AS ") {
-                        col.split(" AS ").next().unwrap_or(col).trim()
-                    } else {
-                        col
-                    };
-                    
-                    // Add to GROUP BY without alias
-                    let group_by_expr = normalize_simple_expression(expr_without_alias, &self.table_alias);
-                    if !self.group_by_columns.contains(&group_by_expr) {
-                        self.group_by_columns.push(group_by_expr);
-                    }
-                    
-                    // Add to SELECT with alias
-                    all_columns.push(normalize_expression(col, &self.table_alias));
-                }
-            } else {
-                // Simple column
-                let normalized_col = normalize_column_name(col);
-                if !self.group_by_columns.contains(&normalized_col) {
-                    self.group_by_columns.push(normalized_col.clone());
-                }
-                all_columns.push(normalized_col);
-            }
-        }
-    } else {
-        // No GROUP BY case - original logic
-        let aggregate_aliases: Vec<String> = self
-            .aggregations
+        // Store original expressions with AS clauses 
+        self.original_expressions = columns
             .iter()
-            .filter_map(|agg| {
-                agg.split(" AS ")
-                    .nth(1)
-                    .map(|alias| normalize_alias(alias))
-            })
+            .filter(|&col| col.contains(" AS "))
+            .map(|&s| s.to_string())
             .collect();
 
-        all_columns.extend(
-            columns
-                .into_iter()
-                .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
-                .map(|s| {
-                    if is_expression(s) {
-                        normalize_expression(s, &self.table_alias)
+        // raw columns for lazy processing
+        self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
+        self.needs_normalization = true;
+
+        let mut all_columns = self.selected_columns.clone();
+        
+        if !self.group_by_columns.is_empty() {
+            // GROUP BY scenario: separate aggregations from non-aggregated expressions
+            for col in columns {
+                if is_expression(col) {
+                    if is_aggregate_expression(col) {
+                        // Aggregation goes to SELECT only (not GROUP BY)
+                        all_columns.push(normalize_expression(col, &self.table_alias));
                     } else {
-                        normalize_column_name(s)
+                        // Non-aggregate expression:
+                        // - Expression without alias goes to GROUP BY
+                        // - Full expression with alias goes to SELECT
+                        let expr_without_alias = if col.contains(" AS ") {
+                            col.split(" AS ").next().unwrap_or(col).trim()
+                        } else {
+                            col
+                        };
+                        
+                        // Add to GROUP BY without alias
+                        let group_by_expr = normalize_simple_expression(expr_without_alias, &self.table_alias);
+                        if !self.group_by_columns.contains(&group_by_expr) {
+                            self.group_by_columns.push(group_by_expr);
+                        }
+                        
+                        // Add to SELECT with alias
+                        all_columns.push(normalize_expression(col, &self.table_alias));
                     }
+                } else {
+                    // Simple column
+                    let normalized_col = normalize_column_name(col);
+                    if !self.group_by_columns.contains(&normalized_col) {
+                        self.group_by_columns.push(normalized_col.clone());
+                    }
+                    all_columns.push(normalized_col);
+                }
+            }
+        } else {
+            // No GROUP BY case - original logic
+            let aggregate_aliases: Vec<String> = self
+                .aggregations
+                .iter()
+                .filter_map(|agg| {
+                    agg.split(" AS ")
+                        .nth(1)
+                        .map(|alias| normalize_alias(alias))
                 })
-        );
+                .collect();
+
+            all_columns.extend(
+                columns
+                    .into_iter()
+                    .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
+                    .map(|s| {
+                        if is_expression(s) {
+                            normalize_expression(s, &self.table_alias)
+                        } else {
+                            normalize_column_name(s)
+                        }
+                    })
+            );
+        }
+
+        // Remove duplicates while preserving order
+        let mut seen = HashSet::new();
+        self.selected_columns = all_columns
+            .into_iter()
+            .filter(|x| seen.insert(x.clone()))
+            .collect();
+
+        self
     }
-
-    // Remove duplicates while preserving order
-    let mut seen = HashSet::new();
-    self.selected_columns = all_columns
-        .into_iter()
-        .filter(|x| seen.insert(x.clone()))
-        .collect();
-
-    self
-}
 
     /// Extract JSON properties from a column containing JSON strings
     pub fn json<'a, const N: usize>(mut self, columns: [&'a str; N]) -> Self {
@@ -2779,7 +2764,6 @@ impl CustomDataFrame {
         
         for expr in columns.iter() {
             // Parse the expression: "column.'$jsonPath' AS alias"
-            // let parts: Vec<&str> = expr.split(" AS ").collect();
             let re = Regex::new(r"(?i)\s+AS\s+").unwrap();
             let parts: Vec<&str> = re.split(expr).collect();
 
@@ -2798,6 +2782,17 @@ impl CustomDataFrame {
             let col_path_parts: Vec<&str> = path_part.split(".'$").collect();
             let column_name = col_path_parts[0].trim();
             let json_path = col_path_parts[1].trim_end_matches('\'');
+            
+            // Normalize the column name with proper table prefix
+            let normalized_column = if column_name.contains('.') {
+                // Already has table prefix - normalize it
+                normalize_column_name(column_name)
+            } else {
+                // Add the main table alias
+                format!("\"{}\".\"{}\"", 
+                    self.table_alias.to_lowercase(), 
+                    column_name.to_lowercase())
+            };
             
             let search_pattern = format!("\"{}\":", json_path);
             
@@ -2818,14 +2813,14 @@ impl CustomDataFrame {
                             )
                         )
                     ELSE NULL
-                 END as \"{}\"",
-                search_pattern, column_name,
-                column_name, 
-                search_pattern, column_name, search_pattern.len(),
-                column_name, search_pattern, column_name, search_pattern.len(),
-                column_name, search_pattern, column_name, search_pattern.len(),
-                column_name, search_pattern, column_name, search_pattern.len(),
-                column_name, search_pattern, column_name, search_pattern.len(),
+                END as \"{}\"",
+                search_pattern, normalized_column,
+                normalized_column, 
+                search_pattern, normalized_column, search_pattern.len(),
+                normalized_column, search_pattern, normalized_column, search_pattern.len(),
+                normalized_column, search_pattern, normalized_column, search_pattern.len(),
+                normalized_column, search_pattern, normalized_column, search_pattern.len(),
+                normalized_column, search_pattern, normalized_column, search_pattern.len(),
                 alias
             );
             
@@ -2843,25 +2838,35 @@ impl CustomDataFrame {
         
         for expr in columns.iter() {
             // Parse the expression: "column.'$ValueField:IdField=IdValue' AS alias"
-            // let parts: Vec<&str> = expr.split(" AS ").collect();
             let re = Regex::new(r"(?i)\s+AS\s+").unwrap();
             let parts: Vec<&str> = re.split(expr).collect();
 
             if parts.len() != 2 {
-                continue; // skip invalid expressions
+                continue; 
             }
             
             let path_part = parts[0].trim();
             let alias = parts[1].trim().to_lowercase();
             
             if !path_part.contains(".'$") {
-                continue; // Skip invalid expressions
+                continue; 
             }
             
             let col_path_parts: Vec<&str> = path_part.split(".'$").collect();
             let column_name = col_path_parts[0].trim();
             let filter_expr = col_path_parts[1].trim_end_matches('\'');
-         
+            
+            // Normalize the column name with proper table prefix
+            let normalized_column = if column_name.contains('.') {
+                // Already has table prefix - normalize it
+                normalize_column_name(column_name)
+            } else {
+                // sdding main table alias
+                format!("\"{}\".\"{}\"", 
+                    self.table_alias.to_lowercase(), 
+                    column_name.to_lowercase())
+            };
+        
             let filter_parts: Vec<&str> = filter_expr.split(':').collect();
             
             let sql_expr: String;
@@ -2873,12 +2878,12 @@ impl CustomDataFrame {
                 
                 let condition_parts: Vec<&str> = condition.split('=').collect();
                 if condition_parts.len() != 2 {
-                    continue; // Skip invalid expressions
+                    continue; 
                 }
                 
                 let id_field = condition_parts[0].trim();
                 let id_value = condition_parts[1].trim();
-      
+    
                 sql_expr = format!(
                     "CASE 
                         WHEN regexp_like({}, '\\{{\"{}\":\"{}\",[^\\}}]*\"{}\":(\"[^\"]*\"|[0-9.]+|true|false)', 'i') THEN
@@ -2911,10 +2916,10 @@ impl CustomDataFrame {
                             END
                         ELSE NULL
                     END as \"{}\"",
-                    column_name, id_field, id_value, value_field,
-                    column_name, id_field, id_value, value_field,
-                    column_name, id_field, id_value, value_field,
-                    column_name, id_field, id_value, value_field,
+                    normalized_column, id_field, id_value, value_field,
+                    normalized_column, id_field, id_value, value_field,
+                    normalized_column, id_field, id_value, value_field,
+                    normalized_column, id_field, id_value, value_field,
                     alias
                 );
             } else {
@@ -2923,7 +2928,7 @@ impl CustomDataFrame {
             
             json_expressions.push(sql_expr);
         }
-    
+
         self.selected_columns.extend(json_expressions);
         
         self
@@ -3143,7 +3148,7 @@ impl CustomDataFrame {
     
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
-        // Pre-validate inputs to fail fast
+        // fail fast
         if alias.trim().is_empty() {
             return Err(ElusionError::InvalidOperation {
                 operation: "Elusion".to_string(),
@@ -3173,7 +3178,7 @@ impl CustomDataFrame {
         } else {
             sql
         };
-      //  println!("{:?}", final_sql);
+       // println!("{:?}", final_sql);
 
         // Execute the SQL query
         let df = ctx.sql(&final_sql).await
@@ -3317,6 +3322,35 @@ impl CustomDataFrame {
             ElusionError::Custom(format!("Failed to display DataFrame: {}", e))
         )
     }
+    /// Print a compact schema view - just column names and types
+    pub fn df_schema(&self) {
+        let schema = self.df.schema();
+        
+        println!("\n📋 Schema - table alias: '{}'", self.table_alias);
+        println!("{}", "-".repeat(60));
+        
+        for (index, field) in schema.fields().iter().enumerate() {
+            let data_type = match field.data_type() {
+                arrow::datatypes::DataType::Utf8 => "String",
+                arrow::datatypes::DataType::Int32 => "Int32",
+                arrow::datatypes::DataType::Int64 => "Int64", 
+                arrow::datatypes::DataType::Float32 => "Float32",
+                arrow::datatypes::DataType::Float64 => "Float64",
+                arrow::datatypes::DataType::Boolean => "Boolean",
+                arrow::datatypes::DataType::Date32 => "Date",
+                arrow::datatypes::DataType::Timestamp(_, _) => "Timestamp",
+                _ => "Other"
+            };
+            
+            println!("{:2}. {} ({})", 
+                index + 1, 
+                field.name(), 
+                data_type
+            );
+        }
+        println!();
+    }
+
     /// DISPLAY Query Plan
     // pub fn display_query_plan(&self) {
     //     println!("Generated Logical Plan:");
@@ -5923,6 +5957,129 @@ impl CustomDataFrame {
     ) -> ElusionResult<()> {
         Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled.".to_string()))
     }
+
+
+    // ============== CSV STREAMING =================
+
+    /// streaming iterator over the DataFrame - TRUE streaming
+    pub async fn stream(&self) -> ElusionResult<SendableRecordBatchStream> {
+        let ctx = SessionContext::new();
+        
+        self.register_all_tables(&ctx).await?;
+        
+        let sql = self.construct_sql();
+        
+        let df = ctx.sql(&sql).await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "SQL Execution".to_string(),
+            reason: format!("Failed to execute SQL: {}", e),
+            suggestion: "💡 Verify SQL syntax and table/column references".to_string()
+        })?;
+        
+        df.execute_stream().await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "Stream Execution".to_string(),
+            reason: format!("Failed to create stream: {}", e),
+            suggestion: "💡 Check query complexity and memory settings".to_string()
+        })
+    }
+    
+    /// Streaming data with a closure
+    pub async fn stream_process<F, Fut>(
+        &self, 
+        mut processor: F
+    ) -> ElusionResult<()> 
+    where
+        F: FnMut(RecordBatch) -> Fut,
+        Fut: std::future::Future<Output = ElusionResult<()>>,
+    {
+        let mut stream = self.stream().await?;
+        
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result.map_err(|e| ElusionError::InvalidOperation {
+                operation: "Stream Processing".to_string(),
+                reason: format!("Failed to get batch from stream: {}", e),
+                suggestion: "💡 Check data integrity and memory availability".to_string()
+            })?;
+            
+            processor(batch).await?;
+        }
+        
+        Ok(())
+    }
+
+    /// NEW method with streaming support for large files
+    /// Currently supports CSV files with automatic streaming detection
+    /// Other file types will be added in future versions
+    pub async fn new_with_stream<'a>(
+        file_path: &'a str,
+        alias: &'a str,
+    ) -> ElusionResult<Self> {
+        let ext = file_path
+            .split('.')
+            .last()
+            .unwrap_or_default()
+            .to_lowercase();
+
+        let aliased_df = match ext.as_str() {
+            "csv" => {
+                println!("🚀 Loading CSV with streaming support...");
+                load_csv_smart(file_path, alias).await?
+            },
+            "json" => {
+                println!("ℹ️  JSON files: streaming support coming soon, using standard loader");
+                Self::load_json(file_path, alias).await?
+            },
+            "parquet" => {
+                println!("ℹ️  Parquet files: streaming support coming soon, using standard loader");
+                Self::load_parquet(file_path, alias).await?
+            },
+            "xlsx" | "xls" => {
+                println!("ℹ️  Excel files: streaming support coming soon, using standard loader");
+                load_excel(file_path, alias).await?
+            },
+            "" => return Err(ElusionError::InvalidOperation {
+                operation: "Streaming File Loading".to_string(),
+                reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
+                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls) or a valid Delta table directory".to_string(),
+            }),
+            other => return Err(ElusionError::InvalidOperation {
+                operation: "Streaming File Loading".to_string(),
+                reason: format!("Unsupported file extension: {other}"),
+                suggestion: "💡 Currently streaming is supported for CSV files. Use .new() for other file types or wait for future updates".to_string(),
+            }),
+        };
+
+        let df_lower = lowercase_column_names(aliased_df.dataframe).await?;
+
+        Ok(CustomDataFrame {
+            df: df_lower,
+            table_alias: aliased_df.alias.clone(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+        })
+    }
+
    
 }
-

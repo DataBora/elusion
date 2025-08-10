@@ -1,15 +1,17 @@
 ## [4.0.0] - 2025-08-10
 ## BREAKING CHANGES
 - **CustomDataFrame struct**: Added 6 new fields for state tracking
-- **order_by() and order_by_many()*: Now accept "ASC" and "DESC" insted of true, false
+- **order_by() and order_by_many()*: Now accept "ASC" and "DESC" instead of true, false
 
 ### BE AWARE
 - Existing compiled code must be recompiled due to internal struct changes
 - All order_by() and order_by_many() need to comply with new implementation
 
-## Rewrote
-- **CSV Loading**: Complete rewrite with new type inference system
-- **Column Names**: Now automatically normalized (lowercase, underscored)
+## New Features
+- **Stream laoding for CSV files loading with CustomDataFrame::new_with_stream() function
+- **Smart Type Detection**: Email, version number, and edge case handling
+- **Enhanced Error Messages**: Better debugging information
+- **State Tracking**: Raw field tracking for optimization
 
 ## Performance Improvements
 - **Regex Optimization**: Lazy compilation reduces startup time
@@ -17,17 +19,14 @@
 - **Memory Efficiency**: Optimized cloning and buffer allocation
 - **SQL Building**: Reduced string allocations in query construction
 
-## New Features
-- **Smart Type Detection**: Email, version number, and edge case handling
-- **Column Normalization**: Automatic cleanup of column names
-- **Enhanced Error Messages**: Better debugging information
-- **State Tracking**: Raw field tracking for optimization
+## New Functions
+- **df_schema()**: Print Column names and their types
 
 ## Bug Fixes
 - Fixed edge cases in date parsing
 - Fixed complex parsing forneset string functions like CONCAT with nested TRIM, CAST etc.
 - Improved handling of malformed numeric data
-- Better validation for thousand separators
+- Better validation for thousand separators for CSV loading
 
 ## Dependencies
 - once_cell = "1.21.3"
