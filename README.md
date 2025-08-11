@@ -48,13 +48,13 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 
 ## Key Features
 
-## 📩 2 Ways to Load data into DataFrame before query execution:
-### **Regular** Loading with loading all data into memory, good for smaller files
-### **Streaming** Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
+## 📩 2 Ways to Load data into DataFrame:
+### - Regular Loading with loading all data into memory, good for smaller files
+### - Streaming Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
 #### Processes data in chunks rather than loading everything at once
-- 🚀 Streaming is ~27% faster for loading (tested on 900k rows of real business data)
-- Regular loading - new(): ~4.95 seconds
-- Streaming loading - new_with_stream(): ~3.62 seconds
+- 🚀 Streaming is ~27% faster for loading and query execution (tested on 900k rows of real business data)
+- Regular loading and fairly complex query execution with **CustomDataFrame::new()**: ~4.95 seconds
+- Streaming loading and fairly complex query execution with **CustomDataFrame::new_with_stream()**: ~3.62 seconds
 - Performance improvement: ~1.33 seconds faster (26.9% improvement)
 
 ### 🔄 Job Scheduling (PipelineScheduler)
