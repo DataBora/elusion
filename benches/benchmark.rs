@@ -20,6 +20,173 @@ async fn setup_large_archive() -> ElusionResult<CustomDataFrame> {
     CustomDataFrame::new(archive_path, "arch").await
 }
 
+fn benchmark_groupby_alias_scenarios(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let archive_df = rt.block_on(setup_large_archive()).unwrap();
+    
+    let mut group = c.benchmark_group("GroupBy_Alias_Scenarios");
+    group.sample_size(100);
+    group.measurement_time(std::time::Duration::from_secs(120));
+    
+    group.bench_function("group_by_all_mixed_aliases", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+                .select([
+                    "veledrogerija as pharmacy",     
+                    "region AS territory",           
+                    "grupa As category",            
+                    "kolicina",                      
+                    "neto_vrednost as net_value"     
+                ])
+                .agg([
+                    "COUNT(*) AS transaction_count",
+                    "SUM(kolicina) AS total_quantity", 
+                    "AVG(neto_vrednost) AS avg_value"
+                ])
+                .group_by_all()  // Should handle all alias styles
+                .order_by(["transaction_count"], ["DESC"])
+                .limit(100)
+                .elusion("mixed_aliases_test")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("explicit_group_by_with_aliases", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "veledrogerija as pharm",
+                    "region AS reg", 
+                    "grupa as cat",
+                    "mesec",
+                    "neto_vrednost"
+                ])
+                .agg([
+                    "SUM(neto_vrednost) AS total_value",
+                    "COUNT(*) AS count"
+                ])
+                .group_by(["pharm", "reg", "cat", "mesec", "neto_vrednost"]) 
+                .order_by(["total_value"], ["DESC"])
+                .limit(100)
+                .elusion("explicit_alias_groupby")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("complex_expressions_with_aliases", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "region",
+                    "neto_vrednost"
+                ])
+                .string_functions([
+                    "UPPER(TRIM(veledrogerija)) as clean_pharmacy",
+                    "CONCAT(godina, '-', mesec) AS year_month",
+                    "CASE WHEN neto_vrednost > 5000 THEN 'HIGH' ELSE 'LOW' END as value_tier",])
+                .agg([
+                    "COUNT(*) AS record_count",
+                    "SUM(neto_vrednost) AS total_sales"
+                ])
+                .group_by(["clean_pharmacy", "year_month", "value_tier", "region", "neto_vrednost"])
+                .having("COUNT(*) > 5")
+                .order_by(["total_sales"], ["DESC"])
+                .limit(50)
+                .elusion("complex_expr_aliases")
+                .await
+                .unwrap()
+        })
+    }));
+
+   
+    group.finish();
+}
+
+fn benchmark_groupby_performance_comparison(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let archive_df = rt.block_on(setup_large_archive()).unwrap();
+    
+    let mut group = c.benchmark_group("GroupBy_Performance_Comparison");
+    group.sample_size(100);
+    group.measurement_time(std::time::Duration::from_secs(150));
+
+    group.bench_function("simple_columns_group_by_all", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "region",
+                    "veledrogerija", 
+                    "grupa",
+                    "mesec"
+                ])
+                .agg([
+                    "COUNT(*) AS count",
+                    "SUM(neto_vrednost) AS total"
+                ])
+                .group_by_all()
+                .limit(100)
+                .elusion("simple_columns_perf")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("aliased_columns_group_by_all", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "region as territory",
+                    "veledrogerija as pharmacy", 
+                    "grupa as category",
+                    "mesec as month"
+                ])
+                .agg([
+                    "COUNT(*) AS count",
+                    "SUM(neto_vrednost) AS total"
+                ])
+                .group_by_all()
+                .limit(100)
+                .elusion("aliased_columns_perf")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("large_dataset_alias_stress", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "grupa as product_group"
+                ])
+                .string_functions([
+                    "TRIM(veledrogerija) as clean_pharmacy",
+                    "UPPER(region) AS upper_region",
+                    "CONCAT(godina, '-', mesec) as period",
+                    "CASE WHEN neto_vrednost > 1000 THEN 'HIGH' ELSE 'LOW' END as value_segment",
+                ])
+                .agg([
+                    "COUNT(*) AS transaction_count",
+                    "SUM(neto_vrednost) AS total_value",
+                    "AVG(neto_vrednost) AS avg_value",
+                    "MIN(neto_vrednost) AS min_value",
+                    "MAX(neto_vrednost) AS max_value"
+                ])
+                .group_by_all()
+                .having("COUNT(*) > 50")
+                .order_by(["total_value"], ["DESC"])
+                .limit(200)
+                .elusion("large_alias_stress")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.finish();
+}
+
 fn benchmark_joins(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let (sales_df, customers_df, products_df, _) = rt.block_on(setup_test_dataframes()).unwrap();
@@ -440,7 +607,7 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
             let complex_result = df_arhiva
                 .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
                 .select([
-                    "veledrogerija",
+                    "veledrogerija as pharmacy",
                     "region", 
                     "kolicina",
                     "neto_vrednost",
@@ -478,7 +645,6 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
     group.finish();
 }
 
-
 criterion_group!(
     benches, 
     benchmark_joins,
@@ -488,7 +654,9 @@ criterion_group!(
     benchmark_memory_optimizations_v4,
     benchmark_complex_pipelines_900k,
     benchmark_type_inference_v4,
-    benchmark_streaming_vs_regular_900k
+    benchmark_streaming_vs_regular_900k,
+    benchmark_groupby_alias_scenarios,
+    benchmark_groupby_performance_comparison
 );
 
 criterion_main!(benches);  
