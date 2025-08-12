@@ -1,3 +1,7 @@
+## [4.0.1] - 2025-08-12
+## Fixed
+- Parsing aliases from string_functions() and datetime_functions(), into group_by() and group_by_all()
+
 ## [4.0.0] - 2025-08-10
 ## BREAKING CHANGES
 - **CustomDataFrame struct**: Added 6 new fields for state tracking

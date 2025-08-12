@@ -73,242 +73,266 @@ static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|
     ].into_iter().collect()
 });
 
-/// Advanced function argument parser that handles nested parentheses, quotes, and complex expressions
-fn parse_function_arguments(args: &str) -> Vec<String> {
-    if args.trim().is_empty() {
-        return Vec::new();
-    }
-    
-    #[cfg(test)]
-    eprintln!("DEBUG: Parsing function arguments: '{}'", args);
-    
-    let mut result = Vec::new();
-    let mut current_arg = String::new();
-    let mut paren_depth = 0;
-    let mut in_quotes = false;
-    let mut quote_char = '\0';
-    let mut escaped = false;
-    
-    for ch in args.chars() {
-        if escaped {
-            current_arg.push(ch);
-            escaped = false;
-            continue;
+    /// Advanced function argument parser that handles nested parentheses, quotes, and complex expressions
+    fn parse_function_arguments(args: &str) -> Vec<String> {
+       // println!("DEBUG: parse_function_arguments input: '{}'", args);
+
+        if args.trim().is_empty() {
+            return Vec::new();
         }
         
-        match ch {
-            '\\' if in_quotes => {
-                escaped = true;
+        let mut result = Vec::new();
+        let mut current_arg = String::new();
+        let mut paren_depth = 0;
+        let mut in_single_quotes = false;
+        let mut in_double_quotes = false;
+        let mut escaped = false;
+        
+        let chars: Vec<char> = args.chars().collect();
+        let mut i = 0;
+        
+        while i < chars.len() {
+            let ch = chars[i];
+            
+           // println!("DEBUG: pos={}, ch='{}', paren_depth={}, in_single_quotes={}, in_double_quotes={}, current_arg='{}'", 
+          //          i, ch, paren_depth, in_single_quotes, in_double_quotes, current_arg);
+            
+            if escaped {
                 current_arg.push(ch);
-            },
-            '\'' | '"' if !in_quotes => {
-                in_quotes = true;
-                quote_char = ch;
-                current_arg.push(ch);
-            },
-            c if in_quotes && c == quote_char => {
-                in_quotes = false;
-                quote_char = '\0';
-                current_arg.push(ch);
-            },
-            '(' if !in_quotes => {
-                paren_depth += 1;
-                current_arg.push(ch);
-            },
-            ')' if !in_quotes => {
-                paren_depth -= 1;
-                current_arg.push(ch);
-            },
-            ',' if !in_quotes && paren_depth == 0 => {
-                let trimmed = current_arg.trim();
-                if !trimmed.is_empty() {
-                    #[cfg(test)]
-                    eprintln!("DEBUG: Found argument: '{}'", trimmed);
-                    result.push(trimmed.to_string());
-                }
-                current_arg.clear();
-            },
-            _ => {
-                current_arg.push(ch);
+                escaped = false;
+                i += 1;
+                continue;
             }
+            
+            match ch {
+                '\\' if in_single_quotes || in_double_quotes => {
+                    escaped = true;
+                    current_arg.push(ch);
+                },
+                '\'' if !in_double_quotes => {
+                    in_single_quotes = !in_single_quotes;
+                    current_arg.push(ch);
+                },
+                '"' if !in_single_quotes => {
+                    in_double_quotes = !in_double_quotes;
+                    current_arg.push(ch);
+                },
+                '(' if !in_single_quotes && !in_double_quotes => {
+                    paren_depth += 1;
+                    current_arg.push(ch);
+                   // println!("DEBUG: Opening paren, depth now {}", paren_depth);
+                },
+                ')' if !in_single_quotes && !in_double_quotes => {
+                    paren_depth -= 1;
+                    current_arg.push(ch);
+                   // println!("DEBUG: Closing paren, depth now {}", paren_depth);
+                },
+                ',' if !in_single_quotes && !in_double_quotes && paren_depth == 0 => {
+                    let trimmed = current_arg.trim();
+                    if !trimmed.is_empty() {
+                   //     println!("DEBUG: Found top-level argument: '{}'", trimmed);
+                        result.push(trimmed.to_string());
+                    }
+                    current_arg.clear();
+                },
+                _ => {
+                    current_arg.push(ch);
+                }
+            }
+            
+            i += 1;
         }
+        
+        let trimmed = current_arg.trim();
+        if !trimmed.is_empty() {
+           // println!("DEBUG: Final argument: '{}'", trimmed);
+            result.push(trimmed.to_string());
+        }
+        
+       // println!("DEBUG: parse_function_arguments result: {:?}", result);
+        result
     }
+
+    /// Converts PostgreSQL-style casting (::TYPE) to standard SQL CAST() function
+    pub fn normalize_postgres_casting(expr: &str) -> String {
+  //  println!("DEBUG normalize_postgres_casting input: '{}'", expr);
     
-    let trimmed = current_arg.trim();
-    if !trimmed.is_empty() {
-        #[cfg(test)]
-        eprintln!("DEBUG: Final argument: '{}'", trimmed);
-        result.push(trimmed.to_string());
-    }
+    let result = POSTGRES_CAST_PATTERN.replace_all(expr, |caps: &regex::Captures| {
+        let column = &caps[1];
+        let data_type = &caps[2];
+        let replacement = format!("CAST({} AS {})", column, data_type);
+      //  println!("DEBUG: Postgres cast replacement: '{}' -> '{}'", caps.get(0).unwrap().as_str(), replacement);
+        replacement
+    }).to_string();
     
-    #[cfg(test)]
-    eprintln!("DEBUG: Total arguments parsed: {:?}", result);
-    
+    //println!("DEBUG normalize_postgres_casting output: '{}'", result);
     result
 }
 
-/// Converts PostgreSQL-style casting (::TYPE) to standard SQL CAST() function
-fn normalize_postgres_casting(expr: &str) -> String {
-    POSTGRES_CAST_PATTERN.replace_all(expr, |caps: &regex::Captures| {
-        let column = &caps[1];
-        let data_type = &caps[2];
-        format!("CAST({} AS {})", column, data_type)
-    }).to_string()
-}
-
-/// Enhanced expression normalization with better parsing
-pub fn normalize_expression(expr: &str, table_alias: &str) -> String {
-
-    if expr.to_uppercase().contains(" OVER ") {
-        return normalize_window_function(expr);
-    }
-    
-    let expr_with_standard_cast = normalize_postgres_casting(expr);
-    
-    #[cfg(test)]
-    eprintln!("DEBUG: Processing expression '{}', looking for AS patterns", expr_with_standard_cast);
-    
-    let all_matches: Vec<_> = AS_PATTERN.find_iter(&expr_with_standard_cast).collect();
-    
-    #[cfg(test)]
-    eprintln!("DEBUG: Found {} AS matches", all_matches.len());
-    
-    for as_match in all_matches.iter().rev() {
-        let before_as = &expr_with_standard_cast[..as_match.start()];
-        let after_as = &expr_with_standard_cast[as_match.end()..];
+    pub fn normalize_expression(expr: &str, table_alias: &str) -> String {
+        if expr.to_uppercase().contains(" OVER ") {
+            return normalize_window_function(expr);
+        }
+        
+        let expr_with_standard_cast = normalize_postgres_casting(expr);
         
         #[cfg(test)]
-        eprintln!("DEBUG: Checking AS match - before_as='{}', after_as='{}'", before_as, after_as);
+        eprintln!("DEBUG: Processing expression '{}', looking for AS patterns", expr_with_standard_cast);
         
-        let mut paren_depth = 0;
-        let mut in_quotes = false;
-        let mut quote_char = '\0';
+        // Use case-insensitive AS pattern instead of the static one
+        let as_pattern = regex::Regex::new(r"(?i)\s+AS\s+").expect("Failed to compile AS regex");
+        let all_matches: Vec<_> = as_pattern.find_iter(&expr_with_standard_cast).collect();
         
-        for ch in before_as.chars() {
-            match ch {
-                '\'' | '"' if !in_quotes => {
-                    in_quotes = true;
-                    quote_char = ch;
-                },
-                c if in_quotes && c == quote_char => {
-                    in_quotes = false;
-                    quote_char = '\0';
-                },
-                '(' if !in_quotes => {
-                    paren_depth += 1;
-                },
-                ')' if !in_quotes => {
-                    paren_depth -= 1;
-                },
-                _ => {}
+        #[cfg(test)]
+        eprintln!("DEBUG: Found {} AS matches", all_matches.len());
+        
+        for as_match in all_matches.iter().rev() {
+            let before_as = &expr_with_standard_cast[..as_match.start()];
+            let after_as = &expr_with_standard_cast[as_match.end()..];
+            
+            #[cfg(test)]
+            eprintln!("DEBUG: Checking AS match - before_as='{}', after_as='{}'", before_as, after_as);
+            
+            let mut paren_depth = 0;
+            let mut in_quotes = false;
+            let mut quote_char = '\0';
+            
+            for ch in before_as.chars() {
+                match ch {
+                    '\'' | '"' if !in_quotes => {
+                        in_quotes = true;
+                        quote_char = ch;
+                    },
+                    c if in_quotes && c == quote_char => {
+                        in_quotes = false;
+                        quote_char = '\0';
+                    },
+                    '(' if !in_quotes => {
+                        paren_depth += 1;
+                    },
+                    ')' if !in_quotes => {
+                        paren_depth -= 1;
+                    },
+                    _ => {}
+                }
+            }
+            
+            #[cfg(test)]
+            eprintln!("DEBUG: Final paren_depth={}", paren_depth);
+            
+            if paren_depth == 0 {
+                let expr_part = before_as.trim();
+                let alias_part = after_as.trim();
+                
+                let normalized_expr = if is_aggregate_expression(expr_part) {
+                    normalize_aggregate_expression(expr_part, table_alias)
+                } else if is_datetime_expression(expr_part) {
+                    normalize_datetime_expression(expr_part, table_alias)  
+                } else {
+                    normalize_simple_expression(expr_part, table_alias)
+                };
+                
+                #[cfg(test)]
+                eprintln!("DEBUG: Before lowercasing: '{}'", normalized_expr);
+
+                let final_result = format!("{} as \"{}\"", 
+                    normalized_expr.to_lowercase(), 
+                    alias_part.trim_matches('"').trim_matches('\'').replace(' ', "_").to_lowercase());
+                    
+                #[cfg(test)]
+                eprintln!("DEBUG: Final expression result: '{}'", final_result);
+                
+                return final_result;
             }
         }
         
         #[cfg(test)]
-        eprintln!("DEBUG: Final paren_depth={}", paren_depth);
+        eprintln!("DEBUG: No top-level AS found, using fallback splitn logic");
         
-        if paren_depth == 0 {
-            let expr_part = before_as.trim();
-            let alias_part = after_as.trim();
-            
-            let normalized_expr = if is_aggregate_expression(expr_part) {
-                normalize_aggregate_expression(expr_part, table_alias)
-            } else if is_datetime_expression(expr_part) {
-                normalize_datetime_expression(expr_part, table_alias)  
-            } else {
-                normalize_simple_expression(expr_part, table_alias)
-            };
-            
-            #[cfg(test)]
-            eprintln!("DEBUG: Before lowercasing: '{}'", normalized_expr);
-
-            let final_result = format!("{} as \"{}\"", 
-                normalized_expr.to_lowercase(), 
-                alias_part.replace(' ', "_").to_lowercase());
+        // Fallback for simple cases -  case insensitive
+        if expr_with_standard_cast.to_uppercase().contains(" AS ") {
+            // Find the AS 
+            if let Some(as_match) = as_pattern.find(&expr_with_standard_cast) {
+                let expr_part = expr_with_standard_cast[..as_match.start()].trim();
+                let alias_part = expr_with_standard_cast[as_match.end()..].trim();
                 
-            #[cfg(test)]
-            eprintln!("DEBUG: Final expression result: '{}'", final_result);
-            
-            return final_result;
+                #[cfg(test)]
+                eprintln!("DEBUG: Fallback found AS, expr_part='{}', alias_part='{}'", expr_part, alias_part);
+                
+                let normalized_expr = if is_aggregate_expression(expr_part) {
+                    normalize_aggregate_expression(expr_part, table_alias)
+                } else if is_datetime_expression(expr_part) {
+                    normalize_datetime_expression(expr_part, table_alias)  
+                } else {
+                    normalize_simple_expression(expr_part, table_alias)
+                };
+                return format!(
+                    "{} as \"{}\"", 
+                    normalized_expr.to_lowercase(),
+                    alias_part.trim_matches('"').trim_matches('\'').to_lowercase()
+                );
+            }
         }
-    }
-    
-    #[cfg(test)]
-    eprintln!("DEBUG: No top-level AS found, using fallback splitn logic");
-    
-    let parts: Vec<&str> = expr_with_standard_cast.splitn(2, " AS ").collect();
-    if parts.len() == 2 {
-        #[cfg(test)]
-        eprintln!("DEBUG: Fallback found AS, expr_part='{}', alias_part='{}'", parts[0].trim(), parts[1].trim());
-        let expr_part = parts[0].trim();
-        let alias_part = parts[1].trim();
-        let normalized_expr = if is_aggregate_expression(expr_part) {
-            normalize_aggregate_expression(expr_part, table_alias)
-        } else if is_datetime_expression(expr_part) {
-            normalize_datetime_expression(expr_part, table_alias)  
+        
+        let result = if is_aggregate_expression(&expr_with_standard_cast) {
+            normalize_aggregate_expression(&expr_with_standard_cast, table_alias)
+        } else if is_datetime_expression(&expr_with_standard_cast) {
+            normalize_datetime_expression(&expr_with_standard_cast, table_alias)
         } else {
-            normalize_simple_expression(expr_part, table_alias)
+            normalize_simple_expression(&expr_with_standard_cast, table_alias)
         };
-        return format!(
-            "{} as \"{}\"", 
-            normalized_expr.to_lowercase(),
-            alias_part.replace(" ", "_").to_lowercase()
-        );
-    }
-    
-    let result = if is_aggregate_expression(&expr_with_standard_cast) {
-        normalize_aggregate_expression(&expr_with_standard_cast, table_alias)
-    } else if is_datetime_expression(&expr_with_standard_cast) {
-        normalize_datetime_expression(&expr_with_standard_cast, table_alias)  // Fixed: added table_alias
-    } else {
-        normalize_simple_expression(&expr_with_standard_cast, table_alias)
-    };
-    
-    result.to_lowercase()
-}
-
-/// Enhanced aggregate expression normalization with proper argument parsing
-pub fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
-    if OPERATOR_PATTERN.is_match(expr) {
-        return normalize_expression_with_operators(expr, table_alias);
+        
+        result.to_lowercase()
     }
 
-    if let Some(caps) = FUNCTION_PATTERN.captures(expr.trim()) {
-        let func_name = &caps[1];
-        let args = &caps[2];
+    /// Enhanced aggregate expression normalization with proper argument parsing
+    pub fn normalize_aggregate_expression(expr: &str, table_alias: &str) -> String {
+        if OPERATOR_PATTERN.is_match(expr) {
+            return normalize_expression_with_operators(expr, table_alias);
+        }
+
+        if let Some(caps) = FUNCTION_PATTERN.captures(expr.trim()) {
+            let func_name = &caps[1];
+            let args = &caps[2];
+            
+            let arg_parts = parse_function_arguments(args);
+            let mut normalized_args = Vec::with_capacity(arg_parts.len());
+            
+            for arg in arg_parts {
+                normalized_args.push(normalize_simple_expression(&arg, table_alias));
+            }
+            
+            format!("{}({})", func_name.to_lowercase(), normalized_args.join(", ").to_lowercase())
+        } else {
+            normalize_simple_expression(expr, table_alias)
+        }
+    }
+
+    /// Enhanced simple expression normalization with better function handling
+    // Add this debug version to your normalize_simple_expression to trace the issue:
+    pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
+      //  println!("=== DEBUG normalize_simple_expression START ===");
+      //  println!("Input: '{}'", expr);
         
-        let arg_parts = parse_function_arguments(args);
-        let mut normalized_args = Vec::with_capacity(arg_parts.len());
+        let expr_trimmed = expr.trim();
+       // println!("After trim: '{}'", expr_trimmed);
         
-        for arg in arg_parts {
-            normalized_args.push(normalize_simple_expression(&arg, table_alias));
+        let expr_with_standard_cast = normalize_postgres_casting(expr_trimmed);
+       // println!("After postgres casting: '{}'", expr_with_standard_cast);
+        
+        if expr_with_standard_cast.to_uppercase().starts_with("CASE") {
+      //      println!("CASE expression detected, delegating...");
+            return normalize_case_expression(&expr_with_standard_cast, table_alias);
         }
         
-        format!("{}({})", func_name.to_lowercase(), normalized_args.join(", ").to_lowercase())
-    } else {
-        normalize_simple_expression(expr, table_alias)
-    }
-}
-
-/// Enhanced simple expression normalization with better function handling
-pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
-    let expr_trimmed = expr.trim();
-    
-    let expr_with_standard_cast = normalize_postgres_casting(expr_trimmed);
-    
-    if expr_with_standard_cast.to_uppercase().starts_with("CASE") {
-        return normalize_case_expression(&expr_with_standard_cast, table_alias);
-    }
-    
-    if let Some(caps) = FUNCTION_PATTERN.captures(&expr_with_standard_cast) {
-        let func_name = &caps[1];
-        let args = &caps[2];
-        
-        #[cfg(test)]
-        eprintln!("DEBUG: Function detected - name: '{}', args: '{}'", func_name, args);
-        
-        // Special handling for POSITION function which uses IN instead of comma
-        if func_name.to_uppercase() == "POSITION" {
+        if let Some(caps) = FUNCTION_PATTERN.captures(&expr_with_standard_cast) {
+            let func_name = &caps[1];
+            let args = &caps[2];
+            
+       //     println!("Function detected - name: '{}', args: '{}'", func_name, args);
+            
+            // Special handling for POSITION function
+            if func_name.to_uppercase() == "POSITION" {
             let upper_args = args.to_uppercase();
             if let Some(in_pos) = upper_args.find(" IN ") {
                 let search_expr = args[..in_pos].trim();
@@ -317,14 +341,14 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                 #[cfg(test)]
                 eprintln!("DEBUG: POSITION function - search: '{}', column: '{}'", search_expr, column_expr);
                 
-                // Handle the search expression (usually a string literal)
+                // search expression (usually a string literal)
                 let normalized_search = if search_expr.starts_with('\'') && search_expr.ends_with('\'') {
                     search_expr.to_string()
                 } else {
                     normalize_simple_expression(search_expr, table_alias)
                 };
                 
-                // Handle the column expression
+                // column expression
                 let normalized_column = if TABLE_COLUMN_PATTERN.is_match(column_expr) {
                     TABLE_COLUMN_PATTERN
                         .replace_all(column_expr, "\"$1\".\"$2\"")
@@ -342,16 +366,52 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                     normalized_column);
             }
         }
-        
-        // Special handling for CAST function which uses AS instead of comma
-        if func_name.to_uppercase() == "CAST" {
-            let upper_args = args.to_uppercase();
-            if let Some(as_pos) = upper_args.find(" AS ") {
-                let expression = args[..as_pos].trim();
-                let datatype = args[as_pos + 4..].trim();
+            
+            // Special handling for CAST function
+            if func_name.to_uppercase() == "CAST" {
+              //  println!("CAST function detected!");
                 
-                #[cfg(test)]
-                eprintln!("DEBUG: CAST function - expression: '{}', datatype: '{}'", expression, datatype);
+                let mut paren_count = 0;
+                let mut as_pos = None;
+                let args_upper = args.to_uppercase();
+                let mut i = 0;
+                
+                while i < args.len() {
+                    let c = args.chars().nth(i).unwrap();
+                    match c {
+                        '(' => paren_count += 1,
+                        ')' => paren_count -= 1,
+                        _ => {}
+                    }
+                    
+                    // Only look for " AS " when we're at the top level (paren_count == 0)
+                    if paren_count == 0 && i + 4 <= args.len() {
+                        if args_upper[i..].starts_with(" AS ") {
+                            as_pos = Some(i);
+                            break;
+                        }
+                    }
+                    i += 1;
+                }
+                
+                if let Some(as_pos) = as_pos {
+                let expression = args[..as_pos].trim();
+                let after_as = &args[as_pos + 4..].trim();
+                
+                // Find the end of the datatype
+                let mut datatype_end = after_as.len();
+                for (i, c) in after_as.chars().enumerate() {
+                    if c.is_whitespace() || c == ',' || c == ')' {
+                        datatype_end = i;
+                        break;
+                    }
+                }
+                
+                let datatype = &after_as[..datatype_end].trim();
+                
+        //        println!("DEBUG CAST: args='{}', as_pos={}", args, as_pos);
+          //      println!("DEBUG CAST: expression='{}', after_as='{}'", expression, after_as);
+          //      println!("DEBUG CAST: datatype_end={}, datatype='{}'", datatype_end, datatype);
                 
                 let normalized_expr = if TABLE_COLUMN_PATTERN.is_match(expression) {
                     TABLE_COLUMN_PATTERN
@@ -364,332 +424,427 @@ pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
                     normalize_simple_expression(expression, table_alias)
                 };
                 
-                return format!("{}({} as {})", 
+                let result = format!("{}({} as {})", 
                     func_name.to_lowercase(), 
                     normalized_expr, 
                     datatype.to_lowercase());
+                
+              //  println!("DEBUG CAST: final result='{}'", result);
+                
+                return result;
+                } else {
+                   // println!("No AS found in CAST, falling through to general function handling");
+                }
             }
-        }
-        
-        // Use advanced argument parser for other functions
-        let arg_parts = parse_function_arguments(args);
-        let mut normalized_args = Vec::with_capacity(arg_parts.len());
-        
-        for arg in arg_parts {
-            let arg_trimmed = arg.trim();
             
-            if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
-                // String literal - preserve as-is
-                normalized_args.push(arg_trimmed.to_string());
-            } else if arg_trimmed.starts_with('"') && arg_trimmed.ends_with('"') {
-                // Quoted identifier - preserve as-is
-                normalized_args.push(arg_trimmed.to_string());
-            } else if arg_trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
-                // Numeric literal - preserve as-is
-                normalized_args.push(arg_trimmed.to_string());
-            } else if matches!(arg_trimmed.to_uppercase().as_str(), 
-                              "TEXT" | "INTEGER" | "BIGINT" | "VARCHAR" | "FLOAT" | "DOUBLE" | 
-                              "BOOLEAN" | "DATE" | "TIMESTAMP") {
-                // Data type - lowercase
-                normalized_args.push(arg_trimmed.to_lowercase());
-            } else if FUNCTION_PATTERN.is_match(arg_trimmed) {
-                // Nested function - recursively normalize
-                #[cfg(test)]
-                eprintln!("DEBUG: Processing nested function: '{}'", arg_trimmed);
-                let nested_result = normalize_simple_expression(arg_trimmed, table_alias);
-                #[cfg(test)]
-                eprintln!("DEBUG: Nested function result: '{}'", nested_result);
-                normalized_args.push(nested_result);
-            } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
-                // This must come BEFORE is_simple_column check to catch table.column patterns
-                let normalized = TABLE_COLUMN_PATTERN
-                    .replace_all(arg_trimmed, "\"$1\".\"$2\"")
-                    .to_string()
-                    .to_lowercase();
-                normalized_args.push(normalized);
-            } else if is_simple_column(arg_trimmed) {
-                // Simple column without table prefix - add the main table alias
-                normalized_args.push(format!("\"{}\".\"{}\"", 
-                    table_alias.to_lowercase(), 
-                    arg_trimmed.to_lowercase()));
-            } else if OPERATOR_PATTERN.is_match(arg_trimmed) {
-                // Operator expression - handle recursively
-                normalized_args.push(normalize_expression_with_operators(arg_trimmed, table_alias));
-            } else {
-                // Fallback - just lowercase
-                #[cfg(test)]
-                eprintln!("DEBUG: Argument '{}' fell through to default case", arg_trimmed);
-                normalized_args.push(arg_trimmed.to_lowercase());
-            }
-        }
-        
-        let final_result = format!("{}({})", func_name.to_lowercase(), normalized_args.join(", "));
-        
-        #[cfg(test)]
-        eprintln!("DEBUG: Final function result: '{}'", final_result);
-        
-        final_result
-    } else if OPERATOR_PATTERN.is_match(&expr_with_standard_cast) {
-        normalize_expression_with_operators(&expr_with_standard_cast, table_alias)
-    } else if TABLE_COLUMN_PATTERN.is_match(&expr_with_standard_cast) {
-        TABLE_COLUMN_PATTERN
-            .replace_all(&expr_with_standard_cast, "\"$1\".\"$2\"")
-            .to_string()
-            .to_lowercase()
-    } else if is_simple_column(&expr_with_standard_cast) {
-        format!("\"{}\".\"{}\"", 
-            table_alias.to_lowercase(), 
-            expr_with_standard_cast.replace(' ', "_").to_lowercase())
-    } else {
-        expr_with_standard_cast.to_lowercase()
-    }
-}
-
-/// Enhanced window function normalization with better argument parsing
-pub fn normalize_window_function(expression: &str) -> String {
-    let expr_with_standard_cast = normalize_postgres_casting(expression);
-    
-    if let Some(over_pos) = expr_with_standard_cast.to_uppercase().find(" OVER ") {
-        let function_part = expr_with_standard_cast[..over_pos].trim();
-        let over_part = expr_with_standard_cast[over_pos + 6..].trim();
-
-        let (normalized_function, maybe_args) = if let Some(caps) = WINDOW_FUNCTION_PATTERN.captures(function_part) {
-            let func_name = &caps[1];
-            let arg_list_str = &caps[2];
-
-            let raw_args = parse_function_arguments(arg_list_str);
-            let mut normalized_args = Vec::with_capacity(raw_args.len());
+            // General function handling
+          //  println!("Using general function argument parsing...");
+            let arg_parts = parse_function_arguments(args);
+           // println!("Parsed arguments: {:?}", arg_parts);
             
-            for arg in raw_args {
-                normalized_args.push(normalize_function_arg(&arg));
+            let mut normalized_args = Vec::with_capacity(arg_parts.len());
+            
+            for (_i, arg) in arg_parts.iter().enumerate() {
+                let arg_trimmed = arg.trim();
+              //  println!("Processing argument {}: '{}'", i, arg_trimmed);
+                
+                if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
+                //println!("  -> String literal, preserving as-is");
+                    normalized_args.push(arg_trimmed.to_string());
+                } else if arg_trimmed.starts_with('"') && arg_trimmed.ends_with('"') {
+                  //  println!("  -> Quoted identifier, preserving as-is");
+                    normalized_args.push(arg_trimmed.to_string());
+                } else if arg_trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
+                 //   println!("  -> Numeric literal, preserving as-is");
+                    normalized_args.push(arg_trimmed.to_string());
+                } else if matches!(arg_trimmed.to_uppercase().as_str(), 
+                                "TEXT" | "INTEGER" | "BIGINT" | "VARCHAR" | "FLOAT" | "DOUBLE" | 
+                                "BOOLEAN" | "DATE" | "TIMESTAMP") {
+                 //   println!("  -> Data type, lowercasing");
+                    normalized_args.push(arg_trimmed.to_lowercase());
+                } else if FUNCTION_PATTERN.is_match(arg_trimmed) {
+                 //   println!("  -> Nested function, recursing");
+                    let nested_result = normalize_simple_expression(arg_trimmed, table_alias);
+                  //  println!("  -> Nested result: '{}'", nested_result);
+                    normalized_args.push(nested_result);
+                } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
+                  //  println!("  -> Table.column pattern");
+                    let normalized = TABLE_COLUMN_PATTERN
+                        .replace_all(arg_trimmed, "\"$1\".\"$2\"")
+                        .to_string()
+                        .to_lowercase();
+                 //   println!("  -> Normalized to: '{}'", normalized);
+                    normalized_args.push(normalized);
+                } else if is_simple_column(arg_trimmed) {
+                 //   println!("  -> Simple column, adding table prefix");
+                    let result = format!("\"{}\".\"{}\"", 
+                        table_alias.to_lowercase(), 
+                        arg_trimmed.to_lowercase());
+                 //   println!("  -> Result: '{}'", result);
+                    normalized_args.push(result);
+                } else if OPERATOR_PATTERN.is_match(arg_trimmed) {
+                   // println!("  -> Operator expression");
+                    let result = normalize_expression_with_operators(arg_trimmed, table_alias);
+                  //  println!("  -> Result: '{}'", result);
+                    normalized_args.push(result);
+                } else {
+                 //   println!("  -> Default case, lowercasing");
+                    let result = arg_trimmed.to_lowercase();
+                  //  println!("  -> Result: '{}'", result);
+                    normalized_args.push(result);
+                }
             }
-
-            (func_name.to_lowercase(), Some(normalized_args))
-        } else {
-            (function_part.to_lowercase(), None)
-        };
-
-        let rebuilt_function = if let Some(args) = maybe_args {
-            format!("{}({})", normalized_function, args.join(", ").to_lowercase())
-        } else {
-            normalized_function
-        };
-
-        let normalized_over = TABLE_COLUMN_PATTERN
-            .replace_all(over_part, "\"$1\".\"$2\"")
-            .to_string()
-            .to_lowercase();
-
-        format!("{} over {}", rebuilt_function, normalized_over)
-    } else {
-        expr_with_standard_cast.to_lowercase()
-    }
-}
-
-/// Enhanced function argument normalization
-pub fn normalize_function_arg(arg: &str) -> String {
-
-    let arg_with_standard_cast = normalize_postgres_casting(arg);
-    
-    if let Some(caps) = TABLE_COLUMN_PATTERN.captures(&arg_with_standard_cast) {
-        let table = &caps[1];
-        let col = &caps[2];
-        format!("\"{}\".\"{}\"", 
-            table.to_lowercase(), 
-            col.to_lowercase())
-    } else {
-        arg_with_standard_cast.to_lowercase()
-    }
-}
-
-fn normalize_expression_with_operators(expr: &str, table_alias: &str) -> String {
-    let mut result = String::with_capacity(expr.len() * 2);
-    let parts: Vec<&str> = OPERATOR_PATTERN.split(expr).collect();
-    let operators: Vec<&str> = OPERATOR_PATTERN.find_iter(expr).map(|m| m.as_str()).collect();
-    
-    for (i, part) in parts.iter().enumerate() {
-        let trimmed = part.trim();
-        
-        if TABLE_COLUMN_PATTERN.is_match(trimmed) {
-            result.push_str(&TABLE_COLUMN_PATTERN
-                .replace_all(trimmed, "\"$1\".\"$2\"")
+            
+            let final_result = format!("{}({})", func_name.to_lowercase(), normalized_args.join(", "));
+         //   println!("Final function result: '{}'", final_result);
+          //  println!("=== DEBUG normalize_simple_expression END ===");
+            return final_result;
+            
+        } else if OPERATOR_PATTERN.is_match(&expr_with_standard_cast) {
+           // println!("Operator pattern detected");
+            return normalize_expression_with_operators(&expr_with_standard_cast, table_alias);
+        } else if TABLE_COLUMN_PATTERN.is_match(&expr_with_standard_cast) {
+           // println!("Table.column pattern detected");
+            let result = TABLE_COLUMN_PATTERN
+                .replace_all(&expr_with_standard_cast, "\"$1\".\"$2\"")
                 .to_string()
-                .to_lowercase());
-        } else if FUNCTION_PATTERN.is_match(trimmed) {
-            if is_aggregate_expression(trimmed) {
-                result.push_str(&normalize_aggregate_expression(trimmed, table_alias));
-            } else {
-                result.push_str(&normalize_simple_expression(trimmed, table_alias));
-            }
-        } else if is_simple_column(trimmed) {
-            result.push_str(&format!("\"{}\".\"{}\"", 
+                .to_lowercase();
+           // println!("Result: '{}'", result);
+            return result;
+        } else if is_simple_column(&expr_with_standard_cast) {
+          //  println!("Simple column detected");
+            let result = format!("\"{}\".\"{}\"", 
                 table_alias.to_lowercase(), 
-                trimmed.to_lowercase()));
+                expr_with_standard_cast.to_lowercase()); //.replace(' ', "_")
+          //  println!("Result: '{}'", result);
+            return result;
         } else {
-            result.push_str(&trimmed.to_lowercase());
+          //  println!("Default case, lowercasing");
+            let result = expr_with_standard_cast.to_lowercase();
+          //  println!("Result: '{}'", result);
+            return result;
         }
-        
-        if let Some(op) = operators.get(i) {
-            result.push_str(&format!(" {} ", op));
-        }
-    }
-    
-    result
-}
-
-fn normalize_case_expression(expr: &str, table_alias: &str) -> String {
-    let mut result = expr.to_string();
-    
-    result = TABLE_COLUMN_PATTERN
-        .replace_all(&result, "\"$1\".\"$2\"")
-        .to_string();
-
-    let simple_column_in_context = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-    
-    result = simple_column_in_context.replace_all(&result, |caps: &regex::Captures| {
-        let word = &caps[1];
-        let word_upper = word.to_uppercase();
-        
-        let full_match = caps.get(0).unwrap();
-        let match_start = full_match.start();
-        let match_end = full_match.end();
-        
-        let before = &result[..match_start];
-        let after = &result[match_end..];
-        
-        let quotes_before = before.matches('\'').count();
-        let inside_quotes = quotes_before % 2 == 1;
-        
-        if word.starts_with('"') || 
-           inside_quotes ||
-           SQL_KEYWORDS.contains(word_upper.as_str()) ||
-           word.chars().all(|c| c.is_ascii_digit() || c == '.') ||
-           after.trim_start().starts_with('(') {
-            word.to_string()
-        } else if is_simple_column(word) {
-            format!("\"{}\".\"{}\"", table_alias.to_lowercase(), word.to_lowercase())
-        } else {
-            word.to_lowercase()
-        }
-    }).to_string();
-    
-    result.to_lowercase()
-}
-
-pub async fn lowercase_column_names(df: DataFrame) -> ElusionResult<DataFrame> {
-    let schema = df.schema();
-   
-    let mut columns = Vec::with_capacity(schema.fields().len());
-    
-    for field in schema.fields() {
-        let name = field.name();
-        let normalized = normalize_field_name(name);
-        columns.push(format!("\"{}\" as \"{}\"", name, normalized));
     }
 
-    let ctx = SessionContext::new();
-    
-    let batches = df.clone().collect().await?;
-    let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])?;
-    ctx.register_table("temp_table", Arc::new(mem_table))?;
-    
-    let sql = format!("SELECT {} FROM temp_table", columns.join(", "));
-    ctx.sql(&sql).await.map_err(|e| ElusionError::Custom(format!("Failed to lowercase column names: {}", e)))
-}
-
-fn normalize_field_name(name: &str) -> Cow<str> {
-    let trimmed = name.trim();
-    
-    if trimmed.chars().all(|c| c.is_ascii_lowercase() || c == '_') && !trimmed.contains(' ') {
-        Cow::Borrowed(trimmed)
-    } else {
-        Cow::Owned(trimmed.replace(' ', "_").to_lowercase())
-    }
-}
-
-pub fn normalize_alias_write(alias: &str) -> Cow<str> {
-    let trimmed = alias.trim();
-    
-    if trimmed.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
-        Cow::Borrowed(trimmed)
-    } else {
-        Cow::Owned(trimmed.to_lowercase())
-    }
-}
-
-pub fn normalize_column_name(name: &str) -> String {
-    let name_upper = name.to_uppercase();
-    
-    if name_upper.contains(" AS ") {
-        let parts: Vec<&str> = AS_PATTERN.split(name).collect();
+    /// Enhanced window function normalization with better argument parsing
+    pub fn normalize_window_function(expression: &str) -> String {
+        let expr_with_standard_cast = normalize_postgres_casting(expression);
         
-        if parts.len() >= 2 {
-            let column = parts[0].trim();
-            let alias = parts[1].trim();
-            
-            if let Some(pos) = column.find('.') {
-                let table = &column[..pos];
-                let col = &column[pos + 1..];
-                format!("\"{}\".\"{}\" AS \"{}\"",
-                    table.trim().to_lowercase(),
-                    col.trim().to_lowercase(),
-                    alias.to_lowercase())
+        if let Some(over_pos) = expr_with_standard_cast.to_uppercase().find(" OVER ") {
+            let function_part = expr_with_standard_cast[..over_pos].trim();
+            let over_part = expr_with_standard_cast[over_pos + 6..].trim();
+
+            let (normalized_function, maybe_args) = if let Some(caps) = WINDOW_FUNCTION_PATTERN.captures(function_part) {
+                let func_name = &caps[1];
+                let arg_list_str = &caps[2];
+
+                let raw_args = parse_function_arguments(arg_list_str);
+                let mut normalized_args = Vec::with_capacity(raw_args.len());
+                
+                for arg in raw_args {
+                    normalized_args.push(normalize_function_arg(&arg));
+                }
+
+                (func_name.to_lowercase(), Some(normalized_args))
             } else {
-                format!("\"{}\" AS \"{}\"",
-                    column.trim().to_lowercase(),
-                    alias.to_lowercase())
+                (function_part.to_lowercase(), None)
+            };
+
+            let rebuilt_function = if let Some(args) = maybe_args {
+                format!("{}({})", normalized_function, args.join(", ").to_lowercase())
+            } else {
+                normalized_function
+            };
+
+            let normalized_over = TABLE_COLUMN_PATTERN
+                .replace_all(over_part, "\"$1\".\"$2\"")
+                .to_string()
+                .to_lowercase();
+
+            format!("{} over {}", rebuilt_function, normalized_over)
+        } else {
+            expr_with_standard_cast.to_lowercase()
+        }
+    }
+
+    /// Enhanced function argument normalization
+    pub fn normalize_function_arg(arg: &str) -> String {
+
+        let arg_with_standard_cast = normalize_postgres_casting(arg);
+        
+        if let Some(caps) = TABLE_COLUMN_PATTERN.captures(&arg_with_standard_cast) {
+            let table = &caps[1];
+            let col = &caps[2];
+            format!("\"{}\".\"{}\"", 
+                table.to_lowercase(), 
+                col.to_lowercase())
+        } else {
+            arg_with_standard_cast.to_lowercase()
+        }
+    }
+
+    fn normalize_expression_with_operators(expr: &str, table_alias: &str) -> String {
+        let mut result = String::with_capacity(expr.len() * 2);
+        let parts: Vec<&str> = OPERATOR_PATTERN.split(expr).collect();
+        let operators: Vec<&str> = OPERATOR_PATTERN.find_iter(expr).map(|m| m.as_str()).collect();
+        
+        for (i, part) in parts.iter().enumerate() {
+            let trimmed = part.trim();
+            
+            if TABLE_COLUMN_PATTERN.is_match(trimmed) {
+                result.push_str(&TABLE_COLUMN_PATTERN
+                    .replace_all(trimmed, "\"$1\".\"$2\"")
+                    .to_string()
+                    .to_lowercase());
+            } else if FUNCTION_PATTERN.is_match(trimmed) {
+                if is_aggregate_expression(trimmed) {
+                    result.push_str(&normalize_aggregate_expression(trimmed, table_alias));
+                } else {
+                    result.push_str(&normalize_simple_expression(trimmed, table_alias));
+                }
+            } else if is_simple_column(trimmed) {
+                result.push_str(&format!("\"{}\".\"{}\"", 
+                    table_alias.to_lowercase(), 
+                    trimmed.to_lowercase()));
+            } else {
+                result.push_str(&trimmed.to_lowercase());
+            }
+            
+            if let Some(op) = operators.get(i) {
+                result.push_str(&format!(" {} ", op));
+            }
+        }
+        
+        result
+    }
+
+    fn normalize_case_expression(expr: &str, table_alias: &str) -> String {
+      //  println!("DEBUG: normalize_case_expression input: '{}'", expr);
+
+        let mut result = expr.to_string();
+        
+        // First, handle table.column patterns
+        result = TABLE_COLUMN_PATTERN
+            .replace_all(&result, "\"$1\".\"$2\"")
+            .to_string();
+
+        let simple_column_in_context = Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
+        
+        // list of positions to replace to avoid modifying while iterating
+        let mut replacements = Vec::new();
+        
+        for caps in simple_column_in_context.captures_iter(&result) {
+            let word = &caps[1];
+            let word_upper = word.to_uppercase();
+            
+            let full_match = caps.get(0).unwrap();
+            let match_start = full_match.start();
+            let match_end = full_match.end();
+            
+            let before = &result[..match_start];
+            let after = &result[match_end..];
+            
+            let quotes_before = before.matches('\'').count();
+            let inside_quotes = quotes_before % 2 == 1;
+
+            if word.starts_with('"') || 
+            inside_quotes ||
+            SQL_KEYWORDS.contains(word_upper.as_str()) ||
+            word.chars().all(|c| c.is_ascii_digit() || c == '.') ||
+            after.trim_start().starts_with('(') {
+                // Keep as-is
+                continue;
+            } else if is_simple_column(word) {
+                let replacement = format!("\"{}\".\"{}\"", table_alias.to_lowercase(), word.to_lowercase());
+                replacements.push((match_start, match_end, replacement));
+            } else {
+                // Don't automatically lowercase - this can corrupt expressions
+                let replacement = word.to_lowercase();
+                replacements.push((match_start, match_end, replacement));
+            }
+        }
+        
+        // Apply replacements in reverse order to maintain positions
+        for (start, end, replacement) in replacements.into_iter().rev() {
+            result.replace_range(start..end, &replacement);
+        }
+        
+       // println!("DEBUG: normalize_case_expression output: '{}'", result);
+        result  // .to_lowercase()
+    }
+
+    pub async fn lowercase_column_names(df: DataFrame) -> ElusionResult<DataFrame> {
+        let schema = df.schema();
+    
+        let mut columns = Vec::with_capacity(schema.fields().len());
+        
+        for field in schema.fields() {
+            let name = field.name();
+            let normalized = normalize_field_name(name);
+            columns.push(format!("\"{}\" as \"{}\"", name, normalized));
+        }
+
+        let ctx = SessionContext::new();
+        
+        let batches = df.clone().collect().await?;
+        let mem_table = MemTable::try_new(schema.clone().into(), vec![batches])?;
+        ctx.register_table("temp_table", Arc::new(mem_table))?;
+        
+        let sql = format!("SELECT {} FROM temp_table", columns.join(", "));
+        ctx.sql(&sql).await.map_err(|e| ElusionError::Custom(format!("Failed to lowercase column names: {}", e)))
+    }
+
+    fn normalize_field_name(name: &str) -> Cow<str> {
+        let trimmed = name.trim();
+        
+        if trimmed.chars().all(|c| c.is_ascii_lowercase() || c == '_') && !trimmed.contains(' ') {
+            Cow::Borrowed(trimmed)
+        } else {
+            Cow::Owned(trimmed.replace(' ', "_").to_lowercase())
+        }
+    }
+
+    pub fn normalize_alias_write(alias: &str) -> Cow<str> {
+        let trimmed = alias.trim();
+        
+        if trimmed.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+            Cow::Borrowed(trimmed)
+        } else {
+            Cow::Owned(trimmed.to_lowercase())
+        }
+    }
+
+    pub fn normalize_column_name(name: &str) -> String {
+
+        // println!("DEBUG normalize_column_name called with: '{}'", name);
+
+         if name.contains('(') || name.contains(',') {
+      //  println!("WARNING: normalize_column_name called on function expression!");
+      //  println!("This will mangle the expression!");
+    }
+        let name_upper = name.to_uppercase();
+        
+        if name_upper.contains(" AS ") {
+            let parts: Vec<&str> = AS_PATTERN.split(name).collect();
+            
+            if parts.len() >= 2 {
+                let column = parts[0].trim();
+                let alias = parts[1].trim();
+                
+                if let Some(pos) = column.find('.') {
+                    let table = &column[..pos];
+                    let col = &column[pos + 1..];
+                    format!("\"{}\".\"{}\" AS \"{}\"",
+                        table.trim().to_lowercase(),
+                        col.trim().to_lowercase(),
+                        alias.to_lowercase())
+                } else {
+                    format!("\"{}\" AS \"{}\"",
+                        column.trim().to_lowercase(),
+                        alias.to_lowercase())
+                }
+            } else {
+                format_table_column(name)
             }
         } else {
             format_table_column(name)
         }
-    } else {
-        format_table_column(name)
-    }
-}
 
-#[inline]
-fn format_table_column(name: &str) -> String {
-    if let Some(pos) = name.find('.') {
+    }
+
+    #[inline]
+    fn format_table_column(name: &str) -> String {
+    //println!("DEBUG format_table_column called with: '{}'", name);
+    
+   // if name.contains('(') || name.contains(',') {
+      //  println!("ERROR: format_table_column called on function! This will break it!");
+  //  }
+    
+    let result = if let Some(pos) = name.find('.') {
         let table = &name[..pos];
         let column = &name[pos + 1..];
         format!("\"{}\".\"{}\"", 
             table.trim().to_lowercase(), 
-            column.trim().replace(' ', "_").to_lowercase())
+            column.trim().replace(' ', "_").to_lowercase())  
     } else {
         format!("\"{}\"", 
-            name.trim().replace(' ', "_").to_lowercase())
+            name.trim().replace(' ', "_").to_lowercase()) 
+    };
+    
+   // println!("DEBUG format_table_column result: '{}'", result);
+    result
+}
+
+    pub fn normalize_alias(alias: &str) -> String {
+        format!("\"{}\"", alias.trim().to_lowercase())
     }
-}
 
-pub fn normalize_alias(alias: &str) -> String {
-    format!("\"{}\"", alias.trim().to_lowercase())
-}
+    pub fn normalize_condition(condition: &str) -> String {
+        TABLE_COLUMN_PATTERN
+            .replace_all(condition.trim(), "\"$1\".\"$2\"")
+            .to_string()
+            .to_lowercase()
+    }
 
-pub fn normalize_condition(condition: &str) -> String {
-    TABLE_COLUMN_PATTERN
-        .replace_all(condition.trim(), "\"$1\".\"$2\"")
-        .to_string()
-        .to_lowercase()
-}
+    pub fn normalize_condition_filter(condition: &str) -> String {
+        let trimmed = condition.trim();
+    // eprintln!("Original condition: '{}'", trimmed);
 
-pub fn normalize_condition_filter(condition: &str) -> String {
-    let trimmed = condition.trim();
-   // eprintln!("Original condition: '{}'", trimmed);
+        let sql_keywords: HashSet<&str> = [
+            "SELECT", "FROM", "WHERE", "IS", "NOT", "IN", "NULL", "LIKE","OR", "AND"
+        ].into_iter().collect();
 
-    let sql_keywords: HashSet<&str> = [
-        "SELECT", "FROM", "WHERE", "IS", "NOT", "IN", "NULL", "LIKE","OR", "AND"
-    ].into_iter().collect();
+        let mut result = String::new();
+        let mut last_end = 0;
 
-    let mut result = String::new();
-    let mut last_end = 0;
+        for cap in STRING_LITERAL_PATTERN.find_iter(trimmed) {
+            let before = &trimmed[last_end..cap.start()];
 
-    for cap in STRING_LITERAL_PATTERN.find_iter(trimmed) {
-        let before = &trimmed[last_end..cap.start()];
+            // replacing table.column with temp markers
+            let matches: Vec<_> = TABLE_COLUMN_PATTERN.captures_iter(before).collect();
+            let mut temp_replacements: HashMap<String, String> = HashMap::new();
+            let mut modified_before = before.to_string();
+            let mut offset: isize = 0;
+            for (i, match_cap) in matches.iter().enumerate() {
+                let marker = format!("1TEMP{}", i);
+                let table = match_cap.get(1).unwrap().as_str();
+                let column = match_cap.get(2).unwrap().as_str().to_lowercase();
+                let quoted = format!("\"{}\".\"{}\"", table, column);
+                temp_replacements.insert(marker.clone(), quoted);
+                let start = (match_cap.get(0).unwrap().start() as isize + offset) as usize;
+                let end = (match_cap.get(0).unwrap().end() as isize + offset) as usize;
+                modified_before.replace_range(start..end, &marker);
+                offset += marker.len() as isize - (end - start) as isize;
+            }
 
-        // replacing table.column with temp markers
-        let matches: Vec<_> = TABLE_COLUMN_PATTERN.captures_iter(before).collect();
+            // replacing simple columns
+            let replaced = SIMPLE_COLUMN_PATTERN.replace_all(&modified_before, |caps: &regex::Captures| {
+                let column = caps.get(0).unwrap().as_str();
+                let upper_column = column.to_uppercase();
+                if sql_keywords.contains(upper_column.as_str()) {
+                    column.to_string()
+                } else {
+                    format!("\"{}\"", column.to_lowercase())
+                }
+            }).to_string();
+
+            // replacing back temp markers
+            let mut final_replaced = replaced;
+            for (marker, quoted) in temp_replacements {
+                final_replaced = final_replaced.replace(&marker, &quoted);
+            }
+
+            result.push_str(&final_replaced);
+            result.push_str(cap.as_str());
+            last_end = cap.end();
+        }
+
+        let remaining = &trimmed[last_end..];
+
+        // Same process for remaining
+        let matches: Vec<_> = TABLE_COLUMN_PATTERN.captures_iter(remaining).collect();
         let mut temp_replacements: HashMap<String, String> = HashMap::new();
-        let mut modified_before = before.to_string();
+        let mut modified_remaining = remaining.to_string();
         let mut offset: isize = 0;
         for (i, match_cap) in matches.iter().enumerate() {
             let marker = format!("1TEMP{}", i);
@@ -699,12 +854,11 @@ pub fn normalize_condition_filter(condition: &str) -> String {
             temp_replacements.insert(marker.clone(), quoted);
             let start = (match_cap.get(0).unwrap().start() as isize + offset) as usize;
             let end = (match_cap.get(0).unwrap().end() as isize + offset) as usize;
-            modified_before.replace_range(start..end, &marker);
+            modified_remaining.replace_range(start..end, &marker);
             offset += marker.len() as isize - (end - start) as isize;
         }
 
-        // replacing simple columns
-        let replaced = SIMPLE_COLUMN_PATTERN.replace_all(&modified_before, |caps: &regex::Captures| {
+        let replaced = SIMPLE_COLUMN_PATTERN.replace_all(&modified_remaining, |caps: &regex::Captures| {
             let column = caps.get(0).unwrap().as_str();
             let upper_column = column.to_uppercase();
             if sql_keywords.contains(upper_column.as_str()) {
@@ -714,157 +868,185 @@ pub fn normalize_condition_filter(condition: &str) -> String {
             }
         }).to_string();
 
-        // replacing back temp markers
         let mut final_replaced = replaced;
         for (marker, quoted) in temp_replacements {
             final_replaced = final_replaced.replace(&marker, &quoted);
         }
 
         result.push_str(&final_replaced);
-        result.push_str(cap.as_str());
-        last_end = cap.end();
+
+    // eprintln!("Final normalized condition: '{}'", result);
+
+        result
     }
 
-    let remaining = &trimmed[last_end..];
-
-    // Same process for remaining
-    let matches: Vec<_> = TABLE_COLUMN_PATTERN.captures_iter(remaining).collect();
-    let mut temp_replacements: HashMap<String, String> = HashMap::new();
-    let mut modified_remaining = remaining.to_string();
-    let mut offset: isize = 0;
-    for (i, match_cap) in matches.iter().enumerate() {
-        let marker = format!("1TEMP{}", i);
-        let table = match_cap.get(1).unwrap().as_str();
-        let column = match_cap.get(2).unwrap().as_str().to_lowercase();
-        let quoted = format!("\"{}\".\"{}\"", table, column);
-        temp_replacements.insert(marker.clone(), quoted);
-        let start = (match_cap.get(0).unwrap().start() as isize + offset) as usize;
-        let end = (match_cap.get(0).unwrap().end() as isize + offset) as usize;
-        modified_remaining.replace_range(start..end, &marker);
-        offset += marker.len() as isize - (end - start) as isize;
+    pub fn is_expression(s: &str) -> bool {
+        s.chars().any(|c| matches!(c, '+' | '-' | '*' | '/' | '%' | '(' | ')' | ',' | '.')) ||
+        s.contains("(")
     }
 
-    let replaced = SIMPLE_COLUMN_PATTERN.replace_all(&modified_remaining, |caps: &regex::Captures| {
-        let column = caps.get(0).unwrap().as_str();
-        let upper_column = column.to_uppercase();
-        if sql_keywords.contains(upper_column.as_str()) {
-            column.to_string()
+    pub fn is_simple_column(s: &str) -> bool {
+        let matches_pattern = SIMPLE_COLUMN_PATTERN.is_match(s);
+        let upper_s = s.to_uppercase();
+        let is_keyword = SQL_KEYWORDS.contains(upper_s.as_str());
+        
+        // FIXED: More precise checks to avoid false positives
+        let is_complex = s.contains('(') || 
+                        s.contains(')') || 
+                        s.contains(',') ||
+                        upper_s.contains(" AS ") ||  // Use uppercase version, not lowercase
+                        OPERATOR_PATTERN.is_match(s);
+
+        let has_table_prefix = s.contains('.');
+        let is_case_expression = upper_s.trim().starts_with("CASE");
+        
+        let result = matches_pattern && !is_keyword && !is_complex && !has_table_prefix && !is_case_expression;
+        
+       // if s.contains("LPAD") || s.contains("CAST") {
+         //   println!("DEBUG is_simple_column('{}') -> {}", s, result);
+          //  println!("  matches_pattern: {}, is_keyword: {}, is_complex: {}, has_table_prefix: {}", 
+                    //matches_pattern, is_keyword, is_complex, has_table_prefix);
+       // }
+        
+        result
+    }
+
+    pub fn is_aggregate_expression(expr: &str) -> bool {
+        let upper_expr = expr.to_uppercase();
+        
+        if let Some(paren_pos) = upper_expr.find('(') {
+            let func_name = upper_expr[..paren_pos].trim();
+            AGGREGATE_FUNCTIONS.contains(func_name)
         } else {
-            format!("\"{}\"", column.to_lowercase())
+            AGGREGATE_FUNCTIONS.iter().any(|&func| upper_expr.starts_with(func))
         }
-    }).to_string();
-
-    let mut final_replaced = replaced;
-    for (marker, quoted) in temp_replacements {
-        final_replaced = final_replaced.replace(&marker, &quoted);
     }
 
-    result.push_str(&final_replaced);
-
-   // eprintln!("Final normalized condition: '{}'", result);
-
-    result
-}
-
-pub fn is_expression(s: &str) -> bool {
-    s.chars().any(|c| matches!(c, '+' | '-' | '*' | '/' | '%' | '(' | ')' | ',' | '.')) ||
-    s.contains("(")
-}
-
-pub fn is_simple_column(s: &str) -> bool {
-    let matches_pattern = SIMPLE_COLUMN_PATTERN.is_match(s);
-    let upper_s = s.to_uppercase();
-    let is_keyword = SQL_KEYWORDS.contains(upper_s.as_str());
-    let is_complex = s.contains('(') || s.contains(')') || s.to_lowercase().contains(" as ") || OPERATOR_PATTERN.is_match(s);
-
-    let has_table_prefix = s.contains('.');
-
-    // eprintln!("REAL FUNCTION DEBUG: is_simple_column('{}') - matches_pattern: {}, upper: '{}', is_keyword: {}, is_complex: {}", 
-    //     s, matches_pattern, upper_s, is_keyword, is_complex);
-    
-    let result = matches_pattern && !is_keyword && !is_complex && !has_table_prefix;
-    // eprintln!("REAL FUNCTION DEBUG: final result = {} && !{} && !{} && !{} = {}", 
-    //     matches_pattern, is_keyword, is_complex, has_table_prefix, result);
-    
-    result
-}
-
-pub fn is_aggregate_expression(expr: &str) -> bool {
-    let upper_expr = expr.to_uppercase();
-    
-    if let Some(paren_pos) = upper_expr.find('(') {
-        let func_name = upper_expr[..paren_pos].trim();
-        AGGREGATE_FUNCTIONS.contains(func_name)
-    } else {
-        AGGREGATE_FUNCTIONS.iter().any(|&func| upper_expr.starts_with(func))
-    }
-}
-
-pub fn is_datetime_expression(expr: &str) -> bool {
-    let upper_expr = expr.to_uppercase();
-    
-    if let Some(paren_pos) = upper_expr.find('(') {
-        let func_name = upper_expr[..paren_pos].trim();
-        DATETIME_FUNCTIONS.contains(func_name)
-    } else {
-        DATETIME_FUNCTIONS.iter().any(|&func| upper_expr.starts_with(func))
-    }
-}
-
-pub fn normalize_datetime_expression(expr: &str, table_alias: &str) -> String {
-    let expr_with_standard_cast = normalize_postgres_casting(expr);
-    
-    if let Some(caps) = FUNCTION_PATTERN.captures(&expr_with_standard_cast) {
-        let func_name = &caps[1];
-        let args = &caps[2];
+    pub fn is_datetime_expression(expr: &str) -> bool {
+        let upper_expr = expr.to_uppercase();
         
-        let arg_parts = parse_function_arguments(args);
-        let mut normalized_args = Vec::with_capacity(arg_parts.len());
+        if let Some(paren_pos) = upper_expr.find('(') {
+            let func_name = upper_expr[..paren_pos].trim();
+            DATETIME_FUNCTIONS.contains(func_name)
+        } else {
+            DATETIME_FUNCTIONS.iter().any(|&func| upper_expr.starts_with(func))
+        }
+    }
+
+    pub fn normalize_datetime_expression(expr: &str, table_alias: &str) -> String {
+        let expr_with_standard_cast = normalize_postgres_casting(expr);
         
-        for arg in arg_parts {
-            let arg_trimmed = arg.trim();
+        if let Some(caps) = FUNCTION_PATTERN.captures(&expr_with_standard_cast) {
+            let func_name = &caps[1];
+            let args = &caps[2];
             
-            if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
-                normalized_args.push(arg_trimmed.to_string());
-            } else if arg_trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
-                normalized_args.push(arg_trimmed.to_string());
-            } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
-                let normalized = TABLE_COLUMN_PATTERN
-                    .replace_all(arg_trimmed, "\"$1\".\"$2\"")
+            let arg_parts = parse_function_arguments(args);
+            let mut normalized_args = Vec::with_capacity(arg_parts.len());
+            
+            for arg in arg_parts {
+                let arg_trimmed = arg.trim();
+                
+                if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
+                    normalized_args.push(arg_trimmed.to_string());
+                } else if arg_trimmed.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
+                    normalized_args.push(arg_trimmed.to_string());
+                } else if TABLE_COLUMN_PATTERN.is_match(arg_trimmed) {
+                    let normalized = TABLE_COLUMN_PATTERN
+                        .replace_all(arg_trimmed, "\"$1\".\"$2\"")
+                        .to_string()
+                        .to_lowercase();
+                    normalized_args.push(normalized);
+                } else if is_simple_column(arg_trimmed) {
+                    normalized_args.push(format!("\"{}\".\"{}\"", 
+                        table_alias.to_lowercase(), 
+                        arg_trimmed.to_lowercase()));
+                } else if FUNCTION_PATTERN.is_match(arg_trimmed) {
+                    let nested_result = normalize_datetime_expression(arg_trimmed, table_alias);
+                    normalized_args.push(nested_result);
+                } else if OPERATOR_PATTERN.is_match(arg_trimmed) {
+                    let operator_result = normalize_expression_with_operators(arg_trimmed, table_alias);
+                    normalized_args.push(operator_result);
+                } else {
+                    normalized_args.push(arg_trimmed.to_lowercase());
+                }
+            }
+            
+            format!("{}({})", func_name.to_lowercase(), normalized_args.join(", "))
+        } else {
+            if TABLE_COLUMN_PATTERN.is_match(&expr_with_standard_cast) {
+                TABLE_COLUMN_PATTERN
+                    .replace_all(&expr_with_standard_cast, "\"$1\".\"$2\"")
                     .to_string()
-                    .to_lowercase();
-                normalized_args.push(normalized);
-            } else if is_simple_column(arg_trimmed) {
-                normalized_args.push(format!("\"{}\".\"{}\"", 
+                    .to_lowercase()
+            } else if is_simple_column(&expr_with_standard_cast) {
+                format!("\"{}\".\"{}\"", 
                     table_alias.to_lowercase(), 
-                    arg_trimmed.to_lowercase()));
-            } else if FUNCTION_PATTERN.is_match(arg_trimmed) {
-                let nested_result = normalize_datetime_expression(arg_trimmed, table_alias);
-                normalized_args.push(nested_result);
-            } else if OPERATOR_PATTERN.is_match(arg_trimmed) {
-                let operator_result = normalize_expression_with_operators(arg_trimmed, table_alias);
-                normalized_args.push(operator_result);
+                    expr_with_standard_cast.to_lowercase())
             } else {
-                normalized_args.push(arg_trimmed.to_lowercase());
+                expr_with_standard_cast.to_lowercase()
             }
         }
-        
-        format!("{}({})", func_name.to_lowercase(), normalized_args.join(", "))
-    } else {
-        if TABLE_COLUMN_PATTERN.is_match(&expr_with_standard_cast) {
-            TABLE_COLUMN_PATTERN
-                .replace_all(&expr_with_standard_cast, "\"$1\".\"$2\"")
-                .to_string()
-                .to_lowercase()
-        } else if is_simple_column(&expr_with_standard_cast) {
-            format!("\"{}\".\"{}\"", 
-                table_alias.to_lowercase(), 
-                expr_with_standard_cast.to_lowercase())
-        } else {
-            expr_with_standard_cast.to_lowercase()
-        }
     }
-}
+
+    pub fn resolve_alias_to_original(alias: &str, raw_selected_columns: &[String]) -> String {
+        for raw_expr in raw_selected_columns {
+            if raw_expr.to_uppercase().contains(" AS ") {
+                let as_pattern = regex::Regex::new(r"(?i)\s+AS\s+").unwrap();
+                if let Some(as_match) = as_pattern.find(raw_expr) {
+                    let expr_part = raw_expr[..as_match.start()].trim();
+                    let alias_part = raw_expr[as_match.end()..].trim().trim_matches('"').trim_matches('\'');
+                    
+                    if alias_part.eq_ignore_ascii_case(alias) {
+                        return expr_part.to_string();
+                    }
+                }
+            }
+        }
+    
+        alias.to_string()
+    }
+
+    pub fn is_computed_expression(expr: &str) -> bool {
+        let expr_upper = expr.to_uppercase();
+        
+        // Skip function calls
+        if expr.contains('(') && expr.contains(')') {
+            return true;
+        }
+        
+        // Skip CASE expressions
+        if expr_upper.trim().starts_with("CASE") {
+            return true;
+        }
+        
+        // Skip expressions with operators
+        if OPERATOR_PATTERN.is_match(expr) {
+            return true;
+        }
+        
+        // Skip string literals
+        if expr.trim().starts_with('\'') && expr.trim().ends_with('\'') {
+            return true;
+        }
+        
+        // Skip complex expressions
+        if expr.contains(" WHEN ") || expr.contains(" THEN ") || expr.contains(" ELSE ") {
+            return true;
+        }
+        
+        false
+    }
+
+    pub fn is_groupable_column(expr: &str) -> bool {
+        let trimmed = expr.trim();
+        
+        // Must not be a computed expression
+        if is_computed_expression(trimmed) {
+            return false;
+        }
+    
+        is_simple_column(trimmed) || TABLE_COLUMN_PATTERN.is_match(trimmed)
+    }
 
 
 #[cfg(test)]
@@ -987,10 +1169,10 @@ mod tests {
             "pipeline_ranked"
         );
         
-        println!("Result3 (TRIM): {}", result3);
+        println!("Result3 (LIKE): {}", result3);
         
         let result4 = normalize_expression(
-            "CONCAT(TRIM(region), ' _', TRIM(region_rank)) AS region_rank_label",
+            "CASE WHEN naziv_proizvoda LIKE '%SENI%' THEN 'SENI_PRODUCT' ELSE 'OTHER' END AS product_category",
             "pipeline_ranked"
         );
         

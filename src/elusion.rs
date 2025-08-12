@@ -95,6 +95,9 @@ use crate::normalizers::normalize::is_aggregate_expression;
 use crate::normalizers::normalize::normalize_alias_write;
 use crate::normalizers::normalize::normalize_window_function;
 use crate::normalizers::normalize::normalize_simple_expression;
+use crate::normalizers::normalize::resolve_alias_to_original;
+use crate::normalizers::normalize::is_computed_expression;
+use crate::normalizers::normalize::is_groupable_column;
 
 //======= csv 
 use crate::features::csv::load_csv_with_type_handling;
@@ -748,17 +751,23 @@ impl CustomDataFrame {
         self.group_by_columns = columns
             .into_iter()
             .map(|s| {
-                if is_simple_column(s) {
-                    normalize_column_name(s)
-                } else if s.contains(" AS ") {
-                    // Handle expressions with aliases
-                    let expr_part = s.split(" AS ")
-                        .next()
-                        .unwrap_or(s);
-                    normalize_expression(expr_part, &self.table_alias)
+                // try to resolve alias to original column from raw_selected_columns
+                let resolved_column = resolve_alias_to_original(s, &self.raw_selected_columns);
+                
+                if is_simple_column(&resolved_column) {
+                    normalize_column_name(&resolved_column)
+                } else if resolved_column.to_uppercase().contains(" AS ") {
+                    // Handle expressions with aliases - extract part before AS
+                    let as_pattern = regex::Regex::new(r"(?i)\s+AS\s+").unwrap();
+                    if let Some(as_match) = as_pattern.find(&resolved_column) {
+                        let expr_part = resolved_column[..as_match.start()].trim();
+                        normalize_expression(expr_part, &self.table_alias)
+                    } else {
+                        normalize_expression(&resolved_column, &self.table_alias)
+                    }
                 } else {
                     // Handle expressions without aliases
-                    normalize_expression(s, &self.table_alias)
+                    normalize_expression(&resolved_column, &self.table_alias)
                 }
             })
             .collect();
@@ -768,33 +777,54 @@ impl CustomDataFrame {
     /// GROUP_BY_ALL function that usifies all SELECT() olumns and reduces need for writing all columns
     pub fn group_by_all(mut self) -> Self {
         let mut all_group_by = Vec::new();
-    
-        // Process all selected columns
-        for col in &self.selected_columns {
-            if is_simple_column(&col) {
-                // Simple column case
-                all_group_by.push(col.clone());
-            } else if is_expression(&col) {
-                // Expression case - extract the part before AS
-                if col.contains(" AS ") {
-                    if let Some(expr_part) = col.split(" AS ").next() {
-                        let expr = expr_part.trim().to_string();
-                        if !all_group_by.contains(&expr) {
-                            all_group_by.push(expr);
-                        }
-                    }
+
+        for col_expr in &self.raw_selected_columns {
+        //    println!("DEBUG group_by_all: Processing '{}'", col_expr);
+            
+            // Skip aggregate expressions entirely
+            if is_aggregate_expression(col_expr) {
+              //  println!("DEBUG: Skipping aggregate expression: '{}'", col_expr);
+                continue;
+            }
+            
+            // Skip computed expressions (functions, CASE statements, etc.)
+            if is_computed_expression(col_expr) {
+              //  println!("DEBUG: Skipping computed expression: '{}'", col_expr);
+                continue;
+            }
+            
+            // Extract the base column/expression (part before AS)
+            let base_expression = if col_expr.to_uppercase().contains(" AS ") {
+                let as_pattern = regex::Regex::new(r"(?i)\s+AS\s+").unwrap();
+                if let Some(as_match) = as_pattern.find(col_expr) {
+                    col_expr[..as_match.start()].trim()
                 } else {
-                    // Expression without AS
-                    if !all_group_by.contains(col) {
-                        all_group_by.push(col.clone());
-                    }
+                    col_expr.as_str()
                 }
             } else {
-                // Table.Column case
-                all_group_by.push(col.clone());
+                col_expr.as_str()
+            };
+            
+            //println!("DEBUG: Base expression: '{}'", base_expression);
+            
+            // Only include if it's a simple column or table.column reference
+            if is_groupable_column(base_expression) {
+                let normalized = if is_simple_column(base_expression) {
+                    normalize_column_name(base_expression)
+                } else {
+                    normalize_expression(base_expression, &self.table_alias)
+                };
+                
+                if !all_group_by.contains(&normalized) {
+                 //   println!("DEBUG: Adding to GROUP BY: '{}'", normalized);
+                    all_group_by.push(normalized);
+                }
+            } else {
+               // println!("DEBUG: Skipping non-groupable expression: '{}'", base_expression);
             }
         }
-    
+
+   //     println!("DEBUG: Final GROUP BY columns: {:?}", all_group_by);
         self.group_by_columns = all_group_by;
         self
     }
@@ -853,25 +883,6 @@ impl CustomDataFrame {
         self.having_conditions.push(normalize_condition(condition));
         self
     }
-
-    // /// Add ORDER BY clauses using const generics.
-    // /// Allows passing arrays like ["column1", "column2"], [true, false]
-    // pub fn order_by<const N: usize>(self, columns: [&str; N], ascending: [bool; N]) -> Self {
-    //     let normalized_columns: Vec<String> = columns.iter()
-    //         .map(|c| normalize_column_name(c))
-    //         .collect();
-    //     self.order_by_vec(normalized_columns, ascending.to_vec())
-    // }
-    
-    // /// Add multiple ORDER BY clauses using const generics.
-    // /// Allows passing arrays of tuples: [ ("column1", true), ("column2", false); N ]
-    // pub fn order_by_many<const N: usize>(self, orders: [( &str, bool ); N]) -> Self {
-    //     let orderings = orders.into_iter()
-    //         .map(|(col, asc)| (normalize_column_name(col), asc))
-    //         .collect::<Vec<_>>();
-    //     self.order_by_many_vec(orderings)
-    // }
-
     /// Add ORDER BY clauses using vectors
     pub fn order_by_vec(mut self, columns: Vec<String>, ascending: Vec<bool>) -> Self {
         // Ensure that columns and ascending have the same length
@@ -886,7 +897,6 @@ impl CustomDataFrame {
             .collect();
         self
     }
-
 
     /// Add multiple ORDER BY clauses using a Vec<(String, bool)>
     pub fn order_by_many_vec(mut self, orders: Vec<(String, bool)>) -> Self {
@@ -3185,7 +3195,7 @@ impl CustomDataFrame {
             .map_err(|e| ElusionError::InvalidOperation {
                 operation: "SQL Execution".to_string(),
                 reason: format!("Failed to execute SQL: {}", e),
-                suggestion: "💡 Verify SQL syntax and table/column references".to_string()
+                suggestion: "💡 Verify SQL syntax and table/column references, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
             })?;
 
         // Using spawn_blocking for potentially expensive data collection
@@ -5972,7 +5982,7 @@ impl CustomDataFrame {
         let df = ctx.sql(&sql).await.map_err(|e| ElusionError::InvalidOperation {
             operation: "SQL Execution".to_string(),
             reason: format!("Failed to execute SQL: {}", e),
-            suggestion: "💡 Verify SQL syntax and table/column references".to_string()
+            suggestion: "💡 Verify SQL syntax and table/column references, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
         })?;
         
         df.execute_stream().await.map_err(|e| ElusionError::InvalidOperation {
@@ -5982,7 +5992,7 @@ impl CustomDataFrame {
         })
     }
     
-    /// Streaming data with a closure
+    /// Streaming data with closure
     pub async fn stream_process<F, Fut>(
         &self, 
         mut processor: F

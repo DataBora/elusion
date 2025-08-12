@@ -20,7 +20,7 @@ I appreciate the interest in contributing to Elusion! However, I'm not currently
 
 Thanks for understanding!
 ---
-### ⬇️☕ If you find Elusion useful for your DataEngineering tasks, buy me a coffee! ☕⬇️
+### ⬇️☕ If you find Elusion useful for your DataEngineering tasks, energize me with a coffee! 😊☕⬇️
 #### [Buy me a coffee](https://coff.ee/elusion.rust)
 ---
 ### ⬇️ Quickest way to start with Elusion⬇️
@@ -111,7 +111,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "4.0.0"
+elusion = "4.0.1"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -164,25 +164,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "4.0.0", features = ["postgres"] }
+elusion = { version = "4.0.1", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "4.0.0"
+elusion = "4.0.1"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "4.0.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "4.0.1", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "4.0.0", features = ["all"] }
+elusion = { version = "4.0.1", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1043,8 +1043,19 @@ let string_functions_df = df_sales
         "COUNT(*) AS total_records",
         "STRING_AGG(p.ProductName, ', ') AS all_products"
     ])
+    .agg([
+        "COUNT(*) AS total_records",
+        "STRING_AGG(p.ProductName, ', ') AS all_products"
+        ])
     .filter("c.emailaddress IS NOT NULL")
-    .group_by_all()
+    //.group_by_all() YOU CAN USE GROUP BY ALL to group on all non-aggregated columns
+    .group_by([
+    "c.CustomerKey",
+    "c.FirstName", 
+    "c.LastName",
+    "c.EmailAddress",
+    "p.ProductName"
+    ]) 
     .having("COUNT(*) > 1")
     .order_by(["c.CustomerKey"], ["ASC"]);   
 
@@ -1367,6 +1378,15 @@ let dt_query = sales_order_df
         ELSE 'Afternoon'
     END AS time_of_day",
     ])
+    .agg([
+        "SUM(order_value) AS total_order"
+    ])
+    .group_by([
+        "customer_name",
+        "order_date", 
+        "delivery_date"
+    ])
+    // .group_by_all() OR YOU CAN USE grouping by all columns
     .order_by(["order_date"], ["DESC"]);
 
 let dt_res = dt_query.elusion("datetime_df").await?;
