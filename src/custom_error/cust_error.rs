@@ -637,30 +637,42 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
 
 
     pub fn extract_missing_column(error: &str) -> Option<String> {
-        
         let error_lower = error.to_lowercase();
         
+        // Pattern 1: "Expression X could not be resolved"
         if error_lower.contains("expression") && error_lower.contains("could not be resolved") {
             if let Some(start) = error_lower.find("expression ") {
                 let remaining = &error[start + 11..];
                 if let Some(end) = remaining.find(" could not be resolved") {
                     let expr = remaining[..end].trim();
                     
-                    // Check if it's a table.column reference
                     if let Some(cap) = TABLE_COLUMN_PATTERN.captures(expr) {
                         if let Some(column_part) = cap.get(2) {
-                            let result = column_part.as_str().to_string();
-                            return Some(result);
+                            return Some(column_part.as_str().to_string());
                         }
-
-                        return Some(expr.to_string());
                     }
                     
-                    // Check if it's a simple column
                     if SIMPLE_COLUMN_PATTERN.is_match(expr) {
                         return Some(expr.to_string());
                     }
                 }
+            }
+        }
+        
+        if error_lower.contains("no field named") {
+            if let Some(start) = error_lower.find("no field named") {
+                let remaining = &error[start..];
+                // Look for quoted field name
+                if let Some(cap) = regex::Regex::new(r"'([^']+)'").unwrap().captures(remaining) {
+                    return Some(cap.get(1)?.as_str().to_string());
+                }
+            }
+        }
+        
+        if error_lower.contains("over") && error_lower.contains("could not be resolved") {
+            // Look for pattern like "PARTITION BY region" or "ORDER BY mesto"
+            if let Some(cap) = regex::Regex::new(r"(partition by|order by)\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap().captures(&error_lower) {
+                return Some(cap.get(2)?.as_str().to_string());
             }
         }
         
@@ -670,7 +682,6 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
     pub fn extract_column_from_duplicate_error(error: &str) -> Option<String> {
 
         if error.to_lowercase().contains("duplicate") && error.to_lowercase().contains("field name") {
-            // Try to find table.column pattern after "field name"
             if let Some(start) = error.to_lowercase().find("field name") {
                 let remaining = &error[start + 10..]; 
                 
@@ -680,7 +691,6 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
                     }
                 }
                 
-                // Fallback: look for any simple column name
                 if let Some(cap) = SIMPLE_COLUMN_PATTERN.captures(remaining) {
                     let potential_column = cap.get(0)?.as_str();
                     if !SQL_KEYWORDS.contains(&potential_column.to_uppercase().as_str()) {
@@ -805,6 +815,60 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
         }
         
         None
+    }
+
+    pub fn extract_window_function_columns(error: &str) -> Vec<String> {
+        let mut columns = Vec::new();
+        let error_upper = error.to_uppercase();
+        
+        if let Some(cap) = regex::Regex::new(r"PARTITION BY\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap().captures(&error_upper) {
+            if let Some(col) = cap.get(1) {
+                columns.push(col.as_str().to_lowercase());
+            }
+        }
+        
+        if let Some(cap) = regex::Regex::new(r"ORDER BY\s+([a-zA-Z_][a-zA-Z0-9_]*)").unwrap().captures(&error_upper) {
+            if let Some(col) = cap.get(1) {
+                let col_name = col.as_str().to_lowercase();
+                if !columns.contains(&col_name) {
+                    columns.push(col_name);
+                }
+            }
+        }
+        
+        if columns.is_empty() {
+            if let Some(col) = extract_missing_column(error) {
+                columns.push(col);
+            }
+        }
+        
+        columns
+    }
+
+    pub fn extract_window_function_name(error: &str) -> Option<String> {
+        let error_upper = error.to_uppercase();
+        
+        // Common window functions
+        let window_functions = [
+            "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE", "PERCENT_RANK", "CUME_DIST",
+            "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "NTH_VALUE"
+        ];
+        
+        for func in &window_functions {
+            if error_upper.contains(&format!("{}(", func)) {
+                return Some(func.to_string());
+            }
+        }
+        
+        if error_upper.contains("OVER") {
+            for func in ["SUM", "AVG", "COUNT", "MIN", "MAX"] {
+                if error_upper.contains(&format!("{}(", func)) {
+                    return Some(format!("{} (window)", func));
+                }
+            }
+        }
+        
+        Some("WINDOW_FUNCTION".to_string())
     }
 
 #[cfg(test)]

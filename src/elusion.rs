@@ -55,6 +55,8 @@ use crate::custom_error::cust_error::extract_function_from_error;
 use crate::custom_error::cust_error::extract_column_from_agg_error;
 use crate::custom_error::cust_error::detect_function_usage_in_error;
 use crate::custom_error::cust_error::generate_enhanced_groupby_suggestion;
+use crate::custom_error::cust_error::extract_window_function_name;
+use crate::custom_error::cust_error::extract_window_function_columns;
 
 // ======== PIVOT
 use arrow::compute;
@@ -803,6 +805,11 @@ impl CustomDataFrame {
             } else {
                 col_expr.as_str()
             };
+
+            // if base_expression.to_uppercase().contains(" OVER ") {
+            //  //   println!("  -> SKIPPED: window function");
+            //     continue;
+            // }
             
             if is_groupable_column(base_expression) {
                 let normalized = if is_simple_column(base_expression) {
@@ -3274,6 +3281,31 @@ impl CustomDataFrame {
                         suggestion: "💡 Check aggregation syntax in .agg([...]) and ensure columns exist in your tables".to_string(),
                     }
                 }
+
+                else if error_msg.contains("could not be resolved") && 
+                    (error_msg.to_uppercase().contains("OVER") || 
+                    error_msg.to_uppercase().contains("PARTITION BY") || 
+                    error_msg.to_uppercase().contains("ROW_NUMBER")) {
+                
+                let missing_cols = extract_window_function_columns(&error_msg);
+                
+                ElusionError::WindowFunctionError {
+                    message: format!("Window function references columns not in SELECT"),
+                    function: extract_window_function_name(&error_msg).unwrap_or("WINDOW_FUNCTION".to_string()),
+                    details: format!("Missing columns: {}", missing_cols.join(", ")),
+                    suggestion: format!(
+                        "💡 Window function error - missing columns from SELECT.\n\
+                        \n\
+                        🔧 Solution:\n\
+                        Add missing columns to .select(): {}\n\
+                        \n\
+                        ✅ Example fix:\n\
+                        .select([\"your_existing_cols\", \"{}\"])",
+                        missing_cols.iter().map(|col| format!("\"{}\"", col)).collect::<Vec<_>>().join(", "),
+                        missing_cols.join("\", \"")
+                    ),
+                }
+            }
                 // HAVING clause errors  
                 else if error_msg.contains("having") || error_msg.contains("HAVING") {
                     ElusionError::InvalidOperation {
@@ -3300,7 +3332,6 @@ impl CustomDataFrame {
                 }
             })?;
 
-        // ENHANCED: Data collection with better error context
         let (batches, schema) = if self.is_large_result_expected() {
             let df_clone = df.clone();
             tokio::task::spawn_blocking(move || {
@@ -3327,7 +3358,6 @@ impl CustomDataFrame {
             (batches, df.schema().clone())
         };
 
-        // ENHANCED: Schema registration with specific duplicate detection
         let result_mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
             .map_err(|e| {
                 let error_msg = e.to_string();
@@ -3346,7 +3376,6 @@ impl CustomDataFrame {
                 }
             })?;
 
-        // ENHANCED: Table registration with conflict detection
         ctx.register_table(alias, Arc::new(result_mem_table))
             .map_err(|e| {
                 let error_msg = e.to_string();
