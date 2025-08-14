@@ -102,8 +102,6 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 
 ---
 ## INSTALLATION
-#### I yanked all previous versions till "4.1.0" because of missing features  
-#### Will not yank anymore (pinky promise 😊)
 
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
@@ -605,8 +603,8 @@ let res =   complex_result.elusion("analysis1").await?;
     
 res.display().await?;
 ```
-YOU WILL GET RESULT:
-📋 Generated SQL Query:
+### YOU WILL GET RESULT:
+#### 📋 Generated SQL Query:
 ============================================================
 ```sql
 SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
@@ -616,10 +614,10 @@ GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
 ORDER BY "ukupna_vrednost" DESC
 LIMIT 10
 ```
-============================================================
-📋 Query Analysis:
-==================================================
-🔍 SQL Query:
+#### ============================================================
+#### 📋 Query Analysis:
+#### ==================================================
+#### 🔍 SQL Query:
 ```sql
 SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
 FROM "analysis" AS analysis
@@ -628,22 +626,20 @@ GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
 ORDER BY "ukupna_vrednost" DESC
 LIMIT 10
 ```
-
-📊 Query Info:
-   • Has CTEs: false
-   • Has JOINs: false
-   • Has WHERE: true
-   • Has GROUP BY: true
-   • Has HAVING: false
-   • Has ORDER BY: true
-   • Has LIMIT: true
-   • Has UNION: false
-   • CTE count: 0
-   • Join count: 0
-   • Union count: 0
-   • Function calls: ~5
-   • Complexity: Moderate
-==================================================
+#### 📊 Query Info:
+#####    • Has CTEs: false
+#####    • Has JOINs: false
+#####    • Has WHERE: true
+#####    • Has GROUP BY: true
+#####    • Has HAVING: false
+#####    • Has ORDER BY: true
+#####    • Has LIMIT: true
+#####    • Has UNION: false
+#####    • CTE count: 0
+#####    • Join count: 0
+#####    • Union count: 0
+#####    • Function calls: ~5
+#####   • Complexity: Moderate
 ---
 ### STATISTICAL FUNCTIONS
 #### These Functions can give you quick statistical overview of your DataFrame columns and correlations
@@ -887,7 +883,11 @@ aggregate_result.display().await?
 ### IMPORTANT: Star Selection Duplicate Column Behavior
 
 #### Overview
-When using star selections (`*` or `alias.*`) with joined tables, **duplicate column names are automatically removed** to prevent SQL errors and schema conflicts. This behavior ensures your queries work reliably while following intuitive rules.
+When using star selections 
+```rust
+select(["*"]) or select(["alias.*"])
+``` 
+with joined tables, **duplicate column names are automatically removed** to prevent SQL errors and schema conflicts. This behavior ensures your queries work reliably while following intuitive rules.
 
 ## 🔄 Automatic Duplicate Removal with Star Selections
 
@@ -1783,6 +1783,7 @@ let rollin_query = df_sales
 let rollin_df = rollin_query.elusion("rollin_result").await?;
 rollin_df.display().await?;
 ```
+> **📝 Note:** Window functions require any columns used in `PARTITION BY` or `ORDER BY` clauses to be included in your `.select([...])` statement. For example, if your window function uses `PARTITION BY region`, make sure `"region"` is in your select list.
 ---
 ## JSON functions
 ### .json() 
