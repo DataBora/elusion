@@ -20,6 +20,213 @@ async fn setup_large_archive() -> ElusionResult<CustomDataFrame> {
     CustomDataFrame::new(archive_path, "arch").await
 }
 
+fn benchmark_star_selection_patterns(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (sales_df, customers_df, products_df, _) = rt.block_on(setup_test_dataframes()).unwrap();
+    
+    let mut group = c.benchmark_group("Star_Selection_Patterns");
+    group.sample_size(100);
+    group.measurement_time(std::time::Duration::from_secs(120));
+    
+    group.bench_function("star_selection_simple_no_agg", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "RIGHT"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "LEFT OUTER"),
+                ])
+                .select(["c.*", "p.*"])
+                .limit(1000)  // Limit for performance
+                .elusion("star_simple_no_agg")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("star_selection_with_aggregations", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "RIGHT"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "LEFT OUTER"),
+                ])
+                .select(["c.*", "p.*"])
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_quantity",
+                    "AVG(se.OrderQuantity) AS avg_quantity",
+                    "COUNT(*) AS order_count"
+                ])
+                .group_by_all()
+                .having_many([
+                    ("total_quantity > 10"),
+                    ("avg_quantity < 100")
+                ])
+                .order_by_many([
+                    ("total_quantity", "ASC"),
+                    ("p.ProductName", "DESC")
+                ])
+                .limit(100)
+                .elusion("star_with_agg")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("mixed_star_and_explicit_columns", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "INNER"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "INNER"),
+                ])
+                .select([
+                    "c.*",
+                    "se.OrderDate",
+                    "se.OrderQuantity", 
+                    "p.ProductName as proizvod",
+                    "p.ProductPrice"
+                ])
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_qty",
+                    "COUNT(DISTINCT se.OrderDate) AS unique_order_days"
+                ])
+                .group_by_all()
+                .having("COUNT(*) > 5")
+                .order_by(["total_qty"], ["DESC"])
+                .limit(50)
+                .elusion("mixed_star_explicit")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("single_table_star_vs_explicit", |b| b.iter(|| {
+        rt.block_on(async {
+            customers_df.clone()
+                .select(["c.*"])  
+                .agg([
+                    "COUNT(*) AS customer_count",
+                    "AVG(c.AnnualIncome) AS avg_income"
+                ])
+                .group_by_all()
+                .having("COUNT(*) > 0")
+                .limit(100)
+                .elusion("single_table_star")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("archive_star_selection", |b| b.iter(|| {
+        rt.block_on(async {
+            let archive_df = setup_large_archive().await.unwrap();
+            
+            archive_df
+                .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+                .select(["*"])  // Full star selection on large dataset
+                .agg([
+                    "COUNT(*) AS transaction_count",
+                    "SUM(neto_vrednost) AS total_value",
+                    "AVG(kolicina) AS avg_quantity"
+                ])
+                .group_by_all()
+                .order_by(["total_value"], ["DESC"])
+                .limit(200)
+                .elusion("archive_star_full")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("triple_join_star_selection", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "INNER"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "INNER"),
+                ])
+                .select([
+                    "se.*", 
+                    "c.*", 
+                    "p.*" 
+                ])
+                .filter("se.OrderQuantity > 1")
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_orders",
+                    "COUNT(DISTINCT c.CustomerKey) AS unique_customers",
+                    "COUNT(DISTINCT p.ProductKey) AS unique_products",
+                    "AVG(p.ProductPrice) AS avg_product_price"
+                ])
+                .group_by_all()
+                .having("COUNT(*) > 3")
+                .order_by_many([
+                    ("total_orders", "DESC"),
+                    ("unique_customers", "DESC")
+                ])
+                .limit(75)
+                .elusion("triple_join_star")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("explicit_columns_equivalent", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "RIGHT"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "LEFT OUTER"),
+                ])
+                .select([
+                    "c.CustomerKey as blob",
+                    "se.CustomerKey as cvc",
+                    "c.Prefix", 
+                    "c.FirstName",
+                    "c.LastName",
+                    "c.BirthDate",
+                    "c.MaritalStatus",
+                    "c.Gender",
+                    "c.EmailAddress",
+                    "c.AnnualIncome",
+                    "c.TotalChildren",
+                    "c.EducationLevel",
+                    "c.Occupation",
+                    "c.HomeOwner",
+                    "p.ProductKey",
+                    "p.ProductSubcategoryKey",
+                    "p.ProductSKU",
+                    "p.ProductName",
+                    "p.ModelName", 
+                    "p.ProductDescription",
+                    "p.ProductColor",
+                    "p.ProductSize",
+                    "p.ProductStyle",
+                    "p.ProductCost",
+                    "p.ProductPrice"
+                ])
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_quantity",
+                    "AVG(se.OrderQuantity) AS avg_quantity"
+                ])
+                .group_by_all()
+                .having_many([
+                    ("total_quantity > 10"),
+                    ("avg_quantity < 100")
+                ])
+                .order_by_many([
+                    ("total_quantity", "ASC"),
+                    ("p.ProductName", "DESC")
+                ])
+                .limit(100)
+                .elusion("explicit_equivalent")
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.finish();
+}
+
 fn benchmark_groupby_alias_scenarios(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let archive_df = rt.block_on(setup_large_archive()).unwrap();
@@ -159,7 +366,12 @@ fn benchmark_groupby_performance_comparison(c: &mut Criterion) {
         rt.block_on(async {
             archive_df.clone()
                 .select([
-                    "grupa as product_group"
+                    "grupa as product_group",
+                    "veledrogerija",          
+                    "region",                
+                    "godina",                 
+                    "mesec",      
+                    "neto_vrednost" 
                 ])
                 .string_functions([
                     "TRIM(veledrogerija) as clean_pharmacy",
@@ -647,6 +859,9 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
 
 criterion_group!(
     benches, 
+    benchmark_star_selection_patterns,
+    benchmark_groupby_alias_scenarios,
+    benchmark_groupby_performance_comparison,
     benchmark_joins,
     benchmark_aggregations,
     benchmark_large_window_functions, 
@@ -655,8 +870,7 @@ criterion_group!(
     benchmark_complex_pipelines_900k,
     benchmark_type_inference_v4,
     benchmark_streaming_vs_regular_900k,
-    benchmark_groupby_alias_scenarios,
-    benchmark_groupby_performance_comparison
+  
 );
 
 criterion_main!(benches);  
