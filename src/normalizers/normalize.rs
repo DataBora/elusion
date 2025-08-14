@@ -1,46 +1,46 @@
 use crate::prelude::*;
 
-static AS_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static AS_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\s+AS\s+").expect("Failed to compile AS regex")
 });
 
-static TABLE_COLUMN_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static TABLE_COLUMN_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b")
         .expect("Failed to compile table.column regex")
 });
 
-static STRING_LITERAL_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static STRING_LITERAL_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"'([^']*)'")
         .expect("Failed to compile table.column regex")
 });
 
-static FUNCTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static FUNCTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)$")
         .expect("Failed to compile function regex")
 });
 
-static SIMPLE_COLUMN_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static SIMPLE_COLUMN_PATTERN: Lazy<Regex> = Lazy::new(|| {
     //Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$")
       Regex::new(r"\b[A-Za-z_][A-Za-z0-9_]*\b").expect("Failed to compile simple column regex")
 });
 
-static OPERATOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static OPERATOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"([\+\-\*\/])")
         .expect("Failed to compile operator regex")
 });
 
-static WINDOW_FUNCTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static WINDOW_FUNCTION_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(\w+)\((.*)\)$")
         .expect("Failed to compile window function regex")
 });
 
 // PostgreSQL-style casting pattern (::TYPE) - handles both simple columns and table.column
-static POSTGRES_CAST_PATTERN: Lazy<Regex> = Lazy::new(|| {
+pub static POSTGRES_CAST_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)::(TEXT|VARCHAR|INTEGER|BIGINT|FLOAT|DOUBLE|BOOLEAN|DATE|TIMESTAMP)")
         .expect("Failed to compile PostgreSQL cast regex")
 });
 
-static AGGREGATE_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+pub static AGGREGATE_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
     [
         "SUM", "AVG", "MAX", "MIN", "MEAN", "MEDIAN", "COUNT", "LAST_VALUE", "FIRST_VALUE",
         "GROUPING", "STRING_AGG", "ARRAY_AGG", "VAR", "VAR_POP", "VAR_POPULATION", "VAR_SAMP", "VAR_SAMPLE",
@@ -52,7 +52,7 @@ static AGGREGATE_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy
     ].into_iter().collect()
 });
 
-static DATETIME_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+pub static DATETIME_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
     [
         "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "DATE_BIN", "DATE_FORMAT",
         "DATE_PART", "DATE_TRUNC", "DATEPART", "DATETRUNC", "FROM_UNIXTIME", "MAKE_DATE",
@@ -61,8 +61,26 @@ static DATETIME_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy:
     ].into_iter().collect()
 });
 
+pub static STRING_FUNCTIONS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+    [
+        "TRIM", "LTRIM", "RTRIM", "UPPER", "LOWER", "LENGTH", "LEN", "CHAR_LENGTH", "CHARACTER_LENGTH",
+        "LEFT", "RIGHT", "SUBSTRING", "SUBSTR", "MID", "POSITION", "STRPOS", "CHARINDEX", 
+        "LOCATE", "FIND", "INSTR",
+        "CONCAT", "CONCAT_WS", "STRING_AGG", "GROUP_CONCAT", "LISTAGG",
+        "REPLACE", "TRANSLATE", "REVERSE", "REPEAT", "REPLICATE", "SPACE", "STUFF",
+        "LPAD", "RPAD", "PADL", "PADR", "PAD",
+        "INITCAP", "PROPER", "TITLE", "CAPITALIZE",
+        "SPLIT_PART", "SPLIT", "PARSENAME", "SUBSTRING_INDEX",
+        "LIKE", "ILIKE", "SIMILAR", "REGEXP", "REGEXP_LIKE", "REGEXP_REPLACE", "REGEXP_SUBSTR",
+        "ASCII", "CHR", "CHAR", "UNICODE", "NCHAR",
+        "CAST", "CONVERT", "TRY_CAST", "TRY_CONVERT", "TO_CHAR", "TO_VARCHAR", "TO_TEXT",
+        "COALESCE", "NULLIF", "ISNULL", "NVL", "NVL2", "IFNULL",
+        "SOUNDEX", "DIFFERENCE"
+    ].into_iter().collect()
+});
+
 #[allow(dead_code)]
-static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
+pub static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|| {
     [
         "TEXT", "INTEGER", "BIGINT", "VARCHAR", "FLOAT", "DOUBLE", "BOOLEAN", "DATE", "TIMESTAMP",
         "SELECT", "FROM", "WHERE", "GROUP", "ORDER", "BY", "HAVING", "JOIN", "INNER", "LEFT", 
@@ -311,7 +329,6 @@ static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|
     /// Enhanced simple expression normalization with better function handling
     // Add this debug version to your normalize_simple_expression to trace the issue:
     pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
-      //  println!("=== DEBUG normalize_simple_expression START ===");
       //  println!("Input: '{}'", expr);
         
         let expr_trimmed = expr.trim();
@@ -497,7 +514,6 @@ static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|
             
             let final_result = format!("{}({})", func_name.to_lowercase(), normalized_args.join(", "));
          //   println!("Final function result: '{}'", final_result);
-          //  println!("=== DEBUG normalize_simple_expression END ===");
             return final_result;
             
         } else if OPERATOR_PATTERN.is_match(&expr_with_standard_cast) {
@@ -1037,16 +1053,110 @@ static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(|
         false
     }
 
-    pub fn is_groupable_column(expr: &str) -> bool {
+    pub fn is_complex_computed_expression(expr: &str) -> bool {
+        let expr_upper = expr.to_uppercase();
+        
+        if OPERATOR_PATTERN.is_match(expr) {
+
+            if !is_string_or_datetime_function(expr) && !expr_upper.contains("CASE") {
+                return true;
+            }
+        }
+        
+        if expr.trim().starts_with('\'') && expr.trim().ends_with('\'') && !expr.contains('(') {
+            return true;
+        }
+        
+        if expr.contains(" WHEN ") && expr.contains(" THEN ") && !expr_upper.trim().starts_with("CASE") {
+            return true;
+        }
+        
+        false
+    }
+
+    pub fn extract_base_column_name(qualified_name: &str) -> String {
+        // extract part before AS
+        let column_part = if qualified_name.to_uppercase().contains(" AS ") {
+            let as_pattern = Regex::new(r"(?i)\s+AS\s+").unwrap();
+            if let Some(as_match) = as_pattern.find(qualified_name) {
+                qualified_name[..as_match.start()].trim()
+            } else {
+                qualified_name
+            }
+        } else {
+            qualified_name
+        };
+
+        if let Some(dot_pos) = column_part.rfind('.') {
+            column_part[dot_pos + 1..].to_lowercase()
+        } else {
+            column_part.to_lowercase()
+        }
+    }
+    
+    pub fn is_string_or_datetime_function(expr: &str) -> bool {
+        let expr_upper = expr.to_uppercase();
+        if expr_upper.trim().starts_with("CASE") && expr_upper.contains("WHEN") {
+            return true;
+        }
+ 
+        let base_expr = if expr_upper.contains(" AS ") {
+            if let Some(as_match) = AS_PATTERN.find(expr) {
+                expr[..as_match.start()].trim()
+            } else {
+                expr.trim()
+            }
+        } else {
+            expr.trim()
+        };
+        
+      //  println!("DEBUG: after AS split, base_expr = '{}'", base_expr);
+
+        if let Some(caps) = FUNCTION_PATTERN.captures(base_expr) {
+            if let Some(func_name) = caps.get(1) {
+                let func = func_name.as_str().to_uppercase();
+           //     println!("DEBUG: extracted function = '{}'", func);
+                
+                if STRING_FUNCTIONS.contains(func.as_str()) {
+             //       println!("DEBUG: '{}' found in STRING_FUNCTIONS", func);
+                    return true;
+                }
+                if DATETIME_FUNCTIONS.contains(func.as_str()) {
+             //       println!("DEBUG: '{}' found in DATETIME_FUNCTIONS", func);
+                    return true;
+                }
+                
+            //    println!("DEBUG: '{}' not found in function sets", func);
+            }
+        } else {
+          //  println!("DEBUG: No function pattern match for '{}'", base_expr);
+        }
+        
+        false
+    }
+
+     pub fn is_groupable_column(expr: &str) -> bool {
         let trimmed = expr.trim();
         
-        // Must not be a computed expression
         if is_computed_expression(trimmed) {
+            return false;
+        }
+
+         if is_aggregate_expression(trimmed) {
+            return false;
+        }
+
+        if is_complex_computed_expression(trimmed) {
+            return false;
+        }
+
+        if is_string_or_datetime_function(trimmed) {
             return false;
         }
     
         is_simple_column(trimmed) || TABLE_COLUMN_PATTERN.is_match(trimmed)
     }
+
 
 
 #[cfg(test)]
@@ -1513,4 +1623,21 @@ mod tests {
         assert!(!simulated_sql.contains(" AS "), "Found uppercase AS - should be lowercase");
         assert!(simulated_sql.contains(" as \""), "Missing lowercase AS clauses");
     }
+
+    #[test]
+    fn test_string_function_detection() {
+        assert!(is_string_or_datetime_function("TRIM(veledrogerija) as clean"));
+        assert!(is_string_or_datetime_function("UPPER(region) AS upper_region"));
+        assert!(is_string_or_datetime_function("CONCAT(godina, '-', mesec) as period"));
+        assert!(is_string_or_datetime_function("CASE WHEN neto_vrednost > 1000 THEN 'HIGH' ELSE 'LOW' END"));
+        
+        // Should return false for regular columns
+        assert!(!is_string_or_datetime_function("grupa as product_group"));
+        assert!(!is_string_or_datetime_function("customer_name"));
+        
+        // Should return false for aggregate functions
+        assert!(!is_string_or_datetime_function("SUM(neto_vrednost) AS total_value"));
+        assert!(!is_string_or_datetime_function("COUNT(*) AS transaction_count"));
+    }
+
 }

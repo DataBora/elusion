@@ -19,12 +19,7 @@ I appreciate the interest in contributing to Elusion! However, I'm not currently
 - **Issues**: Bug reports are always appreciated
 
 Thanks for understanding!
----
-### ⬇️☕ If you find Elusion useful for your DataEngineering tasks, energize me with a coffee! 😊☕⬇️
-#### [Buy me a coffee](https://coff.ee/elusion.rust)
----
-### ⬇️ Quickest way to start with Elusion⬇️
-#### [Udemy Online Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
+
 ---
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
@@ -106,12 +101,14 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
 
 ---
-## Installation
+## INSTALLATION
+#### I yanked all previous versions till "4.1.0" because of missing features  
+#### Will not yank anymore (pinky promise 😊)
 
-To add **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
+To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "4.0.1"
+elusion = "4.1.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -164,25 +161,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "4.0.1", features = ["postgres"] }
+elusion = { version = "4.1.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "4.0.1"
+elusion = "4.1.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "4.0.1", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "4.1.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "4.0.1", features = ["all"] }
+elusion = { version = "4.1.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -192,6 +189,8 @@ elusion = { version = "4.0.1", features = ["all"] }
 ## NORMALIZATION
 #### DataFrame (your files) Column Names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
 #### All DataFrame query expresions, functions, aliases and column names will be normalized to LOWERCASE(), TRIM() and REPLACE(" ","_")
+## BREAKAGE
+#### If your column names have special characters like: / * + - ...or any special characters that can be part of sql operation keywords, group_by_all() can brake as I am unable to handle special characters in column names, during automatical expansion from select(["*"]) or select(["alias.*"]). For best usage and performance use snake_case style column names.
 ---
 ## SCHEMA
 #### SCHEMA IS DYNAMICALLY INFERED
@@ -550,7 +549,7 @@ DateFormat::Custom("%m/%d/%Y %I:%M %p".to_string())
 DateFormat::Custom("%A, %B %e, %Y".to_string())  // "Monday, January 1, 2025"
 ```
 ---
-# DATA INSPECTION, SCHEMA INSPECTION, PREVIEW FUNCTIONS AND STATISTICAL FUNCTIONS
+# DATA INSPECTION, SCHEMA INSPECTION, SQL GENERATED INFO, PREVIEW FUNCTIONS AND STATISTICAL FUNCTIONS
 ---
 ### Quickly preview your data with SHOW_HEAD(), SHOW_TAIL(), and PEEK() functions
 #### Display the first n rows of your DataFrame for quick data inspection
@@ -571,6 +570,80 @@ df.peek(3).await?;
 // Show Column names and their types
 df_arhiva.df_schema();
 ```
+---
+### SQL GENERATED INFO (for debuging purposes)
+#### THIS CAN BE INACCURATE if analyzer can't figure out overly complex generated query
+#### It works accurate in most cases
+```rust
+let complex_result = df_arhiva.clone()
+    .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+    .select([
+        "veledrogerija as pharm",
+        "region AS refionale" , 
+        "kolicina",
+        "neto_vrednost",
+        "mesto"
+    ])
+    .window("ROW_NUMBER() OVER (PARTITION BY region ORDER BY mesto DESC) as region_rank")
+    .agg([
+        "COUNT(*) as broj_transakcija",
+        "SUM(kolicina) AS ukupna_kolicina", 
+        "SUM(neto_vrednost) AS ukupna_vrednost"
+    ])
+    .group_by(["pharm",
+        "regionale" , 
+        "kolicina",
+        "neto_vrednost",
+        "mesto"])
+    .order_by(["ukupna_vrednost"], ["DESC"])
+    .limit(10);
+
+complex_result.display_query();
+complex_result.display_query_with_info();
+
+let res =   complex_result.elusion("analysis1").await?;
+    
+res.display().await?;
+```
+YOU WILL GET RESULT:
+📋 Generated SQL Query:
+============================================================
+```sql
+SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
+FROM "analysis" AS analysis
+WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
+GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
+ORDER BY "ukupna_vrednost" DESC
+LIMIT 10
+```
+============================================================
+📋 Query Analysis:
+==================================================
+🔍 SQL Query:
+```sql
+SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
+FROM "analysis" AS analysis
+WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
+GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
+ORDER BY "ukupna_vrednost" DESC
+LIMIT 10
+```
+
+📊 Query Info:
+   • Has CTEs: false
+   • Has JOINs: false
+   • Has WHERE: true
+   • Has GROUP BY: true
+   • Has HAVING: false
+   • Has ORDER BY: true
+   • Has LIMIT: true
+   • Has UNION: false
+   • CTE count: 0
+   • Join count: 0
+   • Union count: 0
+   • Function calls: ~5
+   • Complexity: Moderate
+==================================================
 ---
 ### STATISTICAL FUNCTIONS
 #### These Functions can give you quick statistical overview of your DataFrame columns and correlations
@@ -782,6 +855,221 @@ let df_select_all = select_df.select(["*"]);
 let df_count_all = select_df.select(["COUNT(*)"]);
 
 let df_distinct = select_df.select(["DISTINCT(column_name) as distinct_values"]);
+
+// example usage
+let join_result = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "RIGHT"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "LEFT OUTER"),
+    ])
+    .select(["c.*","p.*"])
+    .elusion("sales_join") .await?;
+
+join_result.display().await?;
+
+// example usage 2
+ aggregate_result
+    .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
+    .select(["*"])  // Full star selection on large dataset
+    .agg([
+        "COUNT(*) AS transaction_count",
+        "SUM(neto_vrednost) AS total_value",
+        "AVG(kolicina) AS avg_quantity"
+    ])
+    .group_by_all()
+    .order_by(["total_value"], ["DESC"])
+    .limit(200)
+    .elusion("archive_star_full").await?;
+
+aggregate_result.display().await?
+```
+---
+### IMPORTANT: Star Selection Duplicate Column Behavior
+
+#### Overview
+When using star selections (`*` or `alias.*`) with joined tables, **duplicate column names are automatically removed** to prevent SQL errors and schema conflicts. This behavior ensures your queries work reliably while following intuitive rules.
+
+## 🔄 Automatic Duplicate Removal with Star Selections
+
+```rust
+// When you use star selections:
+.select(["s.*", "c.*", "p.*"])
+```
+
+**What happens:**
+- `s.*` expands to: `s.customerkey`, `s.productkey`, `s.orderdate`, etc.
+- `c.*` expands to: `c.customerkey`, `c.firstname`, `c.lastname`, etc.  
+- `p.*` expands to: `p.productkey`, `p.productname`, `p.productcolor`, etc.
+
+**Duplicate Detection:**
+- ✅ **KEEPS:** `s.customerkey` (first occurrence - main table priority)
+- ❌ **REMOVES:** `c.customerkey` (duplicate of customerkey)
+- ✅ **KEEPS:** `s.productkey` (first occurrence - main table priority)  
+- ❌ **REMOVES:** `p.productkey` (duplicate of productkey)
+
+**Priority Order:** Main table → Joined tables (in join order)
+
+## ✅ Explicit Column Selection Preserves Duplicates
+
+```rust
+// When you explicitly specify columns:
+.select(["s.CustomerKey", "c.CustomerKey", "p.ProductName"])
+```
+
+**What happens:**
+- ✅ **KEEPS:** `s.CustomerKey` (explicitly requested)
+- ✅ **KEEPS:** `c.CustomerKey` (explicitly requested - different qualified name)
+- ✅ **KEEPS:** `p.ProductName` (explicitly requested)
+
+**No duplicate removal** - you get exactly what you specify.
+
+## Mixed Selections Work Too
+
+```rust
+// Mix star and explicit columns:
+.select(["c.*", "s.OrderDate", "p.ProductName as product"])
+```
+
+**Behavior:**
+- `c.*` expands with duplicate removal applied
+- Explicit columns (`s.OrderDate`, `p.ProductName as product`) are always preserved
+- Final result combines both approaches
+
+## 🏷️ Aliases Work with Both Approaches
+
+### Star Selection with Aliases
+```rust
+.select(["s.CustomerKey AS sales_customer", "c.*", "p.*"])
+// Result: sales_customer + all c.* columns + all p.* columns (duplicates removed)
+```
+
+### Explicit Selection with Aliases  
+```rust
+.select([
+    "s.CustomerKey AS sales_key", 
+    "c.CustomerKey AS master_key",
+    "p.ProductName AS product"
+])
+// Result: All three columns preserved with their aliases
+```
+
+### Multiple Aliases for Same Base Column
+```rust
+.select([
+    "c.CustomerKey as customer_master",
+    "s.CustomerKey as sales_fk", 
+    "p.ProductName"
+])
+// Result: Both customerkey columns kept with different aliases
+```
+## ⚠️ When This Matters
+
+### ✅ Use Star Selections When:
+- You want "all relevant columns" without conflicts
+- You don't need to see duplicate foreign key values  
+- You want simple, predictable behavior
+- You're doing exploratory data analysis
+
+```rust
+// Simple approach - no conflicts, works reliably
+.select(["s.*", "c.*", "p.*"])
+.group_by_all()  // Just works!
+```
+
+### ✅ Use Explicit Columns When:
+- You need both foreign key values for comparison
+- You want specific control over which columns appear
+- You need different aliases for duplicate column names
+- You're building production reports with exact specifications
+
+```rust
+// Advanced approach - full control
+.select([
+    "s.CustomerKey AS sales_fk",
+    "c.CustomerKey AS customer_pk", 
+    "c.FirstName",
+    "p.ProductName"
+])
+.group_by_all()  // Will include both customerkey columns
+```
+## 🔧 Working with .elusion() and Duplicate Columns
+
+When using `.elusion()` to register query results, the system automatically handles duplicate column scenarios:
+
+### ✅ This Works
+```rust
+.select([
+    "s.CustomerKey AS sales_key",
+    "c.CustomerKey AS customer_key",  // Different aliases
+    "p.ProductName"
+])
+.group_by_all()
+.elusion("my_result")  // ✅ Works - unique aliases
+```
+## 💡 Best Practices
+
+1. **Start with star selections** for quick analysis and exploration
+2. **Use explicit columns** when you need duplicate keys or precise control
+3. **Use descriptive aliases** to rename duplicate columns when needed
+4. **Test your queries** to ensure you get expected columns
+5. **Mix approaches** when appropriate (star + explicit)
+
+## What Gets Considered Duplicates
+
+Only columns with **identical base names** are considered duplicates:
+- `s.customerkey` vs `c.customerkey` → **Duplicate** (same base: "customerkey")
+- `s.orderdate` vs `c.birthdate` → **Not duplicate** (different base names)
+- `s.productkey` vs `p.productkey` → **Duplicate** (same base: "productkey")
+- `s.CustomerId` vs `s.CustomerKey` → **Not duplicate** (different column names)
+
+### Example 1: Star Selection (Automatic Deduplication)
+```rust
+let star_query = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "LEFT"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "LEFT"),
+    ])
+    .select(["s.*", "c.*", "p.*"])  // Duplicates removed automatically
+    .agg(["SUM(s.OrderQuantity) AS total_qty"])
+    .group_by_all()                 // Just works!
+    .limit(100);
+```
+
+### Example 2: Explicit Selection (Full Control)
+```rust
+let explicit_query = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "LEFT"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "LEFT"),
+    ])
+    .select([
+        "s.CustomerKey AS sales_customer_key",
+        "c.CustomerKey AS customer_master_key",  // Both kept
+        "c.FirstName",
+        "p.ProductName",
+        "s.OrderQuantity"
+    ])
+    .agg(["SUM(s.OrderQuantity) AS total_qty"])
+    .group_by_all()                              // Handles both customerkey columns
+    .limit(100);
+```
+### Example 3: Mixed Approach
+```rust
+let mixed_query = sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "LEFT"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "LEFT"),
+    ])
+    .select([
+        "c.*",                          // All customer columns (deduplicated)
+        "s.OrderDate",                  // Specific sales column
+        "s.OrderQuantity",              // Another specific column
+        "p.ProductName AS product",     // Aliased product column
+        "p.ProductPrice"                // Product price
+    ])
+    .agg(["COUNT(*) AS order_count"])
+    .group_by_all()
+    .limit(100);
 ```
 ---
 ## Where to use which Functions:
@@ -1001,7 +1289,7 @@ let string_functions_df = df_sales
         (df_products, ["s.ProductKey = p.ProductKey"], "INNER"),
     ]) 
     .select([
-        "c.CustomerKey",
+        "c.CustomerKey as custmer_code"
         "c.FirstName",
         "c.LastName",
         "c.EmailAddress",
@@ -1107,6 +1395,169 @@ CONVERT() - Type conversion
 10. Control Flow:
 CASE()
 ```
+---
+
+### DATETIME FUNCTIONS
+#### Work best with YYYY-MM-DD format
+```rust
+let dt_query = sales_order_df
+    .select([
+        "customer_name",
+        "order_date",
+        "delivery_date"
+    ])
+    .datetime_functions([
+    // Current date/time comparisons
+    "CURRENT_DATE() AS today",
+    "CURRENT_TIME() AS current_time", 
+    "CURRENT_TIMESTAMP() AS now",
+    "NOW() AS now_timestamp",
+    "TODAY() AS today_timestamp",
+    
+    // Date binning (for time-series analysis)
+    "DATE_BIN('1 week', order_date, MAKE_DATE(2020, 1, 1)) AS weekly_bin",
+    "DATE_BIN('1 month', order_date, MAKE_DATE(2020, 1, 1)) AS monthly_bin",
+    
+    // Date formatting
+    "DATE_FORMAT(order_date, '%Y-%m-%d') AS formatted_date",
+    "DATE_FORMAT(order_date, '%Y/%m/%d') AS formatted_date_alt",
+    
+    // Basic date components
+    "DATE_PART('year', order_date) AS year",
+    "DATE_PART('month', order_date) AS month", 
+    "DATE_PART('day', order_date) AS day",
+
+    // Quarters and weeks
+    "DATE_PART('quarter', order_date) AS order_quarter",
+    "DATE_PART('week', order_date) AS order_week",
+
+    // Day of week/year
+    "DATE_PART('dow', order_date) AS day_of_week",
+    "DATE_PART('doy', order_date) AS day_of_year",
+
+    // Extract Day
+    "DATE_PART('day', CAST(delivery_date AS DATE) - CAST(order_date AS DATE)) AS delivery_days",
+    "DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) AS days_since_order",
+    
+    // Date truncation (alternative syntax)
+    "DATE_TRUNC('week', order_date) AS week_start",
+    "DATE_TRUNC('quarter', order_date) AS quarter_start", 
+    "DATE_TRUNC('month', order_date) AS month_start",
+    "DATE_TRUNC('year', order_date) AS year_start",
+    
+    // Complex date calculations
+    "CASE 
+        WHEN DATE_PART('month', order_date) <= 3 THEN 'Q1'
+        WHEN DATE_PART('month', order_date) <= 6 THEN 'Q2'
+        WHEN DATE_PART('month', order_date) <= 9 THEN 'Q3'
+        ELSE 'Q4'
+        END AS fiscal_quarter",
+    
+    // Date comparisons with current date - FIX: Cast for arithmetic
+    "CASE 
+        WHEN CAST(order_date AS DATE) = CAST(CURRENT_DATE() AS DATE) THEN 'Today'
+        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 7 THEN 'Last Week'
+        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 30 THEN 'Last Month'
+        ELSE 'Older'
+        END AS order_recency",
+
+    // Time windows
+    "CASE 
+        WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
+        THEN 'This Week'
+        ELSE 'Previous Weeks'
+    END AS week_window",
+
+    // Fiscal year calculations
+    "CASE 
+        WHEN DATE_PART('month', order_date) >= 7 
+        THEN DATE_PART('year', order_date) + 1 
+        ELSE DATE_PART('year', order_date) 
+    END AS fiscal_year",
+
+    // Complex date logic -
+    "CASE 
+        WHEN CAST(order_date AS DATE) < CAST(MAKE_DATE(2024, 1, 1) AS DATE) THEN 'Past'
+        ELSE 'Present'
+    END AS temporal_status",
+    
+    "CASE 
+        WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
+        ELSE 'Afternoon'
+    END AS time_of_day",
+    ])
+    .agg([
+        "SUM(order_value) AS total_order"
+    ])
+    .group_by([
+        "customer_name",
+        "order_date", 
+        "delivery_date"
+    ])
+    // .group_by_all() OR YOU CAN USE grouping by all columns
+    .order_by(["order_date"], ["DESC"]);
+
+let dt_res = dt_query.elusion("datetime_df").await?;
+dt_res.display().await?;
+```
+#### Currently Available DateTime Functions
+```rust
+CURRENT_DATE()
+CURRENT_TIME()
+CURRENT_TIMESTAMP()
+NOW()
+TODAY()
+DATE_PART()
+DATE_TRUNC()
+DATE_BIN()
+MAKE_DATE()
+DATE_FORMAT()
+```
+---
+
+## IMPORTANT
+### GROUP BY with Functions specifics
+
+When using `.string_functions()` or `.datetime_functions()` with aggregations, you have two options:
+
+### ✅ Option 1: Include base columns in `.select()` + `.group_by_all()`
+```rust
+df.select([
+    "customer_name",     // ← Include all columns your functions will use
+    "email",            // ← TRIM(email) needs this
+    "first_name",       // ← UPPER(first_name) needs this  
+    "order_date"        // ← DATE_PART('month', order_date) needs this
+])
+.string_functions([
+    "TRIM(email) AS clean_email",
+    "UPPER(first_name) AS upper_name"
+])
+.datetime_functions([
+    "DATE_PART('month', order_date) AS month"
+])
+.agg(["COUNT(*) AS total"])
+.group_by_all()         // ✅ Automatically groups by all SELECT columns
+```
+
+### ✅ Option 2: Manual GROUP BY
+```rust
+df.select(["customer_name"]) 
+.string_functions(["TRIM(email) AS clean_email"])
+.agg(["COUNT(*) AS total"])
+.group_by([
+    "customer_name",
+    "email"              // ← Manually specify function dependencies
+])
+```
+
+### ❌ This won't work:
+```rust
+df.select(["customer_name"])           // ← Only customer_name
+.string_functions(["TRIM(email)"])     // ← Function uses 'email' but it's not in SELECT
+.group_by_all()                        // ❌ Error: email missing from GROUP BY
+```
+
+**Rule:** If your function uses a column, that column must be in `.select()` for `group_by_all()` to work.
 ---
 ## JOIN
 #### JOIN examples with single condition and 2 dataframes, AGGREGATION, GROUP BY
@@ -1287,123 +1738,6 @@ join_str_df3.display().await?;
 "INNER", "LEFT", "RIGHT", "FULL", 
 "LEFT SEMI", "RIGHT SEMI", 
 "LEFT ANTI", "RIGHT ANTI", "LEFT MARK" 
-```
----
-### DATETIME FUNCTIONS
-#### Work best with YYYY-MM-DD format
-```rust
-let dt_query = sales_order_df
-    .select([
-        "customer_name",
-        "order_date",
-        "delivery_date"
-    ])
-    .datetime_functions([
-    // Current date/time comparisons
-    "CURRENT_DATE() AS today",
-    "CURRENT_TIME() AS current_time", 
-    "CURRENT_TIMESTAMP() AS now",
-    "NOW() AS now_timestamp",
-    "TODAY() AS today_timestamp",
-    
-    // Date binning (for time-series analysis)
-    "DATE_BIN('1 week', order_date, MAKE_DATE(2020, 1, 1)) AS weekly_bin",
-    "DATE_BIN('1 month', order_date, MAKE_DATE(2020, 1, 1)) AS monthly_bin",
-    
-    // Date formatting
-    "DATE_FORMAT(order_date, '%Y-%m-%d') AS formatted_date",
-    "DATE_FORMAT(order_date, '%Y/%m/%d') AS formatted_date_alt",
-    
-    // Basic date components
-    "DATE_PART('year', order_date) AS year",
-    "DATE_PART('month', order_date) AS month", 
-    "DATE_PART('day', order_date) AS day",
-
-    // Quarters and weeks
-    "DATE_PART('quarter', order_date) AS order_quarter",
-    "DATE_PART('week', order_date) AS order_week",
-
-    // Day of week/year
-    "DATE_PART('dow', order_date) AS day_of_week",
-    "DATE_PART('doy', order_date) AS day_of_year",
-
-    // Extract Day
-    "DATE_PART('day', CAST(delivery_date AS DATE) - CAST(order_date AS DATE)) AS delivery_days",
-    "DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) AS days_since_order",
-    
-    // Date truncation (alternative syntax)
-    "DATE_TRUNC('week', order_date) AS week_start",
-    "DATE_TRUNC('quarter', order_date) AS quarter_start", 
-    "DATE_TRUNC('month', order_date) AS month_start",
-    "DATE_TRUNC('year', order_date) AS year_start",
-    
-    // Complex date calculations
-    "CASE 
-        WHEN DATE_PART('month', order_date) <= 3 THEN 'Q1'
-        WHEN DATE_PART('month', order_date) <= 6 THEN 'Q2'
-        WHEN DATE_PART('month', order_date) <= 9 THEN 'Q3'
-        ELSE 'Q4'
-        END AS fiscal_quarter",
-    
-    // Date comparisons with current date - FIX: Cast for arithmetic
-    "CASE 
-        WHEN CAST(order_date AS DATE) = CAST(CURRENT_DATE() AS DATE) THEN 'Today'
-        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 7 THEN 'Last Week'
-        WHEN DATE_PART('day', CAST(CURRENT_DATE() AS DATE) - CAST(order_date AS DATE)) <= 30 THEN 'Last Month'
-        ELSE 'Older'
-        END AS order_recency",
-
-    // Time windows
-    "CASE 
-        WHEN DATE_BIN('1 week', order_date, CURRENT_DATE()) = DATE_BIN('1 week', CURRENT_DATE(), CURRENT_DATE()) 
-        THEN 'This Week'
-        ELSE 'Previous Weeks'
-    END AS week_window",
-
-    // Fiscal year calculations
-    "CASE 
-        WHEN DATE_PART('month', order_date) >= 7 
-        THEN DATE_PART('year', order_date) + 1 
-        ELSE DATE_PART('year', order_date) 
-    END AS fiscal_year",
-
-    // Complex date logic -
-    "CASE 
-        WHEN CAST(order_date AS DATE) < CAST(MAKE_DATE(2024, 1, 1) AS DATE) THEN 'Past'
-        ELSE 'Present'
-    END AS temporal_status",
-    
-    "CASE 
-        WHEN DATE_PART('hour', CURRENT_TIMESTAMP()) < 12 THEN 'Morning'
-        ELSE 'Afternoon'
-    END AS time_of_day",
-    ])
-    .agg([
-        "SUM(order_value) AS total_order"
-    ])
-    .group_by([
-        "customer_name",
-        "order_date", 
-        "delivery_date"
-    ])
-    // .group_by_all() OR YOU CAN USE grouping by all columns
-    .order_by(["order_date"], ["DESC"]);
-
-let dt_res = dt_query.elusion("datetime_df").await?;
-dt_res.display().await?;
-```
-#### Currently Available DateTime Functions
-```rust
-CURRENT_DATE()
-CURRENT_TIME()
-CURRENT_TIMESTAMP()
-NOW()
-TODAY()
-DATE_PART()
-DATE_TRUNC()
-DATE_BIN()
-MAKE_DATE()
-DATE_FORMAT()
 ```
 ---
 ### WINDOW functions

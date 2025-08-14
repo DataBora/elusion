@@ -47,6 +47,14 @@ use crate::features::calendar::DateFormat;
 use std::fmt::Debug;
 use crate::custom_error::cust_error::ElusionError;
 use crate::custom_error::cust_error::ElusionResult;
+use crate::custom_error::cust_error::extract_column_from_duplicate_error;
+use crate::custom_error::cust_error::extract_missing_column;
+use crate::custom_error::cust_error::extract_column_from_projection_error;
+use crate::custom_error::cust_error::extract_table_from_join_error;
+use crate::custom_error::cust_error::extract_function_from_error;
+use crate::custom_error::cust_error::extract_column_from_agg_error;
+use crate::custom_error::cust_error::detect_function_usage_in_error;
+use crate::custom_error::cust_error::generate_enhanced_groupby_suggestion;
 
 // ======== PIVOT
 use arrow::compute;
@@ -96,8 +104,9 @@ use crate::normalizers::normalize::normalize_alias_write;
 use crate::normalizers::normalize::normalize_window_function;
 use crate::normalizers::normalize::normalize_simple_expression;
 use crate::normalizers::normalize::resolve_alias_to_original;
-use crate::normalizers::normalize::is_computed_expression;
 use crate::normalizers::normalize::is_groupable_column;
+use crate::normalizers::normalize::extract_base_column_name;
+
 
 //======= csv 
 use crate::features::csv::load_csv_with_type_handling;
@@ -777,23 +786,13 @@ impl CustomDataFrame {
     /// GROUP_BY_ALL function that usifies all SELECT() olumns and reduces need for writing all columns
     pub fn group_by_all(mut self) -> Self {
         let mut all_group_by = Vec::new();
+        
+      //  println!("raw_selected_columns: {:?}", self.raw_selected_columns);
 
         for col_expr in &self.raw_selected_columns {
-        //    println!("DEBUG group_by_all: Processing '{}'", col_expr);
+          //  println!("Processing column: '{}'", col_expr);
             
-            // Skip aggregate expressions entirely
-            if is_aggregate_expression(col_expr) {
-              //  println!("DEBUG: Skipping aggregate expression: '{}'", col_expr);
-                continue;
-            }
-            
-            // Skip computed expressions (functions, CASE statements, etc.)
-            if is_computed_expression(col_expr) {
-              //  println!("DEBUG: Skipping computed expression: '{}'", col_expr);
-                continue;
-            }
-            
-            // Extract the base column/expression (part before AS)
+            // Extract base expression (before AS alias)
             let base_expression = if col_expr.to_uppercase().contains(" AS ") {
                 let as_pattern = regex::Regex::new(r"(?i)\s+AS\s+").unwrap();
                 if let Some(as_match) = as_pattern.find(col_expr) {
@@ -805,9 +804,6 @@ impl CustomDataFrame {
                 col_expr.as_str()
             };
             
-            //println!("DEBUG: Base expression: '{}'", base_expression);
-            
-            // Only include if it's a simple column or table.column reference
             if is_groupable_column(base_expression) {
                 let normalized = if is_simple_column(base_expression) {
                     normalize_column_name(base_expression)
@@ -816,15 +812,16 @@ impl CustomDataFrame {
                 };
                 
                 if !all_group_by.contains(&normalized) {
-                 //   println!("DEBUG: Adding to GROUP BY: '{}'", normalized);
-                    all_group_by.push(normalized);
+                    all_group_by.push(normalized.clone());
+                   // println!("  -> ADDED simple column to group_by: '{}'", normalized);
                 }
             } else {
-               // println!("DEBUG: Skipping non-groupable expression: '{}'", base_expression);
+               // println!("  -> SKIPPED: not groupable (function/computed/aggregate)");
             }
         }
 
-   //     println!("DEBUG: Final GROUP BY columns: {:?}", all_group_by);
+      //  println!("Final group_by_columns: {:?}", all_group_by);
+
         self.group_by_columns = all_group_by;
         self
     }
@@ -974,19 +971,13 @@ impl CustomDataFrame {
    
     /// Apply multiple string functions to create new columns in the SELECT clause.
     pub fn string_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
-        // Store raw
-        for expr in expressions.iter() {
-            self.raw_selected_columns.push(expr.to_string());
-        }
+
         self.needs_normalization = true;
 
-        // Execute original logic (PRESERVED EXACTLY)
         for expr in expressions.iter() {
             // Add to SELECT clause
             self.selected_columns.push(normalize_expression(expr, &self.table_alias));
 
-            // If GROUP BY is used, extract the expression part (before AS)
-            // and add it to GROUP BY columns
             if !self.group_by_columns.is_empty() {
                 let expr_part = expr.split(" AS ")
                     .next()
@@ -997,20 +988,13 @@ impl CustomDataFrame {
         self
     }
 
-     /// Add datetime functions to the SELECT clause
-    /// Supports various date/time operations and formats
+    /// Add datetime functions to the SELECT clause
     pub fn datetime_functions<const N: usize>(mut self, expressions: [&str; N]) -> Self {
-        // Store raw
-        for expr in expressions.iter() {
-            self.raw_selected_columns.push(expr.to_string());
-        }
         self.needs_normalization = true;
 
         for expr in expressions.iter() {
-            // Add to SELECT clause
             self.selected_columns.push(normalize_expression(expr, &self.table_alias));
 
-            // If GROUP BY is used, extract the expression part (before AS)
             if !self.group_by_columns.is_empty() {
                 let expr_part = expr.split(" AS ")
                     .next()
@@ -2684,30 +2668,41 @@ impl CustomDataFrame {
     }
 
     pub fn select_vec(mut self, columns: Vec<&str>) -> Self {
+        let has_star_expansion = columns.iter().any(|&col| col == "*" || col.ends_with(".*") || col.ends_with(". *"));
+        
+        let final_columns = if has_star_expansion {
+            // For star expansion: expand first, then remove duplicates
+            let expanded = self.expand_star_columns(columns);
+            self.remove_duplicate_columns(expanded)
+        } else {
+            // For explicit columns: keep exactly what user specified (no duplicate removal)
+            columns.into_iter().map(|s| s.to_string()).collect()
+        };
+
+        let column_refs: Vec<&str> = final_columns.iter().map(|s| s.as_str()).collect();
+        
         // Store original expressions with AS clauses 
-        self.original_expressions = columns
+        self.original_expressions = column_refs
             .iter()
             .filter(|&col| col.contains(" AS "))
             .map(|&s| s.to_string())
             .collect();
 
-        // raw columns for lazy processing
-        self.raw_selected_columns.extend(columns.iter().map(|&s| s.to_string()));
+        // Store raw columns for lazy processing
+        self.raw_selected_columns.extend(column_refs.iter().map(|&s| s.to_string()));
         self.needs_normalization = true;
 
         let mut all_columns = self.selected_columns.clone();
         
         if !self.group_by_columns.is_empty() {
-            // GROUP BY scenario: separate aggregations from non-aggregated expressions
-            for col in columns {
+            // For GROUP BY case
+            for col in column_refs {
                 if is_expression(col) {
                     if is_aggregate_expression(col) {
-                        // Aggregation goes to SELECT only (not GROUP BY)
+                        // Aggregation goes to SELECT only
                         all_columns.push(normalize_expression(col, &self.table_alias));
                     } else {
-                        // Non-aggregate expression:
-                        // - Expression without alias goes to GROUP BY
-                        // - Full expression with alias goes to SELECT
+                        // Non-aggregate expression
                         let expr_without_alias = if col.contains(" AS ") {
                             col.split(" AS ").next().unwrap_or(col).trim()
                         } else {
@@ -2733,7 +2728,7 @@ impl CustomDataFrame {
                 }
             }
         } else {
-            // No GROUP BY case - original logic
+            // No GROUP BY case
             let aggregate_aliases: Vec<String> = self
                 .aggregations
                 .iter()
@@ -2745,7 +2740,7 @@ impl CustomDataFrame {
                 .collect();
 
             all_columns.extend(
-                columns
+                column_refs
                     .into_iter()
                     .filter(|col| !aggregate_aliases.contains(&normalize_alias(col)))
                     .map(|s| {
@@ -2766,6 +2761,83 @@ impl CustomDataFrame {
             .collect();
 
         self
+    }
+
+    /// Remove duplicate columns based on base column name, keeping first occurrence
+    fn remove_duplicate_columns(&self, columns: Vec<String>) -> Vec<String> {
+        let mut seen_base_names = HashSet::new();
+        let mut result = Vec::new();
+    
+       // println!("Input columns: {:?}", columns);
+        
+        for col in columns {
+            let base_name = extract_base_column_name(&col);
+          //  println!("Processing '{}' -> base_name: '{}'", col, base_name);
+            
+            if !seen_base_names.contains(&base_name) {
+                seen_base_names.insert(base_name.clone());
+                result.push(col.clone());
+              //  println!("  -> KEEPING: '{}'", col);
+            } else {
+              //  println!("  -> SKIPPING duplicate: '{}'", col);
+            }
+        }
+        
+       // println!("Final deduplicated columns: {:?}", result);
+        
+        result
+    }
+
+    /// Simple star expansion using available schemas
+    fn expand_star_columns(&self, columns: Vec<&str>) -> Vec<String> {
+        let mut result = Vec::new();
+        
+        for col in columns {
+            match col {
+                "*" => {
+                    // Add all columns from main table
+                    let schema = self.df.schema();
+                    for field in schema.fields() {
+                        result.push(format!("{}.{}", self.table_alias, field.name()));
+                    }
+                    
+                    // Add all columns from joined tables
+                    for join in &self.joins {
+                        let join_schema = join.dataframe.df.schema();
+                        for field in join_schema.fields() {
+                            result.push(format!("{}.{}", join.dataframe.table_alias, field.name()));
+                        }
+                    }
+                }
+                table_star if table_star.ends_with(".*") => {
+                    let table_alias = &table_star[..table_star.len() - 2];
+                    
+                    // Check main table
+                    if table_alias == self.table_alias {
+                        let schema = self.df.schema();
+                        for field in schema.fields() {
+                            result.push(format!("{}.{}", table_alias, field.name()));
+                        }
+                    } else {
+                        // Check joined tables
+                        for join in &self.joins {
+                            if join.dataframe.table_alias == table_alias {
+                                let schema = join.dataframe.df.schema();
+                                for field in schema.fields() {
+                                    result.push(format!("{}.{}", table_alias, field.name()));
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+                regular => {
+                    result.push(regular.to_string());
+                }
+            }
+        }
+        
+        result
     }
 
     /// Extract JSON properties from a column containing JSON strings
@@ -3085,76 +3157,29 @@ impl CustomDataFrame {
 
     /// Build SELECT parts with reduced allocations
     fn build_select_parts(&self) -> Vec<String> {
-    let total_parts = self.aggregations.len() 
-                     + self.selected_columns.len() 
-                     + self.window_functions.len();
-    
-    let mut select_parts = Vec::with_capacity(total_parts);
+        let mut select_parts = Vec::new();
 
-    if !self.group_by_columns.is_empty() {
-        // GROUP BY scenario: aggregations + group by columns only
-        
-        // 1. Add all aggregations first (these don't go to GROUP BY)
+        // Always add aggregations first
         select_parts.extend_from_slice(&self.aggregations);
         
-        // 2. Add GROUP BY columns to SELECT (these are the non-aggregated columns)
-        for group_col in &self.group_by_columns {
-            // Check if this group column isn't already in select as an aggregation
-            let is_already_aggregated = self.aggregations.iter().any(|agg| {
-                if let Some(alias_part) = agg.split(" as \"").nth(1) {
-                    let alias = alias_part.trim_end_matches('"');
-                    group_col.contains(alias) || alias.contains(group_col)
-                } else {
-                    false
-                }
-            });
-            
-            if !is_already_aggregated && !select_parts.contains(group_col) {
-                select_parts.push(group_col.clone());
-            }
+        if !self.group_by_columns.is_empty() {
+            // For GROUP BY queries, just use selected_columns as-is
+            // group_by_all() already ensured they match
+            select_parts.extend_from_slice(&self.selected_columns);
+        } else {
+            // No GROUP BY - add all parts normally
+            select_parts.extend_from_slice(&self.selected_columns);
         }
+
+        // window functions
+        select_parts.extend_from_slice(&self.window_functions);
         
-        // 3. Add any selected columns that are expressions with aliases
-        // These should match what's in GROUP BY (without aliases)
-        for selected_col in &self.selected_columns {
-            if selected_col.contains(" as \"") {
-                // This is an aliased expression - it should be in GROUP BY without alias
-                let expr_part = if let Some(as_pos) = selected_col.find(" as \"") {
-                    selected_col[..as_pos].trim()
-                } else {
-                    selected_col.as_str()
-                };
-                
-                // Check if this expression is in GROUP BY
-                let is_in_group_by = self.group_by_columns.iter().any(|group_col| {
-                    group_col.trim() == expr_part || 
-                    group_col.contains(expr_part) ||
-                    expr_part.contains(group_col.trim())
-                });
-                
-                if is_in_group_by && !select_parts.contains(selected_col) {
-                    select_parts.push(selected_col.clone());
-                }
-            } else if !select_parts.contains(selected_col) {
-                // Simple column, add if not already present
-                select_parts.push(selected_col.clone());
-            }
-        }
-    } else {
-        // No GROUP BY - add all parts normally
-        select_parts.extend_from_slice(&self.aggregations);
-        select_parts.extend_from_slice(&self.selected_columns);
+        // Remove exact duplicates
+        let mut seen = HashSet::new();
+        select_parts.retain(|x| seen.insert(x.clone()));
+        
+        select_parts
     }
-
-    // Add window functions last
-    select_parts.extend_from_slice(&self.window_functions);
-    
-    // Remove duplicates while preserving order
-    let mut seen = std::collections::HashSet::new();
-    select_parts.retain(|x| seen.insert(x.clone()));
-    
-    select_parts
-}
     
     /// Execute the constructed SQL and return a new CustomDataFrame
     pub async fn elusion(&self, alias: &str) -> ElusionResult<Self> {
@@ -3190,15 +3215,92 @@ impl CustomDataFrame {
         };
        // println!("{:?}", final_sql);
 
-        // Execute the SQL query
+        // Execute the SQL query with context-aware error handling
         let df = ctx.sql(&final_sql).await
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "SQL Execution".to_string(),
-                reason: format!("Failed to execute SQL: {}", e),
-                suggestion: "💡 Verify SQL syntax and table/column references, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
+            .map_err(|e| {
+
+                let error_msg = e.to_string();
+                
+                // Specific handling for our duplicate column cases
+                if error_msg.contains("duplicate qualified field name") || 
+                error_msg.contains("Schema contains duplicate qualified field name") {
+                    ElusionError::DuplicateColumn {
+                        column: extract_column_from_duplicate_error(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        locations: vec!["result schema".to_string()],
+                    }
+                }
+                // GROUP BY mismatch errors
+                else if error_msg.contains("could not be resolved from available columns") {
+                    let missing_col = extract_missing_column(&error_msg).unwrap_or("unknown".to_string());
+                    let function_context = detect_function_usage_in_error(&error_msg, &missing_col);
+                    
+                    ElusionError::GroupByError {
+                        message: "Column in SELECT clause missing from GROUP BY".to_string(),
+                        invalid_columns: vec![missing_col.clone()],
+                        function_context: function_context.clone(),
+                        suggestion: generate_enhanced_groupby_suggestion(&missing_col, function_context.as_deref()),
+                    }
+                }
+                // Projection duplicate names (our SELECT clause issue)
+                else if error_msg.contains("projections require unique expression names") ||
+                        error_msg.contains("have the same name") {
+                    ElusionError::DuplicateColumn {
+                        column: extract_column_from_projection_error(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        locations: vec!["SELECT clause".to_string()],
+                    }
+                }
+                // JOIN related errors
+                else if error_msg.contains("join") || error_msg.contains("JOIN") {
+                    ElusionError::JoinError {
+                        message: error_msg.clone(),
+                        left_table: self.table_alias.clone(),
+                        right_table: extract_table_from_join_error(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        suggestion: "💡 Check JOIN conditions and ensure table aliases match those used in .join_many([...])".to_string(),
+                    }
+                }
+                // Aggregation function errors
+                else if error_msg.contains("aggregate") || 
+                        error_msg.contains("SUM") || error_msg.contains("AVG") || 
+                        error_msg.contains("COUNT") {
+                    ElusionError::AggregationError {
+                        message: error_msg.clone(),
+                        function: extract_function_from_error(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        column: extract_column_from_agg_error(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        suggestion: "💡 Check aggregation syntax in .agg([...]) and ensure columns exist in your tables".to_string(),
+                    }
+                }
+                // HAVING clause errors  
+                else if error_msg.contains("having") || error_msg.contains("HAVING") {
+                    ElusionError::InvalidOperation {
+                        operation: "HAVING clause evaluation".to_string(),
+                        reason: error_msg.clone(),
+                        suggestion: "💡 HAVING conditions must reference aggregated columns or their aliases from .agg([...])".to_string(),
+                    }
+                }
+                // Column not found errors
+                else if error_msg.contains("not found") || error_msg.contains("No field named") {
+                    ElusionError::MissingColumn {
+                        column: extract_missing_column(&error_msg)
+                            .unwrap_or("unknown".to_string()),
+                        available_columns: self.get_available_columns(),
+                    }
+                }
+                // Generic fallback with better context
+                else {
+                    ElusionError::InvalidOperation {
+                        operation: "SQL Execution".to_string(),
+                        reason: format!("Failed to execute SQL: {}", e),
+                        suggestion: self.get_contextual_suggestion(&error_msg),
+                    }
+                }
             })?;
 
-        // Using spawn_blocking for potentially expensive data collection
+        // ENHANCED: Data collection with better error context
         let (batches, schema) = if self.is_large_result_expected() {
             let df_clone = df.clone();
             tokio::task::spawn_blocking(move || {
@@ -3213,37 +3315,61 @@ impl CustomDataFrame {
             .map_err(|e| ElusionError::InvalidOperation {
                 operation: "Data Collection".to_string(),
                 reason: format!("Failed to collect results: {}", e),
-                suggestion: "💡 Check if query returns valid data, or check if your file have unreadable column values".to_string()
+                suggestion: "💡 Query executed successfully but failed to collect results. Try reducing result size with .limit() or check for memory issues".to_string()
             })?
         } else {
             let batches = df.clone().collect().await
                 .map_err(|e| ElusionError::InvalidOperation {
                     operation: "Data Collection".to_string(),
                     reason: format!("Failed to collect results: {}", e),
-                    suggestion: "💡 Check if query returns valid data, or check if your file have unreadable column values".to_string()
+                    suggestion: "💡 Query executed but data collection failed. Check for data type issues or memory constraints".to_string()
                 })?;
             (batches, df.schema().clone())
         };
 
+        // ENHANCED: Schema registration with specific duplicate detection
         let result_mem_table = MemTable::try_new(schema.clone().into(), vec![batches])
-            .map_err(|e| ElusionError::SchemaError {
-                message: format!("Failed to create result table: {}", e),
-                schema: Some(schema.to_string()),
-                suggestion: "💡 Verify result schema compatibility".to_string()
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if error_msg.contains("duplicate") || error_msg.contains("Schema") {
+                    ElusionError::SchemaError {
+                        message: format!("Schema registration failed: {}", e),
+                        schema: Some(schema.to_string()),
+                        suggestion: "💡 Result schema has conflicting column names. Use unique aliases in .select([...]) or avoid .elusion() for this query".to_string()
+                    }
+                } else {
+                    ElusionError::SchemaError {
+                        message: format!("Failed to create result table: {}", e),
+                        schema: Some(schema.to_string()),
+                        suggestion: "💡 Verify result schema compatibility and data types".to_string()
+                    }
+                }
             })?;
 
+        // ENHANCED: Table registration with conflict detection
         ctx.register_table(alias, Arc::new(result_mem_table))
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "Result Registration".to_string(),
-                reason: format!("Failed to register result table: {}", e),
-                suggestion: "💡 Try using a different alias name".to_string()
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if error_msg.contains("already exists") || error_msg.contains("duplicate") {
+                    ElusionError::InvalidOperation {
+                        operation: "Result Registration".to_string(),
+                        reason: format!("Table alias '{}' already exists", alias),
+                        suggestion: format!("💡 Choose a different alias name or use a unique identifier like '{}_v2'", alias)
+                    }
+                } else {
+                    ElusionError::InvalidOperation {
+                        operation: "Result Registration".to_string(),
+                        reason: format!("Failed to register result table: {}", e),
+                        suggestion: "💡 Try using a different alias name or check for naming conflicts".to_string()
+                    }
+                }
             })?;
 
         let result_df = ctx.table(alias).await
             .map_err(|e| ElusionError::InvalidOperation {
                 operation: "Result Retrieval".to_string(),
                 reason: format!("Failed to retrieve final result: {}", e),
-                suggestion: "💡 Check if result table was properly registered".to_string()
+                suggestion: "💡 Table was registered but retrieval failed. This might be an internal issue - try a different alias".to_string()
             })?;
 
         Ok(CustomDataFrame {
@@ -3275,6 +3401,47 @@ impl CustomDataFrame {
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
         })
+    }
+
+    /// Get contextual suggestion based on query structure and error
+    fn get_contextual_suggestion(&self, error_msg: &str) -> String {
+        let has_joins = !self.joins.is_empty();
+        let has_aggs = !self.aggregations.is_empty();
+        let has_group_by = !self.group_by_columns.is_empty();
+        let has_star = self.raw_selected_columns.iter().any(|col| col.contains("*"));
+        
+        if has_joins && error_msg.contains("duplicate") {
+            "💡 JOIN detected with duplicate columns. Use aliases (.select([\"s.CustomerKey AS sales_key\", \"c.CustomerKey AS customer_key\"])) or star selection (.select([\"s.*\", \"c.*\"])) for auto-deduplication".to_string()
+        } else if has_aggs && !has_group_by {
+            "💡 Aggregations detected without GROUP BY. Use .group_by_all() or specify .group_by([...]) columns".to_string()
+        } else if has_aggs && has_group_by && error_msg.contains("resolved") {
+            "💡 GROUP BY/SELECT mismatch. Ensure all non-aggregate SELECT columns are in GROUP BY, or use .group_by_all()".to_string()
+        } else if has_star && error_msg.contains("duplicate") {
+            "💡 Star selection with duplicate columns. This should auto-deduplicate - check for mixed star/explicit selection".to_string()
+        } else {
+            "💡 Check SQL syntax, column names, and table aliases. Use .display_schema() to see available columns".to_string()
+        }
+    }
+    
+    /// Get available columns for error suggestions
+    fn get_available_columns(&self) -> Vec<String> {
+        let mut columns = Vec::new();
+        
+        // Add columns from main table schema
+        let schema = self.df.schema();
+        for field in schema.fields() {
+            columns.push(format!("{}.{}", self.table_alias, field.name()));
+        }
+        
+        // Add columns from joined tables
+        for join in &self.joins {
+            let join_schema = join.dataframe.df.schema();
+            for field in join_schema.fields() {
+                columns.push(format!("{}.{}", join.dataframe.table_alias, field.name()));
+            }
+        }
+        
+        columns
     }
 
     /// Batch register all required tables for better performance
@@ -3361,23 +3528,108 @@ impl CustomDataFrame {
         println!();
     }
 
-    /// DISPLAY Query Plan
-    // pub fn display_query_plan(&self) {
-    //     println!("Generated Logical Plan:");
-    //     println!("{:?}", self.df.logical_plan());
-    // }
-    
-    /// Displays the current schema for debugging purposes.
-    // pub fn display_schema(&self) {
-    //     println!("Current Schema for '{}': {:?}", self.table_alias, self.df.schema());
-    // }
+    /// Display the SQL query with proper CTE formatting
+    pub fn display_query(&self) {
+        let final_query = self.construct_sql();
+        
+        // Enhanced formatting that handles CTEs properly
+        let formatted = final_query
+            .replace("WITH ", "\nWITH ")           // CTE start
+            .replace(") SELECT ", ")\n\nSELECT ")  // Main query after CTE
+            .replace(" SELECT ", "\nSELECT ")
+            .replace(" FROM ", "\nFROM ")
+            .replace(" WHERE ", "\nWHERE ")
+            .replace(" GROUP BY ", "\nGROUP BY ")
+            .replace(" HAVING ", "\nHAVING ")
+            .replace(" ORDER BY ", "\nORDER BY ")
+            .replace(" LIMIT ", "\nLIMIT ")
+            .replace(" INNER JOIN ", "\n  INNER JOIN ")    
+            .replace(" LEFT JOIN ", "\n  LEFT JOIN ")
+            .replace(" RIGHT JOIN ", "\n  RIGHT JOIN ")
+            .replace(" AS (", " AS (\n  ")              
+            .replace("UNION ALL ", "\nUNION ALL\n")  
+            .replace("UNION ", "\nUNION\n")
+            .replace("EXCEPT ", "\nEXCEPT\n")  
+            .replace("INTERSECT ", "\nINTERSECT\n");
+        
+        println!("📋 Generated SQL Query:");
+        println!("{}", "=".repeat(60));
+        println!("{}", formatted);
+        println!("{}", "=".repeat(60));
+    }
 
-    /// Dipslaying query genereated from chained functions
-    /// Displays the SQL query generated from the chained functions
-    // pub fn display_query(&self) {
-    //     let final_query = self.construct_sql();
-    //     println!("Generated SQL Query: {}", final_query);
-    // }
+    /// Display query with execution plan info including CTE analysis
+    pub fn display_query_with_info(&self) {
+        let final_query = self.construct_sql();
+        
+        println!("📋 Query Analysis:");
+        println!("{}", "=".repeat(50));
+        println!("🔍 SQL Query:");
+        
+        // Better formatting for complex queries
+        let formatted = final_query
+            .replace("WITH ", "\nWITH ")
+            .replace(") SELECT ", ")\n\nSELECT ")
+            .replace(" SELECT ", "\nSELECT ")
+            .replace(" FROM ", "\nFROM ")
+            .replace(" WHERE ", "\nWHERE ")
+            .replace(" GROUP BY ", "\nGROUP BY ")
+            .replace(" HAVING ", "\nHAVING ")
+            .replace(" ORDER BY ", "\nORDER BY ")
+            .replace(" LIMIT ", "\nLIMIT ")
+            .replace(" INNER JOIN ", "\n  INNER JOIN ")
+            .replace(" LEFT JOIN ", "\n  LEFT JOIN ")
+            .replace(" RIGHT JOIN ", "\n  RIGHT JOIN ");
+        
+        println!("{}", formatted);
+        println!();
+        
+        // Enhanced query analysis including CTE detection
+        let query_upper = final_query.to_uppercase();
+        println!("📊 Query Info:");
+        println!("   • Has CTEs: {}", query_upper.contains("WITH"));
+        println!("   • Has JOINs: {}", query_upper.contains("JOIN"));
+        println!("   • Has WHERE: {}", query_upper.contains("WHERE"));
+        println!("   • Has GROUP BY: {}", query_upper.contains("GROUP BY"));
+        println!("   • Has HAVING: {}", query_upper.contains("HAVING"));
+        println!("   • Has ORDER BY: {}", query_upper.contains("ORDER BY"));
+        println!("   • Has LIMIT: {}", query_upper.contains("LIMIT"));
+        println!("   • Has UNION: {}", query_upper.contains("UNION"));
+        
+        // Count complexity including CTEs
+        let cte_count = query_upper.matches("WITH").count();
+        let join_count = query_upper.matches("JOIN").count();
+        let function_count = final_query.matches('(').count();
+        let union_count = query_upper.matches("UNION").count();
+        
+        println!("   • CTE count: {}", cte_count);
+        println!("   • Join count: {}", join_count);
+        println!("   • Union count: {}", union_count);
+        println!("   • Function calls: ~{}", function_count);
+        
+        // Enhanced complexity calculation
+        let complexity = match (cte_count, join_count, union_count, function_count) {
+            (0, 0, 0, 0..=2) => "Simple",
+            (0, 0..=2, 0, 3..=10) => "Moderate",
+            (1, 0..=3, 0..=1, _) => "Moderate",
+            (0..=1, 4..=5, 0..=2, _) => "Complex",
+            _ => "Very Complex"
+        };
+        println!("   • Complexity: {}", complexity);
+        
+        // Additional insights for complex queries
+        if cte_count > 0 {
+            println!("   💡 Query uses CTEs - good for readability and performance");
+        }
+        if join_count > 3 {
+            println!("   ⚠️  Many JOINs detected - consider performance implications");
+        }
+        if function_count > 15 {
+            println!("   ⚠️  Many functions detected - verify index usage");
+        }
+        
+        println!("{}", "=".repeat(50));
+    }
 
 
     // ================== STATISTICS FUNCS =================== //
@@ -5982,7 +6234,7 @@ impl CustomDataFrame {
         let df = ctx.sql(&sql).await.map_err(|e| ElusionError::InvalidOperation {
             operation: "SQL Execution".to_string(),
             reason: format!("Failed to execute SQL: {}", e),
-            suggestion: "💡 Verify SQL syntax and table/column references, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
+            suggestion: "💡 Verify SQL syntax and table/column references and aliases, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
         })?;
         
         df.execute_stream().await.map_err(|e| ElusionError::InvalidOperation {

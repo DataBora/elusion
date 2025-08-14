@@ -1,3 +1,10 @@
+## [4.1.0] - 2025-08-14
+## Added
+- Automatic column name expension while using select(["*"]) or select(["alias.*"]) for group_by_all() function.
+- Error messages enhanced
+- Enhanced base column and alias parsing 
+- SQL Query generation inspection with display_query() and display_query_with_info()
+
 ## [4.0.1] - 2025-08-12
 ## Fixed
 - Parsing aliases from string_functions() and datetime_functions(), into group_by() and group_by_all()

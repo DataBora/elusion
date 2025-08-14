@@ -1,4 +1,14 @@
 use crate::prelude::*;
+use crate::normalizers::normalize::STRING_LITERAL_PATTERN;
+use crate::normalizers::normalize::AS_PATTERN;
+use crate::normalizers::normalize::FUNCTION_PATTERN;
+use crate::normalizers::normalize::SQL_KEYWORDS;
+use crate::normalizers::normalize::TABLE_COLUMN_PATTERN;
+use crate::normalizers::normalize::AGGREGATE_FUNCTIONS;
+use crate::normalizers::normalize::SIMPLE_COLUMN_PATTERN;
+use crate::normalizers::normalize::POSTGRES_CAST_PATTERN;
+use crate::normalizers::normalize::DATETIME_FUNCTIONS;
+use crate::normalizers::normalize::STRING_FUNCTIONS;
 
 #[derive(Debug)]
 pub enum ElusionError {
@@ -35,6 +45,7 @@ pub enum ElusionError {
         message: String,
         invalid_columns: Vec<String>,
         suggestion: String,
+        function_context: Option<String>,
     },
     WriteError {
         path: String,
@@ -141,15 +152,24 @@ impl fmt::Display for ElusionError {
                  💡 Suggestion: {}",
                 message, left_table, right_table, suggestion
             ),
-            ElusionError::GroupByError { message, invalid_columns, suggestion } => write!(
-                f,
-                "📊 Group By Error: {}\n\
-                 ❌ Invalid columns: {}\n\
-                 💡 Suggestion: {}",
-                message,
-                invalid_columns.join(", "),
-                suggestion
-            ),
+            ElusionError::GroupByError { message, invalid_columns, suggestion, function_context } => {
+                let function_info = if let Some(context) = function_context {
+                    format!("\n🔧 Function Context: {}", context)
+                } else {
+                    String::new()
+                };
+                
+                write!(
+                    f,
+                    "📊 Group By Error: {}\n\
+                    ❌ Invalid columns: {}{}\n\
+                    💡 Suggestion: {}",
+                    message,
+                    invalid_columns.join(", "),
+                    function_info,
+                    suggestion
+                )
+            },
             ElusionError::WriteError { path, operation, reason, suggestion } => write!(
                 f,
                 "💾 Write Error during {} operation\n\
@@ -303,10 +323,14 @@ impl From<DataFusionError> for ElusionError {
                  }
              }
                 if error_msg.contains("GROUP BY") {
+                    let missing_col = extract_missing_column(&error_msg).unwrap_or("unknown".to_string());
+                    let function_context = detect_function_usage_in_error(&error_msg, &missing_col);
+                    
                     return ElusionError::GroupByError {
                         message: error_msg.clone(),
-                        invalid_columns: Vec::new(),
-                        suggestion: "💡 Ensure all non-aggregated columns are included in GROUP BY".to_string(),
+                        invalid_columns: if missing_col != "unknown" { vec![missing_col.clone()] } else { Vec::new() },
+                        function_context: function_context.clone(),
+                        suggestion: generate_enhanced_groupby_suggestion(&missing_col, function_context.as_deref()),
                     };
                 }
 
@@ -478,3 +502,336 @@ impl From<std::io::Error> for ElusionError {
 }
 
 pub type ElusionResult<T> = Result<T, ElusionError>;
+
+pub fn extract_table_from_join_error(error: &str) -> Option<String> {
+
+    for cap in STRING_LITERAL_PATTERN.captures_iter(error) {
+        if let Some(quoted_text) = cap.get(1) {
+            let text = quoted_text.as_str();
+            // Filter out common non-table words
+            if !SQL_KEYWORDS.contains(&text.to_uppercase().as_str()) && 
+               !text.chars().all(|c| c.is_numeric()) {
+                return Some(text.to_string());
+            }
+        }
+    }
+    
+    if let Some(cap) = TABLE_COLUMN_PATTERN.captures(error) {
+        if let Some(table_part) = cap.get(1) {
+            let table = table_part.as_str();
+            // Return if it's not a SQL keyword
+            if !SQL_KEYWORDS.contains(&table.to_uppercase().as_str()) {
+                return Some(table.to_string());
+            }
+        }
+    }
+    
+    let error_lower = error.to_lowercase();
+    if error_lower.contains("table") && error_lower.contains("not found") {
+        // Try to find the table name near "not found"
+        if let Some(start) = error_lower.find("table") {
+            let remaining = &error[start..];
+            if let Some(cap) = STRING_LITERAL_PATTERN.captures(remaining) {
+                if let Some(table_name) = cap.get(1) {
+                    return Some(table_name.as_str().to_string());
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+pub fn extract_column_from_agg_error(error: &str) -> Option<String> {
+    
+    if let Some(cap) = FUNCTION_PATTERN.captures(error) {
+        if let Some(func_name) = cap.get(1) {
+            if AGGREGATE_FUNCTIONS.contains(&func_name.as_str().to_uppercase().as_str()) {
+                if let Some(args) = cap.get(2) {
+                    let arg_str = args.as_str().trim();
+                    
+                    // Check if it's a table.column reference
+                    if let Some(table_col_cap) = TABLE_COLUMN_PATTERN.captures(arg_str) {
+                        if let Some(column_part) = table_col_cap.get(2) {
+                            return Some(column_part.as_str().to_string());
+                        }
+                    }
+                    
+                    // Check if it's a simple column
+                    if SIMPLE_COLUMN_PATTERN.is_match(arg_str) && 
+                       !SQL_KEYWORDS.contains(&arg_str.to_uppercase().as_str()) {
+                        return Some(arg_str.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    for cap in STRING_LITERAL_PATTERN.captures_iter(error) {
+        if let Some(quoted_text) = cap.get(1) {
+            let text = quoted_text.as_str();
+            // Check if it looks like a column name (not a SQL keyword or pure number)
+            if SIMPLE_COLUMN_PATTERN.is_match(text) && 
+               !SQL_KEYWORDS.contains(&text.to_uppercase().as_str()) &&
+               !text.chars().all(|c| c.is_numeric()) {
+                return Some(text.to_string());
+            }
+        }
+    }
+    
+    if let Some(cap) = TABLE_COLUMN_PATTERN.captures(error) {
+        if let Some(column_part) = cap.get(2) {
+            return Some(column_part.as_str().to_string());
+        }
+    }
+    
+    if let Some(cap) = POSTGRES_CAST_PATTERN.captures(error) {
+        if let Some(column_expr) = cap.get(1) {
+            let expr = column_expr.as_str();
+            // If it's table.column, extract just the column part
+            if let Some(dot_pos) = expr.rfind('.') {
+                return Some(expr[dot_pos + 1..].to_string());
+            } else {
+                return Some(expr.to_string());
+            }
+        }
+    }
+    
+    None
+}
+
+pub fn extract_function_from_error(error: &str) -> Option<String> {
+
+    if let Some(cap) = FUNCTION_PATTERN.captures(error) {
+        if let Some(func_name) = cap.get(1) {
+            let func = func_name.as_str().to_uppercase();
+            
+            // Check if it's an aggregate function
+            if AGGREGATE_FUNCTIONS.contains(&func.as_str()) {
+                return Some(func);
+            }
+            
+            // Check if it's a datetime function
+            if DATETIME_FUNCTIONS.contains(&func.as_str()) {
+                return Some(func);
+            }
+        }
+    }
+    
+    // Fallback: look for any aggregate function names in the error text
+    for &func in AGGREGATE_FUNCTIONS.iter() {
+        if error.to_uppercase().contains(func) {
+            return Some(func.to_string());
+        }
+    }
+    
+    // Check datetime functions too
+    for &func in DATETIME_FUNCTIONS.iter() {
+        if error.to_uppercase().contains(func) {
+            return Some(func.to_string());
+        }
+    }
+    
+    None
+}
+
+
+    pub fn extract_missing_column(error: &str) -> Option<String> {
+        
+        let error_lower = error.to_lowercase();
+        
+        if error_lower.contains("expression") && error_lower.contains("could not be resolved") {
+            if let Some(start) = error_lower.find("expression ") {
+                let remaining = &error[start + 11..];
+                if let Some(end) = remaining.find(" could not be resolved") {
+                    let expr = remaining[..end].trim();
+                    
+                    // Check if it's a table.column reference
+                    if let Some(cap) = TABLE_COLUMN_PATTERN.captures(expr) {
+                        if let Some(column_part) = cap.get(2) {
+                            let result = column_part.as_str().to_string();
+                            return Some(result);
+                        }
+
+                        return Some(expr.to_string());
+                    }
+                    
+                    // Check if it's a simple column
+                    if SIMPLE_COLUMN_PATTERN.is_match(expr) {
+                        return Some(expr.to_string());
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    pub fn extract_column_from_duplicate_error(error: &str) -> Option<String> {
+
+        if error.to_lowercase().contains("duplicate") && error.to_lowercase().contains("field name") {
+            // Try to find table.column pattern after "field name"
+            if let Some(start) = error.to_lowercase().find("field name") {
+                let remaining = &error[start + 10..]; 
+                
+                if let Some(cap) = TABLE_COLUMN_PATTERN.captures(remaining) {
+                    if let Some(column_part) = cap.get(2) {
+                        return Some(column_part.as_str().to_string());
+                    }
+                }
+                
+                // Fallback: look for any simple column name
+                if let Some(cap) = SIMPLE_COLUMN_PATTERN.captures(remaining) {
+                    let potential_column = cap.get(0)?.as_str();
+                    if !SQL_KEYWORDS.contains(&potential_column.to_uppercase().as_str()) {
+                        return Some(potential_column.to_string());
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    pub fn extract_column_from_projection_error(error: &str) -> Option<String> {
+        //  "expression \"table.column AS alias\" at position X"
+        if error.contains("expression") && error.contains("at position") {
+            // Look for quoted expressions
+            for cap in STRING_LITERAL_PATTERN.captures_iter(error) {
+                if let Some(quoted_expr) = cap.get(1) {
+                    let expr = quoted_expr.as_str();
+                    
+                    // Check if it contains AS clause using your AS_PATTERN
+                    if AS_PATTERN.is_match(expr) {
+                        // Split by AS and get the alias part after AS
+                        if let Some(as_match) = AS_PATTERN.find(expr) {
+                            let alias_part = expr[as_match.end()..].trim();
+                            if SIMPLE_COLUMN_PATTERN.is_match(alias_part) {
+                                return Some(alias_part.to_string());
+                            }
+                        }
+                    } else {
+                        // No AS clause, extract column from table.column
+                        if let Some(table_col_cap) = TABLE_COLUMN_PATTERN.captures(expr) {
+                            if let Some(column_part) = table_col_cap.get(2) {
+                                return Some(column_part.as_str().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    pub fn generate_enhanced_groupby_suggestion(missing_column: &str, function_context: Option<&str>) -> String {
+        if let Some(context) = function_context {
+            let function_type = if context.contains("string function") {
+                "string function"
+            } else if context.contains("datetime function") {
+                "datetime function"  
+            } else if context.contains("CASE expression") {
+                "CASE expression"
+            } else {
+                "function"
+            };
+            
+            format!(
+                "Column '{}' is referenced in a {} but missing from GROUP BY.\n\
+                \n\
+                🔧 Solutions:\n\
+                1️⃣ Add '{}' to .select([...]) then use .group_by_all()\n\
+                    Example: .select([\"existing_cols\", \"{}\"]).group_by_all()\n\
+                \n\
+                2️⃣ Add '{}' manually to .group_by([...])\n\
+                \n\
+                3️⃣ Use manual GROUP BY for complex function dependencies\n\
+                    Example: .group_by([\"col1\", \"col2\", \"{}\"])",
+                missing_column, function_type, missing_column, missing_column, missing_column, missing_column
+            )
+        } else {
+            "💡 Use .group_by_all() to automatically include all SELECT columns in GROUP BY, or manually add missing columns to .group_by([...])".to_string()
+        }
+    }
+
+    pub fn detect_function_usage_in_error(error: &str, missing_column: &str) -> Option<String> {
+        let error_upper = error.to_uppercase();
+        let column_upper = missing_column.to_uppercase();
+        
+        for &func in STRING_FUNCTIONS.iter() {
+            let patterns = [
+                format!("{}({})", func, column_upper),
+                format!("{}({}", func, column_upper),  
+                format!("{}(.*{}.*)", func, column_upper), 
+            ];
+            
+            for pattern in &patterns {
+                if error_upper.contains(pattern) {
+                    return Some(format!("Column '{}' is used in {}() string function", missing_column, func));
+                }
+            }
+        }
+        
+        for &func in DATETIME_FUNCTIONS.iter() {
+            let patterns = [
+                format!("{}({})", func, column_upper),
+                format!("{}({}", func, column_upper),
+                format!("{}(.*{}.*)", func, column_upper),
+            ];
+            
+            for pattern in &patterns {
+                if error_upper.contains(pattern) {
+                    return Some(format!("Column '{}' is used in {}() datetime function", missing_column, func));
+                }
+            }
+        }
+        
+        if error_upper.contains("CASE") && error_upper.contains(&column_upper) {
+            return Some(format!("Column '{}' is used in CASE expression", missing_column));
+        }
+        
+        for &func in AGGREGATE_FUNCTIONS.iter() {
+            let patterns = [
+                format!("{}({})", func, column_upper),
+                format!("{}({}", func, column_upper),
+            ];
+            
+            for pattern in &patterns {
+                if error_upper.contains(pattern) {
+                    return Some(format!("Column '{}' is used in {}() aggregate function", missing_column, func));
+                }
+            }
+        }
+        
+        None
+    }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_extract_with_existing_patterns() {
+ 
+        assert_eq!(
+            extract_function_from_error("SUM(s.orderquantity) failed"),
+            Some("SUM".to_string())
+        );
+        
+        assert_eq!(
+            extract_column_from_agg_error("SUM(customer.total_amount) type error"),
+            Some("total_amount".to_string())
+        );
+        
+        assert_eq!(
+            extract_table_from_join_error("Table 'customers' not found in join"),
+            Some("customers".to_string())
+        );
+        
+        assert_eq!(
+            extract_missing_column("Expression s.customerkey could not be resolved from available columns"),
+            Some("customerkey".to_string())
+        );
+    }
+}
