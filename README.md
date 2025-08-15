@@ -95,7 +95,7 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 ## BEFORE WE START, HERE ARE TWO QUICK EXAMPLES, SO THAT YOU CAN DECIDE IF YOU LIKE SYNTAX
 #### Simple query / DataFrame operation on CSV file using new_with_stream() which will activate Lazy Execution
 ![Simple query](images/Simple-Query.png)
-#### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file
+#### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file, which will run every 5 minutes
 ![Simple scheduler](images/Simple-Pipeline-Example.png)
 ---
 ## INSTALLATION
