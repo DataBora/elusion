@@ -86,12 +86,13 @@ Readable Queries: Construct SQL queries that are both readable and reusable.
 Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
 
 ### 🛠️ Easy-to-Use API
-Chainable Interface: Build queries using a chainable and intuitive API for streamlined development.
+Chainable Interface: 
+- Build queries using a chainable and intuitive API for streamlined development.
 Debugging Support: Access readable debug outputs of the generated SQL for easy verification and troubleshooting.
-**Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
-**Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
+- **Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
+- **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
 ---
-## BEFORE WE START, HERE ARE TWO QUICK EXAMPLES, SO THAT YOU CAN DECIDE DO YOU LIKE SYNTAX
+## BEFORE WE START, HERE ARE TWO QUICK EXAMPLES, SO THAT YOU CAN DECIDE IF YOU LIKE SYNTAX
 #### Simple query / DataFrame operation on CSV file using new_with_stream() which will activate Lazy Execution
 ![Simple query](images/Simple-Query.png)
 #### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file
