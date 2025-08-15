@@ -12,15 +12,6 @@
 
 ![Elusion Logo](images/elusion.png)
 ---
-# Contributing
-I appreciate the interest in contributing to Elusion! However, I'm not currently accepting contributions.
-- **Feature requests**: Feel free to message me if you need any new features - if possible, I'll be happy to implement them
-- **Modifications**: You're welcome to fork the repository for your own changes
-- **Issues**: Bug reports are always appreciated
-
-Thanks for understanding!
-
----
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
 Additionally you can easily create Reports and Dashboard by passing DataFrame results.
@@ -43,9 +34,9 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 
 ## Key Features
 
-## 📩 2 Ways to Load data into DataFrame:
-### - Regular Loading with loading all data into memory, good for smaller files
-### - Streaming Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
+### 📩 2 Ways to Load data into DataFrame:
+- 1. 🔃 Regular Loading with loading all data into memory, which is good for smaller files
+- 2. 🚀 Streaming Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
 #### Processes data in chunks rather than loading everything at once
 - 🚀 Streaming is ~27% faster for loading and query execution (tested on 900k rows of real business data)
 - Regular loading and fairly complex query execution with **CustomDataFrame::new()**: ~4.95 seconds
@@ -99,7 +90,12 @@ Chainable Interface: Build queries using a chainable and intuitive API for strea
 Debugging Support: Access readable debug outputs of the generated SQL for easy verification and troubleshooting.
 **Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
 **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
-
+---
+## BEFORE WE START, HERE ARE TWO QUICK EXAMPLES, SO THAT YOU CAN DECIDE DO YOU LIKE SYNTAX
+#### Simple query / DataFrame operation on CSV file using new_with_stream() which will activate Lazy Execution
+![Simple query](images/Simple-Query.png)
+#### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file
+![Simple scheduler](images/Simple-Pipeline-Example.png)
 ---
 ## INSTALLATION
 
@@ -2415,7 +2411,7 @@ let headers_payments = header_df
    ])
    .group_by(["Brand", "Date"])
    .filter("Bill > 0")
-   .order_by(["total_bill"], ["ASC"])
+   .order_by(["total_bill"], ["ASC"]);
 
 let headers_data = headers_payments.elusion("headers_df").await?;
 
@@ -3024,6 +3020,16 @@ CustomDataFrame::create_report(
 ```
 ### Dashboard Demo
 ![Dash](./images/interactivedash3.gif)
+---
+
+# Contributing
+I appreciate the interest in contributing to Elusion! However, I'm not currently accepting contributions.
+- **Feature requests**: Feel free to message me if you need any new features - if possible, I'll be happy to implement them
+- **Modifications**: You're welcome to fork the repository for your own changes
+- **Issues**: Bug reports are always appreciated
+
+Thanks for understanding!
+
 ---
 ### License
 Elusion is distributed under the [MIT License](https://opensource.org/licenses/MIT). 
