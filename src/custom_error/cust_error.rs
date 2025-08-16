@@ -12,6 +12,14 @@ use crate::normalizers::normalize::STRING_FUNCTIONS;
 
 #[derive(Debug)]
 pub enum ElusionError {
+
+    MissingColumnWithContext {
+        column: String,
+        available_columns: Vec<String>,
+        context: String,
+        location: String,
+        suggestion: String,
+    },
     MissingColumn {
         column: String,
         available_columns: Vec<String>,
@@ -85,6 +93,23 @@ pub enum ElusionError {
         reason: String,
         suggestion: String,
     },
+    GroupByAllCompatibilityError {
+        missing_columns: Vec<String>,
+        window_function_dependencies: Vec<(String, String)>, 
+        suggestion: String,
+    },
+    
+    GroupByAllWindowError {
+        missing_column: String,
+        window_function_context: String,
+        suggestion: String,
+    },
+    
+    GroupByAllDependencyError {
+        missing_column: String,
+        dependency_context: String,
+        suggestion: String,
+    },
     DataFusion(DataFusionError),
     Io(std::io::Error),
     Custom(String),
@@ -97,152 +122,160 @@ impl fmt::Display for ElusionError {
                 let suggestion = suggest_similar_column(column, available_columns);
                 write!(
                     f,
-                    "🔍 Column Not Found: '{}'\n\
-                     📋 Available columns are: {}\n\
-                     💡 Did you mean '{}'?\n\
-                     🔧 Check for typos or use .display_schema() to see all available columns.",
+                    "🔍 Column Not Found: '{}' 📋 Available columns are: {} 💡 Did you mean '{}'? 🔧 Check for typos or use .display_schema() to see all available columns.",
                     column,
                     available_columns.join(", "),
                     suggestion
                 )
             },
+            ElusionError::MissingColumnWithContext { column, available_columns, context, location, suggestion } => {
+                let similar_suggestion = suggest_similar_column(column, available_columns);
+                write!(
+                    f,
+                    "🔍 Column Not Found: '{}' in {} 📍 Location: {} 🔍 Context: {} 📋 Available columns: {} 💡 Did you mean '{}'? 🔧 Suggestion: {}",
+                    column,
+                    location,
+                    location,
+                    context,
+                    available_columns.join(", "),
+                    similar_suggestion,
+                    suggestion
+                )
+            },
             ElusionError::InvalidDataType { column, expected, found } => write!(
                 f,
-                "📊 Type Mismatch in column '{}'\n\
-                 ❌ Found: {}\n\
-                 ✅ Expected: {}\n\
-                 💡 Try: .with_column(\"{}\", cast(\"{}\", {}));",
+                "📊 Type Mismatch in column '{}' ❌ Found: {} ✅ Expected: {} 💡 Try: .with_column(\"{}\", cast(\"{}\", {}));",
                 column, found, expected, column, column, expected
             ),
             ElusionError::DuplicateColumn { column, locations } => write!(
                 f,
-                "🔄 Duplicate Column: '{}'\n\
-                 📍 Found in: {}\n\
-                 💡 Try using table aliases or renaming columns:\n\
-                 .select([\"table1.{} as table1_{}\", \"table2.{} as table2_{}\"])",
+                "🔄 Duplicate Column: '{}' 📍 Found in: {} 💡 Try using table aliases or renaming columns: .select([\"table1.{} as table1_{}\", \"table2.{} as table2_{}\"])",
                 column,
                 locations.join(", "),
                 column, column, column, column
             ),
             ElusionError::InvalidOperation { operation, reason, suggestion } => write!(
                 f,
-                "⚠️ Invalid Operation: {}\n\
-                 ❌ Problem: {}\n\
-                 💡 Suggestion: {}",
+                "⚠️ Invalid Operation: {} ❌ Problem: {} 💡 Suggestion: {}",
                 operation, reason, suggestion
             ),
             ElusionError::SchemaError { message, schema, suggestion } => {
                 let schema_info = schema.as_ref().map_or(
                     String::new(),
-                    |s| format!("\n📋 Current Schema:\n{}", s)
+                    |s| format!("📋 Current Schema:{}", s)
                 );
                 write!(
                     f,
-                    "🏗️ Schema Error: {}{}\n\
-                     💡 Suggestion: {}",
+                    "🏗️ Schema Error: {}{} 💡 Suggestion: {}",
                     message, schema_info, suggestion
                 )
             },
             ElusionError::JoinError { message, left_table, right_table, suggestion } => write!(
                 f,
-                "🤝 Join Error:\n\
-                 ❌ {}\n\
-                 📌 Left Table: {}\n\
-                 📌 Right Table: {}\n\
-                 💡 Suggestion: {}",
+                "🤝 Join Error: ❌ {} 📌 Left Table: {} 📌 Right Table: {} 💡 Suggestion: {}",
                 message, left_table, right_table, suggestion
             ),
             ElusionError::GroupByError { message, invalid_columns, suggestion, function_context } => {
                 let function_info = if let Some(context) = function_context {
-                    format!("\n🔧 Function Context: {}", context)
+                    format!("🔧 Function Context: {}", context)
                 } else {
                     String::new()
                 };
                 
                 write!(
                     f,
-                    "📊 Group By Error: {}\n\
-                    ❌ Invalid columns: {}{}\n\
-                    💡 Suggestion: {}",
+                    "📊 Group By Error: {} ❌ Invalid columns: {}{} 💡 Suggestion: {}",
                     message,
                     invalid_columns.join(", "),
                     function_info,
                     suggestion
                 )
             },
+            ElusionError::GroupByAllCompatibilityError { missing_columns, window_function_dependencies, suggestion } => {
+                let deps_info = if !window_function_dependencies.is_empty() {
+                    let deps = window_function_dependencies.iter()
+                        .map(|(func, col)| format!("  • {} needs '{}'", func, col))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("🪟 Window Function Dependencies:{}", deps)
+                } else {
+                    String::new()
+                };
+                
+                write!(
+                    f,
+                    "🔧 group_by_all() Compatibility Issue. ❌ Missing columns from SELECT: {}{}/ 💡 {}",
+                    missing_columns.join(", "),
+                    deps_info,
+                    suggestion
+                )
+            },
+            
+            ElusionError::GroupByAllWindowError { missing_column, window_function_context, suggestion } => {
+                write!(
+                    f,
+                    "🪟 group_by_all() + Window Function Error. ❌ Missing column '{}' from SELECT clause. 🔍 Context: {} {}", 
+                    missing_column, window_function_context, suggestion
+                )
+            },
+            
+            ElusionError::GroupByAllDependencyError { missing_column, dependency_context, suggestion } => {
+                write!(
+                    f,
+                    "🔗 group_by_all() + Column Dependency Error. ❌ Missing column '{}' from SELECT clause. 🔍 Context: {} {}",
+                    missing_column, dependency_context, suggestion
+                )
+            },
+
             ElusionError::WriteError { path, operation, reason, suggestion } => write!(
                 f,
-                "💾 Write Error during {} operation\n\
-                 📍 Path: {}\n\
-                 ❌ Problem: {}\n\
-                 💡 Suggestion: {}",
+                "💾 Write Error during {} operation 📍 Path: {} ❌ Problem: {} 💡 Suggestion: {}",
                 operation, path, reason, suggestion
             ),
+            // FIXED: Removed numbered lists from DataFusion error
             ElusionError::DataFusion(err) => write!(
                 f,
-                "⚡ DataFusion Error: {}\n\
-                 💡 Don't worry! Here's what you can try:\n\
-                 1. Check your column names and types\n\
-                 2. Verify your SQL syntax\n\
-                 3. Use .display_schema() to see available columns\n\
-                 4. Try breaking down complex operations into smaller steps",
+                "⚡ DataFusion Error: {} 💡 Don't worry! Here's what you can try: • Check your column names and types • Verify your SQL syntax • Use .df_schema() to see available columns • Try breaking down complex operations into smaller steps",
                 err
             ),
+            // FIXED: Removed numbered lists from I/O error
             ElusionError::Io(err) => write!(
                 f,
-                "📁 I/O Error: {}\n\
-                 💡 Quick fixes to try:\n\
-                 1. Check if the file/directory exists\n\
-                 2. Verify your permissions\n\
-                 3. Ensure the path is correct\n\
-                 4. Close any programs using the file",
+                "📁 I/O Error: {} 💡 Quick fixes to try: • Check if the file/directory exists • Verify your permissions • Ensure the path is correct • Close any programs using the file",
                 err
             ),
             ElusionError::PartitionError { message, partition_columns, suggestion } => write!(
                 f,
-                "📦 Partition Error: {}\n\
-                 ❌ Affected partition columns: {}\n\
-                 💡 Suggestion: {}",
+                "📦 Partition Error: {} ❌ Affected partition columns: {} 💡 Suggestion: {}",
                 message,
                 partition_columns.join(", "),
                 suggestion
             ),
             ElusionError::AggregationError { message, function, column, suggestion } => write!(
                 f,
-                "📊 Aggregation Error in function '{}'\n\
-                 ❌ Problem with column '{}': {}\n\
-                 💡 Suggestion: {}",
+                "📊 Aggregation Error in function '{}' ❌ Problem with column '{}': {} 💡 Suggestion: {}",
                 function, column, message, suggestion
             ),
             ElusionError::OrderByError { message, columns, suggestion } => write!(
                 f,
-                "🔄 Order By Error: {}\n\
-                 ❌ Problem with columns: {}\n\
-                 💡 Suggestion: {}",
+                "🔄 Order By Error: {} ❌ Problem with columns: {} 💡 Suggestion: {}",
                 message,
                 columns.join(", "),
                 suggestion
             ),
             ElusionError::WindowFunctionError { message, function, details, suggestion } => write!(
                 f,
-                "🪟 Window Function Error in '{}'\n\
-                 ❌ Problem: {}\n\
-                 📝 Details: {}\n\
-                 💡 Suggestion: {}",
+                "🪟 Window Function Error in '{}' ❌ Problem: {} 📝 Details: {} 💡 Suggestion: {}",
                 function, message, details, suggestion
             ),
             ElusionError::LimitError { message, value, suggestion } => write!(
                 f,
-                "🔢 Limit Error: {}\n\
-                 ❌ Invalid limit value: {}\n\
-                 💡 Suggestion: {}",
+                "🔢 Limit Error: {} ❌ Invalid limit value: {} 💡 Suggestion: {}",
                 message, value, suggestion
             ),
             ElusionError::SetOperationError { operation, reason, suggestion } => write!(
                 f,
-                "🔄 Set Operation Error in '{}'\n\
-                 ❌ Problem: {}\n\
-                 💡 Suggestion: {}",
+                "🔄 Set Operation Error in '{}' ❌ Problem: {} 💡 Suggestion: {}",
                 operation, reason, suggestion
             ),
             ElusionError::Custom(err) => write!(f, "💫 {}", err),
@@ -679,6 +712,8 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
         None
     }
 
+    
+
     pub fn extract_column_from_duplicate_error(error: &str) -> Option<String> {
 
         if error.to_lowercase().contains("duplicate") && error.to_lowercase().contains("field name") {
@@ -748,16 +783,11 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
             };
             
             format!(
-                "Column '{}' is referenced in a {} but missing from GROUP BY.\n\
-                \n\
-                🔧 Solutions:\n\
-                1️⃣ Add '{}' to .select([...]) then use .group_by_all()\n\
-                    Example: .select([\"existing_cols\", \"{}\"]).group_by_all()\n\
-                \n\
-                2️⃣ Add '{}' manually to .group_by([...])\n\
-                \n\
-                3️⃣ Use manual GROUP BY for complex function dependencies\n\
-                    Example: .group_by([\"col1\", \"col2\", \"{}\"])",
+                "Column '{}' is referenced in a {} but missing from GROUP BY.
+                🔧 Solutions:
+                [1] Add '{}' to .select([...]) then use .group_by_all() Example: .select([\"existing_cols\", \"{}\"]).group_by_all()
+                [2] Add '{}' manually to .group_by([...])
+                [3] Use manual GROUP BY for complex function dependencies  Example: .group_by([\"col1\", \"col2\", \"{}\"])",
                 missing_column, function_type, missing_column, missing_column, missing_column, missing_column
             )
         } else {
@@ -768,6 +798,22 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
     pub fn detect_function_usage_in_error(error: &str, missing_column: &str) -> Option<String> {
         let error_upper = error.to_uppercase();
         let column_upper = missing_column.to_uppercase();
+
+        if error_upper.contains("PROJECTION REFERENCES NON-AGGREGATE VALUES") {
+            return Some(format!("Column '{}' is used in a window function but not selected", missing_column));
+        }
+        
+        if error_upper.contains("ORDER BY") && error_upper.contains(&column_upper) {
+            return Some(format!("Column '{}' is used in ORDER BY clause of window function", missing_column));
+        }
+        
+        if error_upper.contains("PARTITION BY") && error_upper.contains(&column_upper) {
+            return Some(format!("Column '{}' is used in PARTITION BY clause of window function", missing_column));
+        }
+        
+        if error_upper.contains("OVER") {
+            return Some(format!("Column '{}' is used in window function", missing_column));
+        }
         
         for &func in STRING_FUNCTIONS.iter() {
             let patterns = [
@@ -870,6 +916,8 @@ pub fn extract_function_from_error(error: &str) -> Option<String> {
         
         Some("WINDOW_FUNCTION".to_string())
     }
+
+// SPECIFIC ERRPR 
 
 #[cfg(test)]
 mod tests {

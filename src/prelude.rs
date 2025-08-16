@@ -4,8 +4,6 @@ pub use crate::{CustomDataFrame, AliasedDataFrame};
 
 pub use crate::csvwrite::csvwriteops::CsvWriteOptions;
 
-pub use crate::custom_error::cust_error::ElusionError;
-pub use crate::custom_error::cust_error::ElusionResult;
 //====== postgres
 pub use crate::features::postgres::PostgresConfig;
 pub use crate::features::postgres::PostgresConnection;
@@ -69,6 +67,8 @@ pub use deltalake::storage::object_store::local::LocalFileSystem;
 pub use std::fmt::{self, Debug};
 pub use std::error::Error;
 
+pub use crate::custom_error::cust_error::ElusionError;
+pub use crate::custom_error::cust_error::ElusionResult;
 // PIVOT
 pub use arrow::compute;
 pub use arrow::array::StringArray;

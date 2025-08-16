@@ -1,3 +1,17 @@
+## [5.0.0] - 2025-08-16
+## BREAKING CHANGES
+- Added `uses_group_by_all` field to `CustomDataFrame` struct
+- Added new error variants: `GroupByAllWindowError`, `GroupByAllDependencyError`, `GroupByAllCompatibilityError`
+
+### Features
+- 🎉 Enhanced `group_by_all()` error messages with context-aware suggestions
+- 🎉 Dynamic error messages using actual column names instead of hardcoded examples
+- 🎉 Smart detection of window function dependency issues
+
+### Improvements
+- Better error messages for JOIN duplicate column issues
+- Contextual suggestions based on actual query structure
+
 ## [4.1.0] - 2025-08-14
 ## Added
 - Automatic column name expension while using select(["*"]) or select(["alias.*"]) for group_by_all() function.
