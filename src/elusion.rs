@@ -171,6 +171,8 @@ pub struct CustomDataFrame {
     raw_having_conditions: Vec<String>,  
     raw_join_conditions: Vec<String>,     
     raw_aggregations: Vec<String>,
+
+    uses_group_by_all: bool
 }
 
 impl Clone for CustomDataFrame {
@@ -196,13 +198,15 @@ impl Clone for CustomDataFrame {
             subquery_source: self.subquery_source.clone(),
             aggregated_df: self.aggregated_df.clone(),
             union_tables: self.union_tables.clone(),
-            needs_normalization: self.needs_normalization.clone(),
+            needs_normalization: self.needs_normalization,
             raw_selected_columns: self.raw_selected_columns.clone(),   
             raw_group_by_columns: self.raw_group_by_columns.clone(),  
             raw_where_conditions: self.raw_where_conditions.clone(),  
             raw_having_conditions: self.raw_having_conditions.clone(),
             raw_join_conditions: self.raw_join_conditions.clone(),
-            raw_aggregations: self.raw_aggregations.clone()
+            raw_aggregations: self.raw_aggregations.clone(),
+
+            uses_group_by_all: self.uses_group_by_all
         }
     }
 }
@@ -244,6 +248,13 @@ pub struct NullCount {
     pub total_rows: i64,
     pub null_count: i64,
     pub null_percentage: f64,
+}
+//error
+#[derive(Debug)]
+pub struct ColumnErrorContext {
+    context: String,
+    location: String,
+    suggestion: String,
 }
 
 // Auxiliary struct to hold aliased DataFrame
@@ -289,6 +300,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
    
@@ -337,6 +349,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -430,6 +443,8 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+
+            uses_group_by_all: false
           })
       }
       
@@ -508,6 +523,8 @@ impl CustomDataFrame {
                 raw_having_conditions: Vec::new(),
                 raw_join_conditions: Vec::new(),
                 raw_aggregations: Vec::new(),
+
+                uses_group_by_all: false
               });
           }
           
@@ -787,6 +804,8 @@ impl CustomDataFrame {
 
     /// GROUP_BY_ALL function that usifies all SELECT() olumns and reduces need for writing all columns
     pub fn group_by_all(mut self) -> Self {
+        self.uses_group_by_all = true;
+        
         let mut all_group_by = Vec::new();
         
       //  println!("raw_selected_columns: {:?}", self.raw_selected_columns);
@@ -1114,6 +1133,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     /// Performs APPEND on multiple dataframes
@@ -1207,6 +1227,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     /// Performs UNION on two dataframes
@@ -1278,6 +1299,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     /// Performs UNION on multiple dataframes
@@ -1361,6 +1383,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -1432,6 +1455,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     /// Performs UNIONA_ALL on multiple dataframes
@@ -1515,6 +1539,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     /// Performs EXCEPT on two dataframes
@@ -1585,6 +1610,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     
@@ -1656,6 +1682,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
     
@@ -2027,6 +2054,7 @@ impl CustomDataFrame {
                 raw_having_conditions: Vec::new(),
                 raw_join_conditions: Vec::new(),
                 raw_aggregations: Vec::new(),
+                uses_group_by_all: false
             });
         }
         
@@ -2123,6 +2151,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -2497,6 +2526,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -2640,6 +2670,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -3029,59 +3060,6 @@ impl CustomDataFrame {
         self.where_conditions.len() > 8
     }
 
-
-    // /// Convert DataFrame to Vec<DataFrameRow> for easy manipulation
-    // pub async fn convert_to_vec(&self) -> ElusionResult<Vec<DataFrameRow>> {
-    //     let batches = self.df.clone().collect().await
-    //         .map_err(|e| ElusionError::InvalidOperation {
-    //             operation: "DataFrame to Vec".to_string(),
-    //             reason: format!("Failed to collect DataFrame: {}", e),
-    //             suggestion: "💡 Verify DataFrame contains valid data".to_string(),
-    //         })?;
-
-    //     if batches.is_empty() {
-    //         return Ok(Vec::new());
-    //     }
-
-    //     let mut rows = Vec::new();
-    //     let schema = self.df.schema();
-
-    //     for batch in batches.iter() {
-    //         let row_count = batch.num_rows();
-            
-    //         for row_idx in 0..row_count {
-    //             let mut row = DataFrameRow::new();
-                
-    //             for (col_idx, field) in schema.fields().iter().enumerate() {
-    //                 let array = batch.column(col_idx);
-    //                 let col_name = field.name().to_lowercase(); 
-
-    //                 let value = if array.is_null(row_idx) {
-    //                     "".to_string()
-    //                 } else {
-    //                     match array_value_to_json(array, row_idx)? {
-    //                         serde_json::Value::Null => "".to_string(),
-    //                         serde_json::Value::String(s) => s,
-    //                         other => other.to_string().trim_matches('"').to_string(),
-    //                     }
-    //                 };
-
-    //                 row.insert(col_name, value); 
-    //             }
-                
-    //             rows.push(row);
-    //         }
-    //     }
-
-    //     Ok(rows)
-    // }
-
-    // /// Convert DataFrame to Vec<HashMap<String, String>> 
-    // pub async fn convert_to_vec_hashmap(&self) -> ElusionResult<Vec<HashMap<String, String>>> {
-    //     let rows = self.convert_to_vec().await?;
-    //     Ok(rows.into_iter().map(|row| row.fields).collect())
-    // }
-
     /// Enhanced GROUP BY normalization - strips aliases and ensures proper expression format
     fn normalize_group_by_columns(&self) -> Vec<String> {
         self.group_by_columns.iter().map(|col| {
@@ -3201,9 +3179,17 @@ impl CustomDataFrame {
 
         let ctx = Arc::new(SessionContext::new());
 
+        // Pre-validate group_by_all() issues before SQL construction
+        if self.has_group_by_all() {
+            if let Err(validation_error) = self.validate_group_by_all_compatibility() {
+                return Err(validation_error);
+            }
+        }
+
         // spawn_blocking for CPU-intensive SQL construction
         let sql = if self.is_complex_query() {
             let self_clone = self.clone(); // Only clone if needed for complex queries
+
             tokio::task::spawn_blocking(move || self_clone.construct_sql())
                 .await
                 .map_err(|e| ElusionError::Custom(format!("SQL construction task failed: {}", e)))?
@@ -3226,111 +3212,144 @@ impl CustomDataFrame {
         let df = ctx.sql(&final_sql).await
             .map_err(|e| {
 
-                let error_msg = e.to_string();
-                
-                // Specific handling for our duplicate column cases
-                if error_msg.contains("duplicate qualified field name") || 
-                error_msg.contains("Schema contains duplicate qualified field name") {
-                    ElusionError::DuplicateColumn {
-                        column: extract_column_from_duplicate_error(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        locations: vec!["result schema".to_string()],
-                    }
-                }
-                // GROUP BY mismatch errors
-                else if error_msg.contains("could not be resolved from available columns") {
-                    let missing_col = extract_missing_column(&error_msg).unwrap_or("unknown".to_string());
-                    let function_context = detect_function_usage_in_error(&error_msg, &missing_col);
-                    
-                    ElusionError::GroupByError {
-                        message: "Column in SELECT clause missing from GROUP BY".to_string(),
-                        invalid_columns: vec![missing_col.clone()],
-                        function_context: function_context.clone(),
-                        suggestion: generate_enhanced_groupby_suggestion(&missing_col, function_context.as_deref()),
-                    }
-                }
-                // Projection duplicate names (our SELECT clause issue)
-                else if error_msg.contains("projections require unique expression names") ||
-                        error_msg.contains("have the same name") {
-                    ElusionError::DuplicateColumn {
-                        column: extract_column_from_projection_error(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        locations: vec!["SELECT clause".to_string()],
-                    }
-                }
-                // JOIN related errors
-                else if error_msg.contains("join") || error_msg.contains("JOIN") {
-                    ElusionError::JoinError {
-                        message: error_msg.clone(),
-                        left_table: self.table_alias.clone(),
-                        right_table: extract_table_from_join_error(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        suggestion: "💡 Check JOIN conditions and ensure table aliases match those used in .join_many([...])".to_string(),
-                    }
-                }
-                // Aggregation function errors
-                else if error_msg.contains("aggregate") || 
-                        error_msg.contains("SUM") || error_msg.contains("AVG") || 
-                        error_msg.contains("COUNT") {
-                    ElusionError::AggregationError {
-                        message: error_msg.clone(),
-                        function: extract_function_from_error(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        column: extract_column_from_agg_error(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        suggestion: "💡 Check aggregation syntax in .agg([...]) and ensure columns exist in your tables".to_string(),
-                    }
-                }
+        let error_msg = e.to_string();
 
-                else if error_msg.contains("could not be resolved") && 
-                    (error_msg.to_uppercase().contains("OVER") || 
-                    error_msg.to_uppercase().contains("PARTITION BY") || 
-                    error_msg.to_uppercase().contains("ROW_NUMBER")) {
+       // println!("Full DataFusion error: {}", error_msg);
+
+        if error_msg.contains("not found") || error_msg.contains("No field named") || 
+           (error_msg.contains("could not be resolved") && !error_msg.contains("OVER")) {
+            
+            let missing_col = Self::extract_missing_column_comprehensive(&error_msg)
+                .unwrap_or_else(|| {
+                   // println!("Failed to extract column name, using 'unknown'");
+                    "unknown".to_string()
+                });
+            
+           // println!("Extracted column: {}", missing_col);
+            
+            let available_columns = self.get_available_columns();
+            let error_context = self.determine_missing_column_context(&missing_col, &error_msg);
+            
+            return ElusionError::MissingColumnWithContext {
+                column: missing_col,
+                available_columns,
+                context: error_context.context,
+                location: error_context.location,
+                suggestion: error_context.suggestion,
+            };
+        }
+
+        // window function errors
+        else if error_msg.contains("could not be resolved") && 
+            (error_msg.to_uppercase().contains("OVER") || 
+                error_msg.to_uppercase().contains("PARTITION BY") || 
+                error_msg.to_uppercase().contains("ROW_NUMBER")) {
                 
                 let missing_cols = extract_window_function_columns(&error_msg);
+                let missing_col = missing_cols.first().unwrap_or(&"unknown".to_string()).clone();
                 
+                // Check if this is a group_by_all() + window function issue
+                if self.has_group_by_all() {
+                    let function_context = Some(format!("Window function references column '{}' not in SELECT", missing_col));
+                    return self.create_group_by_all_error(&missing_col, function_context, &error_msg);
+                }
+                
+                // Regular window function error (not group_by_all)
                 ElusionError::WindowFunctionError {
                     message: format!("Window function references columns not in SELECT"),
                     function: extract_window_function_name(&error_msg).unwrap_or("WINDOW_FUNCTION".to_string()),
                     details: format!("Missing columns: {}", missing_cols.join(", ")),
                     suggestion: format!(
-                        "💡 Window function error - missing columns from SELECT.\n\
-                        \n\
-                        🔧 Solution:\n\
-                        Add missing columns to .select(): {}\n\
-                        \n\
-                        ✅ Example fix:\n\
-                        .select([\"your_existing_cols\", \"{}\"])",
+                        "💡 Window function error - missing columns from SELECT. 🔧 Solution: Add missing columns to .select(): {} ✅ Example fix: .select ([\"your_existing_cols\", \"{}\"])",
                         missing_cols.iter().map(|col| format!("\"{}\"", col)).collect::<Vec<_>>().join(", "),
                         missing_cols.join("\", \"")
                     ),
                 }
             }
-                // HAVING clause errors  
-                else if error_msg.contains("having") || error_msg.contains("HAVING") {
-                    ElusionError::InvalidOperation {
-                        operation: "HAVING clause evaluation".to_string(),
-                        reason: error_msg.clone(),
-                        suggestion: "💡 HAVING conditions must reference aggregated columns or their aliases from .agg([...])".to_string(),
-                    }
+            // could not be resolved errors
+            else if error_msg.contains("could not be resolved from available columns") {
+                let missing_col = extract_missing_column(&error_msg).unwrap_or("unknown".to_string());
+                let function_context = detect_function_usage_in_error(&error_msg, &missing_col);
+                
+                // Check if this is a group_by_all() related issue
+                if self.has_group_by_all() {
+                    return self.create_group_by_all_error(&missing_col, function_context, &error_msg);
                 }
-                // Column not found errors
-                else if error_msg.contains("not found") || error_msg.contains("No field named") {
-                    ElusionError::MissingColumn {
-                        column: extract_missing_column(&error_msg)
-                            .unwrap_or("unknown".to_string()),
-                        available_columns: self.get_available_columns(),
-                    }
+                
+                // Original GROUP BY error handling for manual group_by
+                ElusionError::GroupByError {
+                    message: "Column in SELECT clause missing from GROUP BY".to_string(),
+                    invalid_columns: vec![missing_col.clone()],
+                    function_context: function_context.clone(),
+                    suggestion: generate_enhanced_groupby_suggestion(&missing_col, function_context.as_deref()),
                 }
-                // Generic fallback with better context
-                else {
-                    ElusionError::InvalidOperation {
-                        operation: "SQL Execution".to_string(),
-                        reason: format!("Failed to execute SQL: {}", e),
-                        suggestion: self.get_contextual_suggestion(&error_msg),
-                    }
+            }
+            // andle duplicate column cases
+            else if error_msg.contains("duplicate qualified field name") || 
+                    error_msg.contains("Schema contains duplicate qualified field name") {
+                ElusionError::DuplicateColumn {
+                    column: extract_column_from_duplicate_error(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    locations: vec!["result schema".to_string()],
                 }
-            })?;
+            }
+            // projection duplicate names SELECT clause issue
+            else if error_msg.contains("projections require unique expression names") ||
+                    error_msg.contains("have the same name") {
+                ElusionError::DuplicateColumn {
+                    column: extract_column_from_projection_error(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    locations: vec!["SELECT clause".to_string()],
+                }
+            }
+            // JOIN errors
+            else if error_msg.contains("join") || error_msg.contains("JOIN") {
+                ElusionError::JoinError {
+                    message: error_msg.clone(),
+                    left_table: self.table_alias.clone(),
+                    right_table: extract_table_from_join_error(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    suggestion: "💡 Check JOIN conditions and ensure table aliases match those used in .join_many([...])".to_string(),
+                }
+            }
+            // Aggregation errors
+            else if error_msg.contains("aggregate") || 
+                    error_msg.contains("SUM") || error_msg.contains("AVG") || 
+                    error_msg.contains("COUNT") {
+                ElusionError::AggregationError {
+                    message: error_msg.clone(),
+                    function: extract_function_from_error(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    column: extract_column_from_agg_error(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    suggestion: "💡 Check aggregation syntax in .agg([...]) and ensure columns exist in your tables".to_string(),
+                }
+            }
+            // HAVING  errors  
+            else if error_msg.contains("having") || error_msg.contains("HAVING") {
+                ElusionError::InvalidOperation {
+                    operation: "HAVING clause evaluation".to_string(),
+                    reason: error_msg.clone(),
+                    suggestion: "💡 HAVING conditions must reference aggregated columns or their aliases from .agg([...])".to_string(),
+                }
+            }
+            // Column not found error
+            else if error_msg.contains("not found") || error_msg.contains("No field named") {
+                ElusionError::MissingColumn {
+                    column: extract_missing_column(&error_msg)
+                        .unwrap_or("unknown".to_string()),
+                    available_columns: self.get_available_columns(),
+                }
+            }
+            // Generic 
+            else {
+                ElusionError::InvalidOperation {
+                    operation: "SQL Execution".to_string(),
+                    reason: format!("Failed to execute SQL: {}", e),
+                    suggestion: self.get_contextual_suggestion(&error_msg),
+                }
+            }
+        })?;
 
         let (batches, schema) = if self.is_large_result_expected() {
             let df_clone = df.clone();
@@ -3429,27 +3448,523 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
-    /// Get contextual suggestion based on query structure and error
+    //============= error heleprs for elusion()
+
+    fn has_group_by_all(&self) -> bool {
+        self.uses_group_by_all 
+    }
+
+    fn validate_group_by_all_compatibility(&self) -> ElusionResult<()> {
+        let mut missing_columns = Vec::new();
+        let mut window_function_deps = Vec::new();
+        
+        // Check window functions for column dependencies
+        for window_func in &self.window_functions {
+            let dependencies = self.extract_column_dependencies(window_func);
+            for dep in dependencies {
+                if !self.is_column_in_select(&dep) {
+                    missing_columns.push(dep.clone());
+                    window_function_deps.push((window_func.clone(), dep));
+                }
+            }
+        }
+        
+        // Check aggregation dependencies
+        for agg in &self.aggregations {
+            let dependencies = self.extract_column_dependencies(agg);
+            for dep in dependencies {
+                if !self.is_column_in_select(&dep) && !missing_columns.contains(&dep) {
+                    missing_columns.push(dep);
+                }
+            }
+        }
+        
+        if !missing_columns.is_empty() {
+            return Err(ElusionError::GroupByAllCompatibilityError {
+                missing_columns: missing_columns.clone(),
+                window_function_dependencies: window_function_deps,
+                suggestion: self.generate_group_by_all_fix_suggestion(&missing_columns),
+            });
+        }
+        
+        Ok(())
+    }
+
+    fn create_group_by_all_error(
+        &self, 
+        missing_col: &str, 
+        function_context: Option<String>,
+        original_error: &str
+    ) -> ElusionError {
+        let error_upper = original_error.to_uppercase();
+        let is_window_function = error_upper.contains("OVER") || 
+                            error_upper.contains("PARTITION BY") ||
+                            error_upper.contains("ORDER BY") ||
+                            error_upper.contains("ROW_NUMBER") ||
+                            error_upper.contains("RANK");
+
+        // Extract current selected columns for dynamic suggestions
+        let current_select_columns = self.get_current_select_columns_formatted();
+        let current_group_by_columns = self.get_current_group_by_columns_formatted();
+
+        if is_window_function {
+            ElusionError::GroupByAllWindowError {
+                missing_column: missing_col.to_string(),
+                window_function_context: function_context.unwrap_or_else(|| 
+                    format!("Window function needs column '{}'", missing_col)
+                ),
+                suggestion: format!(
+                    "🪟 group_by_all() + Window Function Issue. Your window function needs column '{}' but it's not in .select([...]). 🔧 Quick Fix - Add '{}' to your .select(): .select([{}, \"{}\" ]) 🔧 Alternative - Use manual .group_by(): .group_by([{}])",
+                    missing_col, 
+                    missing_col, 
+                    current_select_columns,
+                    missing_col,
+                    current_group_by_columns
+                ),
+            }
+        } else {
+            ElusionError::GroupByAllDependencyError {
+                missing_column: missing_col.to_string(),
+                dependency_context: function_context.unwrap_or_else(|| 
+                    format!("Column '{}' is referenced but not in SELECT clause", missing_col)
+                ),
+                suggestion: format!(
+                    "🔧 group_by_all() Issue: Missing column '{}' referenced in query. The problem: Your query references '{}' but it's not in your .select([...]) clause. Since group_by_all() groups by ALL selected columns, it needs '{}' to be selected first. 💡 Solutions: [1] Add '{}' to your .select([...]) clause: .select([{},\"{}\" ]). [2] Use manual .group_by([...]) instead of .group_by_all(): .group_by([{}]). Only group by the columns you actually want to group by. [3] Remove the dependency on '{}' from your query",
+                    missing_col, 
+                    missing_col, 
+                    missing_col, 
+                    missing_col, 
+                    current_select_columns,
+                    missing_col,
+                    current_group_by_columns,
+                    missing_col
+                ),
+            }
+        }
+    }
+
+    fn extract_column_dependencies(&self, expression: &str) -> Vec<String> {
+        let mut dependencies = Vec::new();
+        
+        // Extract from PARTITION BY and ORDER BY in window functions
+        if let Some(caps) = regex::Regex::new(r"PARTITION BY\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+            .unwrap().captures(expression) {
+            if let Some(col) = caps.get(1) {
+                dependencies.push(col.as_str().to_string());
+            }
+        }
+        
+        if let Some(caps) = regex::Regex::new(r"ORDER BY\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+            .unwrap().captures(expression) {
+            if let Some(col) = caps.get(1) {
+                dependencies.push(col.as_str().to_string());
+            }
+        }
+        
+        // Extract from function arguments
+        if let Some(caps) = regex::Regex::new(r"\(([^)]+)\)").unwrap().captures(expression) {
+            if let Some(args) = caps.get(1) {
+                for arg in args.as_str().split(',') {
+                    let clean_arg = arg.trim();
+                    if regex::Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap().is_match(clean_arg) {
+                        dependencies.push(clean_arg.to_string());
+                    }
+                }
+            }
+        }
+        
+        dependencies
+    }
+
+    pub fn extract_missing_column(error: &str) -> Option<String> {
+        println!("🔍 DEBUG - Extracting column from: {}", error);
+        
+        if let Some(cap) = regex::Regex::new(r"No field named ([a-zA-Z_][a-zA-Z0-9_]*)\.")
+            .unwrap().captures(error) {
+            let col = cap.get(1)?.as_str().to_string();
+            println!("🔍 DEBUG - Found via 'No field named': {}", col);
+            return Some(col);
+        }
+        
+        if let Some(cap) = regex::Regex::new(r"Expression ([a-zA-Z_][a-zA-Z0-9_]*) could not be resolved")
+            .unwrap().captures(error) {
+            let col = cap.get(1)?.as_str().to_string();
+            println!("🔍 DEBUG - Found via 'Expression could not be resolved': {}", col);
+            return Some(col);
+        }
+        
+        if let Some(cap) = regex::Regex::new(r"Expression [a-zA-Z_][a-zA-Z0-9_]*\.([a-zA-Z_][a-zA-Z0-9_]*) could not be resolved")
+            .unwrap().captures(error) {
+            let col = cap.get(1)?.as_str().to_string();
+            println!("🔍 DEBUG - Found via 'Expression table.column': {}", col);
+            return Some(col);
+        }
+        
+        if let Some(cap) = regex::Regex::new(r"(?:PARTITION BY|ORDER BY)\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+            .unwrap().captures(error) {
+            let col = cap.get(1)?.as_str().to_string();
+            println!("🔍 DEBUG - Found via window function: {}", col);
+            return Some(col);
+        }
+        
+        println!("🔍 DEBUG - No column name extracted");
+        None
+    }
+
+    fn extract_missing_column_comprehensive(error: &str) -> Option<String> {
+       // println!("Comprehensive extraction from: {}", error);
+        
+        // DataFusion Schema Error
+        if error.contains("Schema error:") && error.contains("No field named") {
+            // Match: "No field named COLUMN_NAME." (note the period at the end)
+            if let Some(cap) = regex::Regex::new(r"No field named ([a-zA-Z_][a-zA-Z0-9_]*)\.")
+                .unwrap().captures(error) {
+                let col = cap.get(1)?.as_str().to_string();
+              //  println!("🔍 Schema error column: {}", col);
+                return Some(col);
+            }
+        }
+        
+        // DataFusion Planning Error:
+        if error.contains("Expression") && error.contains("could not be resolved") {
+            if let Some(start) = error.find("Expression ") {
+                let remaining = &error[start + 11..];
+                if let Some(end) = remaining.find(" could not be resolved") {
+                    let expr = remaining[..end].trim();
+                    
+                    // Handle table.column format - extract just column
+                    if let Some(dot_pos) = expr.rfind('.') {
+                        let col = &expr[dot_pos + 1..];
+                     //   println!("Planning error table.column: {}", col);
+                        return Some(col.to_string());
+                    } else {
+                      //  println!("Planning error column: {}", expr);
+                        return Some(expr.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Fallback to original function
+        extract_missing_column(error)
+    }
+
+    fn is_column_in_select(&self, column: &str) -> bool {
+        self.raw_selected_columns.iter().any(|sel| {
+            // Handle aliases and table prefixes
+            sel.to_lowercase().contains(&column.to_lowercase()) ||
+            sel.split(" as ").next().unwrap_or(sel)
+                .split('.').last().unwrap_or(sel)
+                .to_lowercase() == column.to_lowercase()
+        })
+    }
+
+    fn is_column_used_in_window_functions(&self, missing_col: &str) -> bool {
+        self.window_functions.iter().any(|window_func| {
+            window_func.to_lowercase().contains(&missing_col.to_lowercase())
+        })
+    }
+    
+    fn is_column_used_in_aggregations(&self, missing_col: &str) -> bool {
+        self.aggregations.iter().any(|agg| {
+            agg.to_lowercase().contains(&missing_col.to_lowercase())
+        })
+    }
+    
+    fn is_column_used_in_where(&self, missing_col: &str) -> bool {
+        self.where_conditions.iter().any(|condition| {
+            condition.to_lowercase().contains(&missing_col.to_lowercase())
+        })
+    }
+    
+    fn is_column_likely_in_select(&self, missing_col: &str) -> bool {
+        // Check direct match first
+        if self.raw_selected_columns.iter().any(|col| {
+            col.to_lowercase().contains(&missing_col.to_lowercase())
+        }) {
+            return true;
+        }
+        
+        // Check if this looks like a malformed alias (contains underscore patterns)
+        if missing_col.contains("_") {
+            let parts: Vec<&str> = missing_col.split('_').collect();
+            if parts.len() >= 2 {
+                let first_part = parts[0];
+                let last_part = parts[parts.len() - 1];
+                
+                // Check if any selected column contains these parts
+                for selected_col in &self.raw_selected_columns {
+                    if selected_col.to_lowercase().contains(&first_part.to_lowercase()) ||
+                       selected_col.to_lowercase().contains(&last_part.to_lowercase()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+
+    fn determine_missing_column_context(&self, missing_col: &str, _error_msg: &str) -> ColumnErrorContext {
+
+        if self.is_column_used_in_window_functions(missing_col) {
+            return ColumnErrorContext {
+                context: format!("Column '{}' is referenced in a window function", missing_col),
+                location: "window() function".to_string(),
+                suggestion: format!(
+                    "💡 Check your .window() function. Either add '{}' to .select([...]) or fix the column name in your window function", 
+                    missing_col
+                ),
+            };
+        }
+        
+        if self.is_column_used_in_aggregations(missing_col) {
+            return ColumnErrorContext {
+                context: format!("Column '{}' is referenced in an aggregation", missing_col),
+                location: "agg() function".to_string(),
+                suggestion: format!(
+                    "💡 Check your .agg([...]) function. Either add '{}' to .select([...]) or fix the column name in your aggregation", 
+                    missing_col
+                ),
+            };
+        }
+        
+        if self.is_column_used_in_where(missing_col) {
+            return ColumnErrorContext {
+                context: format!("Column '{}' is referenced in WHERE conditions", missing_col),
+                location: "filter() or filter_many() function".to_string(),
+                suggestion: format!(
+                    "💡 Check your .filter() or .filter_many() conditions. Column '{}' doesn't exist in the table", 
+                    missing_col
+                ),
+            };
+        }
+        
+        if self.is_column_likely_in_select(missing_col) {
+            return ColumnErrorContext {
+                context: format!("Column '{}' is referenced in SELECT clause", missing_col),
+                location: "select() function".to_string(),
+                suggestion: format!(
+                    "💡 Check your .select([...]) function. Column '{}' doesn't exist in the table. Use .df_schema() to see available columns", 
+                    missing_col
+                ),
+            };
+        }
+        
+        ColumnErrorContext {
+            context: format!("Column '{}' is referenced somewhere in your query", missing_col),
+            location: "unknown location".to_string(),
+            suggestion: format!(
+                "Column '{}' doesn't exist. 💡 Check all your functions: .select(), .filter(), .window(), .agg(), .order_by()", 
+                missing_col
+            ),
+        }
+    }
+
+    fn generate_group_by_all_fix_suggestion(&self, missing_columns: &[String]) -> String {
+        let columns_list = missing_columns.iter()
+            .map(|col| format!("\"{}\"", col))
+            .collect::<Vec<_>>()
+            .join(", ");
+            
+        format!(
+            "🔧 group_by_all() requires all referenced columns in SELECT. Missing columns: {}. 💡 Quick Fixes: [1] Add missing columns to .select(): .select([\"your_existing_columns\", {}]) [2] Use manual .group_by() instead: .group_by([{}]) // only the columns you actually want to group by. [3] Restructure your query to avoid hidden dependencies",
+            missing_columns.join(", "),
+            columns_list,
+            self.get_likely_group_by_columns().join(", ")
+        )
+    }
+
+    fn get_likely_group_by_columns(&self) -> Vec<String> {
+        self.raw_selected_columns
+            .iter()
+            .filter(|col| {
+                // Exclude aggregated columns and window functions
+                let col_upper = col.to_uppercase();
+                !col_upper.contains("SUM(") &&
+                !col_upper.contains("COUNT(") &&
+                !col_upper.contains("AVG(") &&
+                !col_upper.contains("MIN(") &&
+                !col_upper.contains("MAX(") &&
+                !col_upper.contains("ROW_NUMBER(") &&
+                !col_upper.contains("RANK(") &&
+                !col_upper.contains("DENSE_RANK(")
+            })
+            .map(|col| {
+                // Extract column name, handling aliases and table prefixes
+                if let Some(alias_pos) = col.to_lowercase().find(" as ") {
+                    format!("\"{}\"", col[alias_pos + 4..].trim())
+                } else if let Some(dot_pos) = col.rfind('.') {
+                    format!("\"{}\"", &col[dot_pos + 1..])
+                } else {
+                    format!("\"{}\"", col.trim())
+                }
+            })
+            .collect()
+    }
+
+    fn get_current_select_columns_formatted(&self) -> String {
+        if self.raw_selected_columns.is_empty() {
+            "    // No columns selected yet".to_string()
+        } else {
+            self.raw_selected_columns
+                .iter()
+                .map(|col| format!("\"{}\"", col))
+                .collect::<Vec<_>>()
+                .join(",\n")
+        }
+    }
+
+    fn get_current_group_by_columns_formatted(&self) -> String {
+        if self.raw_selected_columns.is_empty() {
+            "// No columns available".to_string()
+        } else {
+            // Extract non-aggregate columns for GROUP BY suggestion
+            let non_agg_columns: Vec<String> = self.raw_selected_columns
+                .iter()
+                .filter(|col| {
+                    let col_upper = col.to_uppercase();
+                    !col_upper.contains("SUM(") &&
+                    !col_upper.contains("COUNT(") &&
+                    !col_upper.contains("AVG(") &&
+                    !col_upper.contains("MIN(") &&
+                    !col_upper.contains("MAX(") &&
+                    !col_upper.contains("ROW_NUMBER(") &&
+                    !col_upper.contains("RANK(") &&
+                    !col_upper.contains("DENSE_RANK(")
+                })
+                .map(|col| {
+                    // Extract alias or column name for GROUP BY
+                    if let Some(alias_pos) = col.to_lowercase().find(" as ") {
+                        format!("\"{}\"", col[alias_pos + 4..].trim())
+                    } else {
+                        // Handle table.column format
+                        if let Some(dot_pos) = col.rfind('.') {
+                            format!("\"{}\"", &col[dot_pos + 1..])
+                        } else {
+                            format!("\"{}\"", col.trim())
+                        }
+                    }
+                })
+                .collect();
+
+            if non_agg_columns.is_empty() {
+                "// All columns are aggregated - manual GROUP BY may not be needed".to_string()
+            } else {
+                non_agg_columns.join(", ")
+            }
+        }
+    }
+
+    fn get_table_aliases_for_suggestion(&self) -> Vec<String> {
+        let mut aliases = vec![self.table_alias.clone()];
+        
+        // Add aliases from joins
+        for join in &self.joins {
+            aliases.push(join.dataframe.table_alias.clone());
+        }
+        
+        aliases
+    }
     fn get_contextual_suggestion(&self, error_msg: &str) -> String {
         let has_joins = !self.joins.is_empty();
         let has_aggs = !self.aggregations.is_empty();
         let has_group_by = !self.group_by_columns.is_empty();
         let has_star = self.raw_selected_columns.iter().any(|col| col.contains("*"));
+        let has_window_functions = !self.window_functions.is_empty();
         
         if has_joins && error_msg.contains("duplicate") {
-            "💡 JOIN detected with duplicate columns. Use aliases (.select([\"s.CustomerKey AS sales_key\", \"c.CustomerKey AS customer_key\"])) or star selection (.select([\"s.*\", \"c.*\"])) for auto-deduplication".to_string()
+            let table_aliases = self.get_table_aliases_for_suggestion();
+            let example_column = self.get_example_column_for_alias_suggestion();
+            
+            if table_aliases.len() >= 2 && !example_column.is_empty() {
+                format!(
+                    "💡 JOIN detected with duplicate columns. Use aliases: .select([\"{}.{} AS {}_{}\", \"{}.{} AS {}_{}\"])) or star selection: .select([\"{}.*, {}.*/)",
+                    table_aliases[0], example_column, table_aliases[0], example_column,
+                    table_aliases[1], example_column, table_aliases[1], example_column,
+                    table_aliases[0], table_aliases[1]
+                )
+            } else {
+                "💡 JOIN detected with duplicate columns. Use table aliases in your .select([...]) or use star selection for auto-deduplication".to_string()
+            }
+        } else if has_window_functions && error_msg.contains("resolved") {
+            "💡 Window function error. Ensure all referenced columns are in .select([...]) or check your PARTITION BY/ORDER BY clauses".to_string()
         } else if has_aggs && !has_group_by {
-            "💡 Aggregations detected without GROUP BY. Use .group_by_all() or specify .group_by([...]) columns".to_string()
+            let non_agg_columns = self.get_non_aggregate_columns();
+            if !non_agg_columns.is_empty() {
+                format!(
+                    "💡 Aggregations detected without GROUP BY. Use .group_by_all() or specify .group_by([{}])",
+                    non_agg_columns.join(", ")
+                )
+            } else {
+                "💡 Aggregations detected without GROUP BY. Use .group_by_all() or specify .group_by([...]) columns".to_string()
+            }
         } else if has_aggs && has_group_by && error_msg.contains("resolved") {
             "💡 GROUP BY/SELECT mismatch. Ensure all non-aggregate SELECT columns are in GROUP BY, or use .group_by_all()".to_string()
         } else if has_star && error_msg.contains("duplicate") {
             "💡 Star selection with duplicate columns. This should auto-deduplicate - check for mixed star/explicit selection".to_string()
         } else {
-            "💡 Check SQL syntax, column names, and table aliases. Use .display_schema() to see available columns".to_string()
+            "💡 Check SQL syntax, column names, and table aliases. Use .dg_schema() to see available columns".to_string()
         }
+    }
+
+    fn get_example_column_for_alias_suggestion(&self) -> String {
+        // Try to find a common column name that might be duplicated
+        let common_names = ["id", "key", "name", "code", "date", "time", "value"];
+        
+        // Check if any selected columns match common names
+        for col in &self.raw_selected_columns {
+            let col_lower = col.to_lowercase();
+            for &common in &common_names {
+                if col_lower.contains(common) {
+                    return common.to_string();
+                }
+            }
+        }
+        
+        // Fall back to extracting from first selected column
+        if let Some(first_col) = self.raw_selected_columns.first() {
+            if let Some(dot_pos) = first_col.rfind('.') {
+                return first_col[dot_pos + 1..].to_string();
+            } else if let Some(space_pos) = first_col.find(' ') {
+                return first_col[..space_pos].to_string();
+            } else {
+                return first_col.clone();
+            }
+        }
+        
+        "column".to_string()
+    }
+
+    /// Get non-aggregate columns for GROUP BY suggestions
+    fn get_non_aggregate_columns(&self) -> Vec<String> {
+        self.raw_selected_columns
+            .iter()
+            .filter(|col| {
+                let col_upper = col.to_uppercase();
+                !col_upper.contains("SUM(") &&
+                !col_upper.contains("COUNT(") &&
+                !col_upper.contains("AVG(") &&
+                !col_upper.contains("MIN(") &&
+                !col_upper.contains("MAX(") &&
+                !col_upper.contains("ROW_NUMBER(") &&
+                !col_upper.contains("RANK(")
+            })
+            .map(|col| {
+                // Extract clean column name for GROUP BY
+                if let Some(alias_pos) = col.to_lowercase().find(" as ") {
+                    format!("\"{}\"", col[alias_pos + 4..].trim())
+                } else if let Some(dot_pos) = col.rfind('.') {
+                    format!("\"{}\"", &col[dot_pos + 1..])
+                } else {
+                    format!("\"{}\"", col.trim())
+                }
+            })
+            .collect()
     }
     
     /// Get available columns for error suggestions
@@ -3472,6 +3987,8 @@ impl CustomDataFrame {
         
         columns
     }
+
+    // ==============================================================
 
     /// Batch register all required tables for better performance
     async fn register_all_tables(&self, ctx: &SessionContext) -> ElusionResult<()> {
@@ -3563,8 +4080,8 @@ impl CustomDataFrame {
         
         // Enhanced formatting that handles CTEs properly
         let formatted = final_query
-            .replace("WITH ", "\nWITH ")           // CTE start
-            .replace(") SELECT ", ")\n\nSELECT ")  // Main query after CTE
+            .replace("WITH ", "\nWITH ")          
+            .replace(") SELECT ", ")\n\nSELECT ")  
             .replace(" SELECT ", "\nSELECT ")
             .replace(" FROM ", "\nFROM ")
             .replace(" WHERE ", "\nWHERE ")
@@ -5366,6 +5883,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             dataframes.push(df);
                         },
@@ -5411,6 +5929,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             dataframes.push(df);
                         },
@@ -5456,6 +5975,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             dataframes.push(df);
                         },
@@ -5501,6 +6021,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             dataframes.push(df);
                         },
@@ -5774,6 +6295,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             loaded_df = Some(df);
                         },
@@ -5819,6 +6341,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             loaded_df = Some(df);
                         },
@@ -5864,6 +6387,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             loaded_df = Some(df);
                         },
@@ -5909,6 +6433,7 @@ impl CustomDataFrame {
                                 raw_having_conditions: Vec::new(),
                                 raw_join_conditions: Vec::new(),
                                 raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
                             };
                             loaded_df = Some(df);
                         },
@@ -6369,6 +6894,7 @@ impl CustomDataFrame {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 

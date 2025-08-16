@@ -777,7 +777,7 @@ pub async fn load_csv_with_type_handling_streaming(
         });
     }
 
-    println!("🚀 Reading CSV file with streaming and schema detection)...");
+    println!("🚀 Reading CSV file with streaming and schema detection...");
     let read_start = std::time::Instant::now();
 
     let temp_df = ctx.read_csv(
