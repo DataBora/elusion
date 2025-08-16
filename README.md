@@ -98,6 +98,9 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 #### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file, which will run every 5 minutes
 ![Simple scheduler](images/Simple-Pipeline-Example.png)
 ---
+### What you just saw in these 2 pictures? 🤔
+- If you know SQL (the most important language for Data Engineering), you already know Elusion. 🎉
+---
 ## INSTALLATION
 
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:

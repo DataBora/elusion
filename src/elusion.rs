@@ -3507,7 +3507,6 @@ impl CustomDataFrame {
                             error_upper.contains("ROW_NUMBER") ||
                             error_upper.contains("RANK");
 
-        // Extract current selected columns for dynamic suggestions
         let current_select_columns = self.get_current_select_columns_formatted();
         let current_group_by_columns = self.get_current_group_by_columns_formatted();
 
