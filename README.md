@@ -92,15 +92,6 @@ Debugging Support: Access readable debug outputs of the generated SQL for easy v
 - **Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
 - **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
 ---
-## BEFORE WE START, HERE ARE TWO QUICK EXAMPLES, SO THAT YOU CAN DECIDE IF YOU LIKE SYNTAX
-#### Simple query / DataFrame operation on CSV file using new_with_stream() which will activate Lazy Execution
-![Simple query](images/Simple-Query.png)
-#### Simple Pipeline Scheduler with Azure data reading and writing to Parquet file, which will run every 5 minutes
-![Simple scheduler](images/Simple-Pipeline-Example.png)
----
-### What you just saw in these 2 pictures? 🤔
-- If you know SQL (the most important language for Data Engineering), you already know Elusion. 🎉
----
 ## INSTALLATION
 
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
