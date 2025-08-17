@@ -2307,8 +2307,8 @@ let redis_conn = CustomDataFrame::create_redis_cache_connection().await?;
 // Use Redis caching for high-performance distributed caching
 let redis_cached_result = sales_df
     .join_many([
-        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "RIGHT"),
-        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "LEFT OUTER"),
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "RIGHT"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "LEFT OUTER"),
     ])
     .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
     .agg([
@@ -2352,7 +2352,7 @@ CustomDataFrame::invalidate_redis_cache(&redis_conn, &["sales", "customers"]).aw
     println!("📊 Getting Redis cache statistics...");
 
     let stats = CustomDataFrame::redis_cache_stats(&redis_conn).await?;
-    
+
     println!("🔹 Cache Statistics:");
     println!("   📈 Total cached keys: {}", stats.total_keys);
     println!("   ✅ Cache hits: {}", stats.cache_hits);
