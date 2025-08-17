@@ -208,3 +208,19 @@ pub use arrow::util::display::array_value_to_string as any_other_array_value_to_
 
 // ----- Stream
 pub use datafusion::physical_plan::SendableRecordBatchStream;
+
+//====== REDIS
+pub use crate::features::redis::{
+    RedisCacheConfig,
+    RedisCacheConnection,
+    RedisCacheStats,
+    create_redis_cache_connection,
+    create_redis_cache_connection_with_config,
+    elusion_with_redis_cache_impl,
+    clear_redis_cache_impl,
+    get_redis_cache_stats_impl,
+    invalidate_redis_cache_impl,
+};
+
+pub use redis::{Client as RedisClient, Connection as RedisConnection, TypedCommands};
+pub use serde_json;
