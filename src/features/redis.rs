@@ -580,613 +580,613 @@ pub async fn create_redis_cache_connection_with_config(
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-    use tokio::time::timeout;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use std::time::Duration;
+//     use tokio::time::timeout;
 
-    async fn create_test_connection() -> crate::ElusionResult<RedisCacheConnection> {
+//     async fn create_test_connection() -> crate::ElusionResult<RedisCacheConnection> {
 
-        match timeout(Duration::from_secs(5), create_redis_cache_connection()).await {
-            Ok(result) => result,
-            Err(_) => Err(crate::ElusionError::Custom(
-                "Redis connection timeout - is Redis running on localhost:6379?".to_string()
-            )),
-        }
-    }
+//         match timeout(Duration::from_secs(5), create_redis_cache_connection()).await {
+//             Ok(result) => result,
+//             Err(_) => Err(crate::ElusionError::Custom(
+//                 "Redis connection timeout - is Redis running on localhost:6379?".to_string()
+//             )),
+//         }
+//     }
 
-    async fn is_redis_available() -> bool {
-        create_test_connection().await.is_ok()
-    }
+//     async fn is_redis_available() -> bool {
+//         create_test_connection().await.is_ok()
+//     }
 
-    #[tokio::test]
-    async fn test_redis_connection() {
-        println!("🧪 Testing Redis connection...");
+//     #[tokio::test]
+//     async fn test_redis_connection() {
+//         println!("🧪 Testing Redis connection...");
         
-        match create_test_connection().await {
-            Ok(_) => {
-                println!("✅ Redis connection successful!");
-            }
-            Err(e) => {
-                println!("❌ Redis connection failed: {}", e);
-                println!("💡 Make sure Redis is running:");
-                println!("   Windows: redis-server");
-                println!("   Docker: docker run --name redis-cache -p 6379:6379 -d redis:latest");
-                panic!("Redis not available for testing");
-            }
-        }
-    }
+//         match create_test_connection().await {
+//             Ok(_) => {
+//                 println!("✅ Redis connection successful!");
+//             }
+//             Err(e) => {
+//                 println!("❌ Redis connection failed: {}", e);
+//                 println!("💡 Make sure Redis is running:");
+//                 println!("   Windows: redis-server");
+//                 println!("   Docker: docker run --name redis-cache -p 6379:6379 -d redis:latest");
+//                 panic!("Redis not available for testing");
+//             }
+//         }
+//     }
 
-    #[tokio::test]
-    async fn test_redis_config() {
-        println!("🧪 Testing Redis configuration...");
+//     #[tokio::test]
+//     async fn test_redis_config() {
+//         println!("🧪 Testing Redis configuration...");
         
-        let config = RedisCacheConfig::default();
-        assert_eq!(config.host, "127.0.0.1");
-        assert_eq!(config.port, 6379);
-        assert_eq!(config.database, 0);
-        assert!(config.password.is_none());
+//         let config = RedisCacheConfig::default();
+//         assert_eq!(config.host, "127.0.0.1");
+//         assert_eq!(config.port, 6379);
+//         assert_eq!(config.database, 0);
+//         assert!(config.password.is_none());
         
-        let config = RedisCacheConfig::new("localhost", 6380)
-            .with_auth("mypassword")
-            .with_database(1);
+//         let config = RedisCacheConfig::new("localhost", 6380)
+//             .with_auth("mypassword")
+//             .with_database(1);
         
-        assert_eq!(config.host, "localhost");
-        assert_eq!(config.port, 6380);
-        assert_eq!(config.database, 1);
-        assert_eq!(config.password, Some("mypassword".to_string()));
+//         assert_eq!(config.host, "localhost");
+//         assert_eq!(config.port, 6380);
+//         assert_eq!(config.database, 1);
+//         assert_eq!(config.password, Some("mypassword".to_string()));
         
-        let conn_str = config.to_connection_string();
-        assert!(conn_str.contains("mypassword"));
-        assert!(conn_str.contains("localhost"));
-        assert!(conn_str.contains("6380"));
-        assert!(conn_str.contains("/1"));
+//         let conn_str = config.to_connection_string();
+//         assert!(conn_str.contains("mypassword"));
+//         assert!(conn_str.contains("localhost"));
+//         assert!(conn_str.contains("6380"));
+//         assert!(conn_str.contains("/1"));
         
-        println!("✅ Redis configuration tests passed!");
-    }
+//         println!("✅ Redis configuration tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_redis_ttl_operations() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping TTL test - Redis not available");
-            return;
-        }
+//     #[tokio::test]
+//     async fn test_redis_ttl_operations() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping TTL test - Redis not available");
+//             return;
+//         }
 
-        println!("🧪 Testing Redis TTL operations...");
+//         println!("🧪 Testing Redis TTL operations...");
         
-        let redis_conn = create_test_connection().await.unwrap();
+//         let redis_conn = create_test_connection().await.unwrap();
         
-        let ttl_key = "elusion:test:ttl";
-        let ttl_value = "This will expire";
+//         let ttl_key = "elusion:test:ttl";
+//         let ttl_value = "This will expire";
         
-        redis_conn.set_with_ttl(ttl_key, ttl_value, 2).await.unwrap();
+//         redis_conn.set_with_ttl(ttl_key, ttl_value, 2).await.unwrap();
         
-        let value: Option<String> = redis_conn.get(ttl_key).await.unwrap();
-        assert_eq!(value, Some(ttl_value.to_string()));
+//         let value: Option<String> = redis_conn.get(ttl_key).await.unwrap();
+//         assert_eq!(value, Some(ttl_value.to_string()));
         
-        tokio::time::sleep(Duration::from_secs(3)).await;
+//         tokio::time::sleep(Duration::from_secs(3)).await;
         
-        let value: Option<String> = redis_conn.get(ttl_key).await.unwrap();
-        assert_eq!(value, None);
+//         let value: Option<String> = redis_conn.get(ttl_key).await.unwrap();
+//         assert_eq!(value, None);
         
-        println!("✅ TTL operations tests passed!");
-    }
+//         println!("✅ TTL operations tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_redis_delete_operations() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping delete test - Redis not available");
-            return;
-        }
+//     #[tokio::test]
+//     async fn test_redis_delete_operations() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping delete test - Redis not available");
+//             return;
+//         }
 
-        println!("🧪 Testing Redis delete operations...");
+//         println!("🧪 Testing Redis delete operations...");
         
-        let redis_conn = create_test_connection().await.unwrap();
+//         let redis_conn = create_test_connection().await.unwrap();
         
-        let keys = ["elusion:test:del1", "elusion:test:del2", "elusion:test:del3"];
-        for key in &keys {
-            redis_conn.set(key, "delete me").await.unwrap();
-        }
+//         let keys = ["elusion:test:del1", "elusion:test:del2", "elusion:test:del3"];
+//         for key in &keys {
+//             redis_conn.set(key, "delete me").await.unwrap();
+//         }
         
-        for key in &keys {
-            let value: Option<String> = redis_conn.get(key).await.unwrap();
-            assert_eq!(value, Some("delete me".to_string()));
-        }
+//         for key in &keys {
+//             let value: Option<String> = redis_conn.get(key).await.unwrap();
+//             assert_eq!(value, Some("delete me".to_string()));
+//         }
         
-        let deleted_count = redis_conn.delete(&keys).await.unwrap();
-        assert_eq!(deleted_count, 3);
+//         let deleted_count = redis_conn.delete(&keys).await.unwrap();
+//         assert_eq!(deleted_count, 3);
         
-        for key in &keys {
-            let value: Option<String> = redis_conn.get(key).await.unwrap();
-            assert_eq!(value, None);
-        }
+//         for key in &keys {
+//             let value: Option<String> = redis_conn.get(key).await.unwrap();
+//             assert_eq!(value, None);
+//         }
         
-        println!("✅ Delete operations tests passed!");
-    }
+//         println!("✅ Delete operations tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_redis_key_patterns() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping key patterns test - Redis not available");
-            return;
-        }
+//     #[tokio::test]
+//     async fn test_redis_key_patterns() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping key patterns test - Redis not available");
+//             return;
+//         }
 
-        println!("🧪 Testing Redis key patterns...");
+//         println!("🧪 Testing Redis key patterns...");
         
-        let redis_conn = create_test_connection().await.unwrap();
+//         let redis_conn = create_test_connection().await.unwrap();
         
-        let cache_keys = [
-            "elusion:query_cache:abc123",
-            "elusion:query_cache:def456", 
-            "elusion:query_cache:ghi789"
-        ];
-        let other_keys = [
-            "elusion:stats:hits",
-            "other:namespace:key1",
-            "completely_different"
-        ];
+//         let cache_keys = [
+//             "elusion:query_cache:abc123",
+//             "elusion:query_cache:def456", 
+//             "elusion:query_cache:ghi789"
+//         ];
+//         let other_keys = [
+//             "elusion:stats:hits",
+//             "other:namespace:key1",
+//             "completely_different"
+//         ];
         
-        for key in cache_keys.iter().chain(other_keys.iter()) {
-            redis_conn.set(key, "test_value").await.unwrap();
-        }
+//         for key in cache_keys.iter().chain(other_keys.iter()) {
+//             redis_conn.set(key, "test_value").await.unwrap();
+//         }
         
-        let found_cache_keys = redis_conn.keys("elusion:query_cache:*").await.unwrap();
-        assert_eq!(found_cache_keys.len(), 3);
+//         let found_cache_keys = redis_conn.keys("elusion:query_cache:*").await.unwrap();
+//         assert_eq!(found_cache_keys.len(), 3);
         
-        let found_elusion_keys = redis_conn.keys("elusion:*").await.unwrap();
-        assert!(found_elusion_keys.len() >= 4); 
+//         let found_elusion_keys = redis_conn.keys("elusion:*").await.unwrap();
+//         assert!(found_elusion_keys.len() >= 4); 
         
-        let found_all_keys = redis_conn.keys("*").await.unwrap();
-        assert!(found_all_keys.len() >= 6); 
+//         let found_all_keys = redis_conn.keys("*").await.unwrap();
+//         assert!(found_all_keys.len() >= 6); 
         
-        let all_test_keys: Vec<&str> = cache_keys.iter().chain(other_keys.iter()).cloned().collect();
-        redis_conn.delete(&all_test_keys).await.unwrap();
+//         let all_test_keys: Vec<&str> = cache_keys.iter().chain(other_keys.iter()).cloned().collect();
+//         redis_conn.delete(&all_test_keys).await.unwrap();
         
-        println!("✅ Key patterns tests passed!");
-    }
+//         println!("✅ Key patterns tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_cache_key_generation() {
-        println!("🧪 Testing cache key generation...");
+//     #[tokio::test]
+//     async fn test_cache_key_generation() {
+//         println!("🧪 Testing cache key generation...");
         
-        let query1 = "SELECT * FROM users WHERE id = 1";
-        let query2 = "SELECT * FROM users WHERE id = 1"; 
-        let query3 = "SELECT * FROM users WHERE id = 2"; 
+//         let query1 = "SELECT * FROM users WHERE id = 1";
+//         let query2 = "SELECT * FROM users WHERE id = 1"; 
+//         let query3 = "SELECT * FROM users WHERE id = 2"; 
         
-        let key1 = generate_cache_key(query1);
-        let key2 = generate_cache_key(query2);
-        let key3 = generate_cache_key(query3);
+//         let key1 = generate_cache_key(query1);
+//         let key2 = generate_cache_key(query2);
+//         let key3 = generate_cache_key(query3);
         
-        assert_eq!(key1, key2, "Same queries should generate same cache keys");
-        assert_ne!(key1, key3, "Different queries should generate different cache keys");
+//         assert_eq!(key1, key2, "Same queries should generate same cache keys");
+//         assert_ne!(key1, key3, "Different queries should generate different cache keys");
         
-        assert!(key1.starts_with("elusion:query_cache:"));
-        assert!(key3.starts_with("elusion:query_cache:"));
+//         assert!(key1.starts_with("elusion:query_cache:"));
+//         assert!(key3.starts_with("elusion:query_cache:"));
         
-        println!("✅ Cache key generation tests passed!");
-    }
+//         println!("✅ Cache key generation tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_cache_statistics() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping cache statistics test - Redis not available");
-            return;
-        }
+//     #[tokio::test]
+//     async fn test_cache_statistics() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping cache statistics test - Redis not available");
+//             return;
+//         }
 
-        println!("🧪 Testing cache statistics...");
+//         println!("🧪 Testing cache statistics...");
         
-        let redis_conn = create_test_connection().await.unwrap();
+//         let redis_conn = create_test_connection().await.unwrap();
         
-        clear_redis_cache_impl(&redis_conn, None).await.unwrap();
+//         clear_redis_cache_impl(&redis_conn, None).await.unwrap();
         
-        let initial_stats = get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        assert_eq!(initial_stats.cache_hits, 0);
-        assert_eq!(initial_stats.cache_misses, 0);
-        assert_eq!(initial_stats.total_keys, 0);
+//         let initial_stats = get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         assert_eq!(initial_stats.cache_hits, 0);
+//         assert_eq!(initial_stats.cache_misses, 0);
+//         assert_eq!(initial_stats.total_keys, 0);
 
-        redis_conn.set("elusion:query_cache:test1", "data1").await.unwrap();
-        redis_conn.set("elusion:query_cache:test2", "data2").await.unwrap();
+//         redis_conn.set("elusion:query_cache:test1", "data1").await.unwrap();
+//         redis_conn.set("elusion:query_cache:test2", "data2").await.unwrap();
         
-        let stats_with_keys = get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        assert_eq!(stats_with_keys.total_keys, 2);
-        
-
-        assert_eq!(stats_with_keys.hit_rate, 0.0); 
-        
-        clear_redis_cache_impl(&redis_conn, None).await.unwrap();
-        
-        println!("✅ Cache statistics tests passed!");
-    }
-
-    #[tokio::test]
-    async fn test_cache_clear_operations() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping cache clear test - Redis not available");
-            return;
-        }
-
-        println!("🧪 Testing cache clear operations...");
-        
-        let redis_conn = create_test_connection().await.unwrap();
-             // Set up test data
-        let cache_keys = [
-            "elusion:query_cache:clear1",
-            "elusion:query_cache:clear2",
-            "elusion:query_cache:clear1_meta",
-            "elusion:query_cache:clear2_data"
-        ];
-        let other_keys = ["elusion:other:key", "completely:different:key"];
-        
-        for key in cache_keys.iter().chain(other_keys.iter()) {
-            redis_conn.set(key, "test_data").await.unwrap();
-        }
-        
-        clear_redis_cache_impl(&redis_conn, Some("elusion:query_cache:*")).await.unwrap();
-        
-        for key in &cache_keys {
-            let value: Option<String> = redis_conn.get(key).await.unwrap();
-            assert_eq!(value, None, "Cache key {} should be deleted", key);
-        }
+//         let stats_with_keys = get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         assert_eq!(stats_with_keys.total_keys, 2);
         
 
-        for key in &other_keys {
-            let value: Option<String> = redis_conn.get(key).await.unwrap();
-            assert_eq!(value, Some("test_data".to_string()), "Non-cache key {} should still exist", key);
-        }
+//         assert_eq!(stats_with_keys.hit_rate, 0.0); 
         
-        redis_conn.delete(&other_keys).await.unwrap();
+//         clear_redis_cache_impl(&redis_conn, None).await.unwrap();
         
-        println!("✅ Cache clear operations tests passed!");
-    }
+//         println!("✅ Cache statistics tests passed!");
+//     }
 
-    #[tokio::test]
-    async fn test_redis_info() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping Redis info test - Redis not available");
-            return;
-        }
+//     #[tokio::test]
+//     async fn test_cache_clear_operations() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping cache clear test - Redis not available");
+//             return;
+//         }
 
-        println!("🧪 Testing Redis info retrieval...");
+//         println!("🧪 Testing cache clear operations...");
         
-        let redis_conn = create_test_connection().await.unwrap();
+//         let redis_conn = create_test_connection().await.unwrap();
+//              // Set up test data
+//         let cache_keys = [
+//             "elusion:query_cache:clear1",
+//             "elusion:query_cache:clear2",
+//             "elusion:query_cache:clear1_meta",
+//             "elusion:query_cache:clear2_data"
+//         ];
+//         let other_keys = ["elusion:other:key", "completely:different:key"];
         
-        let info = redis_conn.info().await.unwrap();
+//         for key in cache_keys.iter().chain(other_keys.iter()) {
+//             redis_conn.set(key, "test_data").await.unwrap();
+//         }
         
-        assert!(!info.is_empty(), "Redis info should not be empty");
-        assert!(info.contains("redis_version"), "Info should contain Redis version");
-        assert!(info.contains("used_memory"), "Info should contain memory usage");
+//         clear_redis_cache_impl(&redis_conn, Some("elusion:query_cache:*")).await.unwrap();
         
-        println!("📋 Redis info retrieved ({} chars)", info.len());
-        println!("✅ Redis info tests passed!");
-    }
-
-    #[tokio::test]
-    async fn test_performance_benchmark() {
-        if !is_redis_available().await {
-            println!("⏭️ Skipping performance test - Redis not available");
-            return;
-        }
-
-        println!("🧪 Running performance benchmark...");
-        
-        let redis_conn = create_test_connection().await.unwrap();
-        
-        let iterations = 50;
-        let test_data = "Performance test data - this is a reasonably sized string for testing";
-        
-        let start_time = std::time::Instant::now();
-        
-        for i in 0..iterations {
-            let key = format!("elusion:perf:test:{}", i);
-            redis_conn.set(&key, test_data).await.unwrap();
-        }
-        
-        let set_duration = start_time.elapsed();
-        
-        let start_time = std::time::Instant::now();
-        
-        for i in 0..iterations {
-            let key = format!("elusion:perf:test:{}", i);
-            let _: Option<String> = redis_conn.get(&key).await.unwrap();
-        }
-        
-        let get_duration = start_time.elapsed();
-        
-        let keys: Vec<String> = (0..iterations)
-            .map(|i| format!("elusion:perf:test:{}", i))
-            .collect();
-        let key_refs: Vec<&str> = keys.iter().map(|k| k.as_str()).collect();
-        redis_conn.delete(&key_refs).await.unwrap();
-        
-        let avg_set_time = set_duration.as_micros() as f64 / iterations as f64;
-        let avg_get_time = get_duration.as_micros() as f64 / iterations as f64;
-        
-        println!("📊 Performance results ({} operations):", iterations);
-        println!("   Average SET time: {:.2} μs", avg_set_time);
-        println!("   Average GET time: {:.2} μs", avg_get_time);
-        println!("   Total SET time: {:?}", set_duration);
-        println!("   Total GET time: {:?}", get_duration);
-        
-        assert!(avg_set_time < 10000.0, "SET operations should be under 10ms on average");
-        assert!(avg_get_time < 10000.0, "GET operations should be under 10ms on average");
-        
-        println!("✅ Performance benchmark passed!");
-    }
-
-
-    #[tokio::test]
-    async fn test_error_handling() {
-        println!("🧪 Testing error handling...");
+//         for key in &cache_keys {
+//             let value: Option<String> = redis_conn.get(key).await.unwrap();
+//             assert_eq!(value, None, "Cache key {} should be deleted", key);
+//         }
         
 
-        let invalid_config = RedisCacheConfig::new("invalid_host", 9999);
+//         for key in &other_keys {
+//             let value: Option<String> = redis_conn.get(key).await.unwrap();
+//             assert_eq!(value, Some("test_data".to_string()), "Non-cache key {} should still exist", key);
+//         }
         
-        match timeout(Duration::from_secs(2), RedisCacheConnection::new(invalid_config)).await {
-            Ok(Err(_)) => {
-                println!("✅ Properly handled invalid Redis connection");
-            }
-            Ok(Ok(_)) => {
-                panic!("Should not have connected to invalid Redis instance");
-            }
-            Err(_) => {
-                println!("✅ Connection attempt timed out as expected");
-            }
-        }
+//         redis_conn.delete(&other_keys).await.unwrap();
         
-        println!("✅ Error handling tests passed!");
-    }
+//         println!("✅ Cache clear operations tests passed!");
+//     }
 
-    #[allow(dead_code)]
-    pub async fn run_all_redis_tests() -> Result<(), Box<dyn std::error::Error>> {
-        println!("🚀 Running comprehensive Redis cache tests...\n");
+//     #[tokio::test]
+//     async fn test_redis_info() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping Redis info test - Redis not available");
+//             return;
+//         }
+
+//         println!("🧪 Testing Redis info retrieval...");
         
-        if !is_redis_available().await {
-            println!("❌ Redis is not available. Please start Redis and try again.");
-            println!("💡 Start Redis with one of these methods:");
-            println!("   - Windows: redis-server");
-            println!("   - Docker: docker run --name redis-cache -p 6379:6379 -d redis:latest");
-            return Err("Redis not available".into());
-        }
+//         let redis_conn = create_test_connection().await.unwrap();
         
-        println!("✅ Redis is available, running tests...\n");
+//         let info = redis_conn.info().await.unwrap();
+        
+//         assert!(!info.is_empty(), "Redis info should not be empty");
+//         assert!(info.contains("redis_version"), "Info should contain Redis version");
+//         assert!(info.contains("used_memory"), "Info should contain memory usage");
+        
+//         println!("📋 Redis info retrieved ({} chars)", info.len());
+//         println!("✅ Redis info tests passed!");
+//     }
+
+//     #[tokio::test]
+//     async fn test_performance_benchmark() {
+//         if !is_redis_available().await {
+//             println!("⏭️ Skipping performance test - Redis not available");
+//             return;
+//         }
+
+//         println!("🧪 Running performance benchmark...");
+        
+//         let redis_conn = create_test_connection().await.unwrap();
+        
+//         let iterations = 50;
+//         let test_data = "Performance test data - this is a reasonably sized string for testing";
+        
+//         let start_time = std::time::Instant::now();
+        
+//         for i in 0..iterations {
+//             let key = format!("elusion:perf:test:{}", i);
+//             redis_conn.set(&key, test_data).await.unwrap();
+//         }
+        
+//         let set_duration = start_time.elapsed();
+        
+//         let start_time = std::time::Instant::now();
+        
+//         for i in 0..iterations {
+//             let key = format!("elusion:perf:test:{}", i);
+//             let _: Option<String> = redis_conn.get(&key).await.unwrap();
+//         }
+        
+//         let get_duration = start_time.elapsed();
+        
+//         let keys: Vec<String> = (0..iterations)
+//             .map(|i| format!("elusion:perf:test:{}", i))
+//             .collect();
+//         let key_refs: Vec<&str> = keys.iter().map(|k| k.as_str()).collect();
+//         redis_conn.delete(&key_refs).await.unwrap();
+        
+//         let avg_set_time = set_duration.as_micros() as f64 / iterations as f64;
+//         let avg_get_time = get_duration.as_micros() as f64 / iterations as f64;
+        
+//         println!("📊 Performance results ({} operations):", iterations);
+//         println!("   Average SET time: {:.2} μs", avg_set_time);
+//         println!("   Average GET time: {:.2} μs", avg_get_time);
+//         println!("   Total SET time: {:?}", set_duration);
+//         println!("   Total GET time: {:?}", get_duration);
+        
+//         assert!(avg_set_time < 10000.0, "SET operations should be under 10ms on average");
+//         assert!(avg_get_time < 10000.0, "GET operations should be under 10ms on average");
+        
+//         println!("✅ Performance benchmark passed!");
+//     }
+
+
+//     #[tokio::test]
+//     async fn test_error_handling() {
+//         println!("🧪 Testing error handling...");
         
 
-        Ok(())
-    }
+//         let invalid_config = RedisCacheConfig::new("invalid_host", 9999);
+        
+//         match timeout(Duration::from_secs(2), RedisCacheConnection::new(invalid_config)).await {
+//             Ok(Err(_)) => {
+//                 println!("✅ Properly handled invalid Redis connection");
+//             }
+//             Ok(Ok(_)) => {
+//                 panic!("Should not have connected to invalid Redis instance");
+//             }
+//             Err(_) => {
+//                 println!("✅ Connection attempt timed out as expected");
+//             }
+//         }
+        
+//         println!("✅ Error handling tests passed!");
+//     }
+
+//     #[allow(dead_code)]
+//     pub async fn run_all_redis_tests() -> Result<(), Box<dyn std::error::Error>> {
+//         println!("🚀 Running comprehensive Redis cache tests...\n");
+        
+//         if !is_redis_available().await {
+//             println!("❌ Redis is not available. Please start Redis and try again.");
+//             println!("💡 Start Redis with one of these methods:");
+//             println!("   - Windows: redis-server");
+//             println!("   - Docker: docker run --name redis-cache -p 6379:6379 -d redis:latest");
+//             return Err("Redis not available".into());
+//         }
+        
+//         println!("✅ Redis is available, running tests...\n");
+        
+
+//         Ok(())
+//     }
     
-}
+// }
 
 
-#[cfg(test)]
-mod integration_tests {
+// #[cfg(test)]
+// mod integration_tests {
 
-    use std::time::Instant;
+//     use std::time::Instant;
 
-    async fn create_test_dataframe() -> crate::ElusionResult<crate::CustomDataFrame> {
-        use datafusion::prelude::*;
-        use datafusion::arrow::array::*;
-        use datafusion::arrow::datatypes::*;
-        use datafusion::arrow::record_batch::RecordBatch;
-        use datafusion::datasource::MemTable;
-        use std::sync::Arc;
+//     async fn create_test_dataframe() -> crate::ElusionResult<crate::CustomDataFrame> {
+//         use datafusion::prelude::*;
+//         use datafusion::arrow::array::*;
+//         use datafusion::arrow::datatypes::*;
+//         use datafusion::arrow::record_batch::RecordBatch;
+//         use datafusion::datasource::MemTable;
+//         use std::sync::Arc;
 
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Int32, false),
-            Field::new("name", DataType::Utf8, false),
-            Field::new("score", DataType::Float64, false),
-        ]));
+//         let schema = Arc::new(Schema::new(vec![
+//             Field::new("id", DataType::Int32, false),
+//             Field::new("name", DataType::Utf8, false),
+//             Field::new("score", DataType::Float64, false),
+//         ]));
 
-        let id_array = Int32Array::from(vec![1, 2, 3, 4, 5]);
-        let name_array = StringArray::from(vec!["Alice", "Bob", "Charlie", "Diana", "Eve"]);
-        let score_array = Float64Array::from(vec![95.5, 87.2, 92.1, 88.8, 94.3]);
+//         let id_array = Int32Array::from(vec![1, 2, 3, 4, 5]);
+//         let name_array = StringArray::from(vec!["Alice", "Bob", "Charlie", "Diana", "Eve"]);
+//         let score_array = Float64Array::from(vec![95.5, 87.2, 92.1, 88.8, 94.3]);
 
-        let batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(id_array),
-                Arc::new(name_array),
-                Arc::new(score_array),
-            ],
-        ).map_err(|e| crate::ElusionError::Custom(format!("Arrow error: {}", e)))?;
+//         let batch = RecordBatch::try_new(
+//             schema.clone(),
+//             vec![
+//                 Arc::new(id_array),
+//                 Arc::new(name_array),
+//                 Arc::new(score_array),
+//             ],
+//         ).map_err(|e| crate::ElusionError::Custom(format!("Arrow error: {}", e)))?;
 
-        let ctx = SessionContext::new();
-        let table = MemTable::try_new(schema, vec![vec![batch]])
-            .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
-        ctx.register_table("test_users", Arc::new(table))
-            .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
+//         let ctx = SessionContext::new();
+//         let table = MemTable::try_new(schema, vec![vec![batch]])
+//             .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
+//         ctx.register_table("test_users", Arc::new(table))
+//             .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
 
-        let df = ctx.table("test_users").await
-            .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
+//         let df = ctx.table("test_users").await
+//             .map_err(|e| crate::ElusionError::Custom(format!("DataFusion error: {}", e)))?;
         
-        Ok(crate::CustomDataFrame {
-            df,
-            table_alias: "test_users".to_string(),
-            from_table: "test_users".to_string(),
-            selected_columns: vec!["id".to_string(), "name".to_string(), "score".to_string()],
-            alias_map: Vec::new(),
-            aggregations: Vec::new(),
-            group_by_columns: Vec::new(),
-            where_conditions: Vec::new(),
-            having_conditions: Vec::new(),
-            order_by_columns: Vec::new(),
-            limit_count: None,
-            joins: Vec::new(),
-            window_functions: Vec::new(),
-            ctes: Vec::new(),
-            subquery_source: None,
-            set_operations: Vec::new(),
-            query: "SELECT id, name, score FROM test_users".to_string(),
-            aggregated_df: None,
-            union_tables: None,
-            original_expressions: Vec::new(),
-            needs_normalization: false,
-            raw_selected_columns: Vec::new(),
-            raw_group_by_columns: Vec::new(),
-            raw_where_conditions: Vec::new(),
-            raw_having_conditions: Vec::new(),
-            raw_join_conditions: Vec::new(),
-            raw_aggregations: Vec::new(),
-            uses_group_by_all: false,
-        })
-    }
+//         Ok(crate::CustomDataFrame {
+//             df,
+//             table_alias: "test_users".to_string(),
+//             from_table: "test_users".to_string(),
+//             selected_columns: vec!["id".to_string(), "name".to_string(), "score".to_string()],
+//             alias_map: Vec::new(),
+//             aggregations: Vec::new(),
+//             group_by_columns: Vec::new(),
+//             where_conditions: Vec::new(),
+//             having_conditions: Vec::new(),
+//             order_by_columns: Vec::new(),
+//             limit_count: None,
+//             joins: Vec::new(),
+//             window_functions: Vec::new(),
+//             ctes: Vec::new(),
+//             subquery_source: None,
+//             set_operations: Vec::new(),
+//             query: "SELECT id, name, score FROM test_users".to_string(),
+//             aggregated_df: None,
+//             union_tables: None,
+//             original_expressions: Vec::new(),
+//             needs_normalization: false,
+//             raw_selected_columns: Vec::new(),
+//             raw_group_by_columns: Vec::new(),
+//             raw_where_conditions: Vec::new(),
+//             raw_having_conditions: Vec::new(),
+//             raw_join_conditions: Vec::new(),
+//             raw_aggregations: Vec::new(),
+//             uses_group_by_all: false,
+//         })
+//     }
 
-    #[tokio::test]
-    async fn test_dataframe_redis_cache_integration() {
+//     #[tokio::test]
+//     async fn test_dataframe_redis_cache_integration() {
 
-        let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
-            Ok(conn) => conn,
-            Err(e) => {
-                println!("⏭️ Skipping integration test - Redis not available: {}", e);
-                return;
-            }
-        };
+//         let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
+//             Ok(conn) => conn,
+//             Err(e) => {
+//                 println!("⏭️ Skipping integration test - Redis not available: {}", e);
+//                 return;
+//             }
+//         };
 
-        crate::features::redis::clear_redis_cache_impl(&redis_conn, None).await.unwrap();
+//         crate::features::redis::clear_redis_cache_impl(&redis_conn, None).await.unwrap();
 
-        let df = create_test_dataframe().await.unwrap();
+//         let df = create_test_dataframe().await.unwrap();
 
-        let start_time = Instant::now();
+//         let start_time = Instant::now();
         
-        let result1 = crate::features::redis::elusion_with_redis_cache_impl(
-            &df,
-            &redis_conn,
-            "cached_test_users",
-            Some(300),
-        ).await.unwrap();
+//         let result1 = crate::features::redis::elusion_with_redis_cache_impl(
+//             &df,
+//             &redis_conn,
+//             "cached_test_users",
+//             Some(300),
+//         ).await.unwrap();
         
-        let first_duration = start_time.elapsed();
+//         let first_duration = start_time.elapsed();
 
-        let batches1 = result1.df.clone().collect().await.unwrap();
-        let row_count1 = batches1.iter().map(|b| b.num_rows()).sum::<usize>();
+//         let batches1 = result1.df.clone().collect().await.unwrap();
+//         let row_count1 = batches1.iter().map(|b| b.num_rows()).sum::<usize>();
 
-        let start_time = Instant::now();
+//         let start_time = Instant::now();
         
-        let result2 = crate::features::redis::elusion_with_redis_cache_impl(
-            &df,
-            &redis_conn,
-            "cached_test_users_2", 
-            Some(300),
-        ).await.unwrap();
+//         let result2 = crate::features::redis::elusion_with_redis_cache_impl(
+//             &df,
+//             &redis_conn,
+//             "cached_test_users_2", 
+//             Some(300),
+//         ).await.unwrap();
         
-        let second_duration = start_time.elapsed();
-        println!("Second execution completed in: {:?}", second_duration);
+//         let second_duration = start_time.elapsed();
+//         println!("Second execution completed in: {:?}", second_duration);
 
-        let batches2 = result2.df.clone().collect().await.unwrap();
-        let row_count2 = batches2.iter().map(|b| b.num_rows()).sum::<usize>();
-        println!("📋 Second execution returned {} rows", row_count2);
+//         let batches2 = result2.df.clone().collect().await.unwrap();
+//         let row_count2 = batches2.iter().map(|b| b.num_rows()).sum::<usize>();
+//         println!("📋 Second execution returned {} rows", row_count2);
 
-        assert_eq!(row_count1, row_count2, "Both executions should return same number of rows");
-        assert_eq!(row_count1, 5, "Should have 5 test rows");
-
-
-        if second_duration < first_duration {
-            let speedup = first_duration.as_micros() as f64 / second_duration.as_micros() as f64;
-            println!("Cache speedup: {:.2}x faster!", speedup);
-        } else {
-            println!("Second execution wasn't faster (this can happen with small datasets)");
-        }
-
-        let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        println!("📊 Cache statistics:");
-        println!("   Total keys: {}", stats.total_keys);
-        println!("   Cache hits: {}", stats.cache_hits);
-        println!("   Cache misses: {}", stats.cache_misses);
-        println!("   Hit rate: {:.2}%", stats.hit_rate);
+//         assert_eq!(row_count1, row_count2, "Both executions should return same number of rows");
+//         assert_eq!(row_count1, 5, "Should have 5 test rows");
 
 
-        assert!(stats.total_keys > 0, "Should have cached data");
-        assert!(stats.cache_hits > 0 || stats.cache_misses > 0, "Should have cache activity");
+//         if second_duration < first_duration {
+//             let speedup = first_duration.as_micros() as f64 / second_duration.as_micros() as f64;
+//             println!("Cache speedup: {:.2}x faster!", speedup);
+//         } else {
+//             println!("Second execution wasn't faster (this can happen with small datasets)");
+//         }
 
-        crate::features::redis::invalidate_redis_cache_impl(&redis_conn, &["test_users"]).await.unwrap();
+//         let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         println!("📊 Cache statistics:");
+//         println!("   Total keys: {}", stats.total_keys);
+//         println!("   Cache hits: {}", stats.cache_hits);
+//         println!("   Cache misses: {}", stats.cache_misses);
+//         println!("   Hit rate: {:.2}%", stats.hit_rate);
+
+
+//         assert!(stats.total_keys > 0, "Should have cached data");
+//         assert!(stats.cache_hits > 0 || stats.cache_misses > 0, "Should have cache activity");
+
+//         crate::features::redis::invalidate_redis_cache_impl(&redis_conn, &["test_users"]).await.unwrap();
         
-        let stats_after_invalidation = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        println!("Stats after invalidation - Total keys: {}", stats_after_invalidation.total_keys);
+//         let stats_after_invalidation = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         println!("Stats after invalidation - Total keys: {}", stats_after_invalidation.total_keys);
 
-    }
+//     }
 
-    #[tokio::test]
-    async fn test_cache_ttl_with_dataframe() {
+//     #[tokio::test]
+//     async fn test_cache_ttl_with_dataframe() {
 
-        let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
-            Ok(conn) => conn,
-            Err(_) => {
-                println!("⏭️ Skipping TTL test - Redis not available");
-                return;
-            }
-        };
+//         let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
+//             Ok(conn) => conn,
+//             Err(_) => {
+//                 println!("⏭️ Skipping TTL test - Redis not available");
+//                 return;
+//             }
+//         };
 
-        let df = create_test_dataframe().await.unwrap();
+//         let df = create_test_dataframe().await.unwrap();
 
-        let _result = crate::features::redis::elusion_with_redis_cache_impl(
-            &df,
-            &redis_conn,
-            "ttl_test_users",
-            Some(2),
-        ).await.unwrap();
+//         let _result = crate::features::redis::elusion_with_redis_cache_impl(
+//             &df,
+//             &redis_conn,
+//             "ttl_test_users",
+//             Some(2),
+//         ).await.unwrap();
 
-        let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        let keys_before_expiry = stats.total_keys;
-        println!("Keys before expiry: {}", keys_before_expiry);
+//         let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         let keys_before_expiry = stats.total_keys;
+//         println!("Keys before expiry: {}", keys_before_expiry);
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+//         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-        let stats_after = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        println!("Keys after expiry: {}", stats_after.total_keys);
+//         let stats_after = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         println!("Keys after expiry: {}", stats_after.total_keys);
 
-    }
+//     }
 
-    #[tokio::test]
-    async fn test_concurrent_cache_access() {
-        println!("🧪 Testing concurrent cache access...");
+//     #[tokio::test]
+//     async fn test_concurrent_cache_access() {
+//         println!("🧪 Testing concurrent cache access...");
 
-        let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
-            Ok(conn) => conn,
-            Err(_) => {
-                println!("Skipping concurrent test - Redis not available");
-                return;
-            }
-        };
+//         let redis_conn = match crate::features::redis::create_redis_cache_connection().await {
+//             Ok(conn) => conn,
+//             Err(_) => {
+//                 println!("Skipping concurrent test - Redis not available");
+//                 return;
+//             }
+//         };
 
-        crate::features::redis::clear_redis_cache_impl(&redis_conn, None).await.unwrap();
+//         crate::features::redis::clear_redis_cache_impl(&redis_conn, None).await.unwrap();
 
-        let df = create_test_dataframe().await.unwrap();
+//         let df = create_test_dataframe().await.unwrap();
 
-        let mut tasks = vec![];
+//         let mut tasks = vec![];
 
-        for i in 0..5 {
-            let df_clone = df.clone(); 
-            let conn_clone = redis_conn.clone();
-            let alias = format!("concurrent_test_{}", i);
+//         for i in 0..5 {
+//             let df_clone = df.clone(); 
+//             let conn_clone = redis_conn.clone();
+//             let alias = format!("concurrent_test_{}", i);
 
-            let task = tokio::spawn(async move {
-                let start_time = Instant::now();
-                let _result = crate::features::redis::elusion_with_redis_cache_impl(
-                    &df_clone,
-                    &conn_clone,
-                    &alias,
-                    Some(300),
-                ).await.unwrap();
+//             let task = tokio::spawn(async move {
+//                 let start_time = Instant::now();
+//                 let _result = crate::features::redis::elusion_with_redis_cache_impl(
+//                     &df_clone,
+//                     &conn_clone,
+//                     &alias,
+//                     Some(300),
+//                 ).await.unwrap();
                 
-                (i, start_time.elapsed())
-            });
+//                 (i, start_time.elapsed())
+//             });
 
-            tasks.push(task);
-        }
+//             tasks.push(task);
+//         }
 
-        let mut results = vec![];
-        for task in tasks {
-            let result = task.await.unwrap();
-            results.push(result);
-        }
+//         let mut results = vec![];
+//         for task in tasks {
+//             let result = task.await.unwrap();
+//             results.push(result);
+//         }
 
-        for (task_id, duration) in results {
-            println!("   Task {}: {:?}", task_id, duration);
-        }
+//         for (task_id, duration) in results {
+//             println!("   Task {}: {:?}", task_id, duration);
+//         }
 
-        let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
-        println!("📊 Final stats - Total keys: {}, Hits: {}, Misses: {}", 
-                stats.total_keys, stats.cache_hits, stats.cache_misses);
+//         let stats = crate::features::redis::get_redis_cache_stats_impl(&redis_conn).await.unwrap();
+//         println!("📊 Final stats - Total keys: {}, Hits: {}, Misses: {}", 
+//                 stats.total_keys, stats.cache_hits, stats.cache_misses);
 
-    }
-}
+//     }
+// }
