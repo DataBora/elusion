@@ -109,7 +109,6 @@ use crate::normalizers::normalize::resolve_alias_to_original;
 use crate::normalizers::normalize::is_groupable_column;
 use crate::normalizers::normalize::extract_base_column_name;
 
-
 //======= csv 
 use crate::features::csv::load_csv_with_type_handling;
 use crate::csvwrite::csvwriteops::CsvWriteOptions;
@@ -122,6 +121,16 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
 use crate::features::csv::load_csv_smart;
 use crate::features::excel::load_excel;
+
+//cache redis
+use crate::features::redis::RedisCacheConnection;
+use crate::features::redis::RedisCacheStats;
+use crate::features::redis::clear_redis_cache_impl;
+use crate::features::redis::create_redis_cache_connection;
+use crate::features::redis::create_redis_cache_connection_with_config;
+use crate::features::redis::elusion_with_redis_cache_impl;
+use crate::features::redis::get_redis_cache_stats_impl;
+use crate::features::redis::invalidate_redis_cache_impl;
 
 
 // ===== struct to manage ODBC DB connections
@@ -558,6 +567,58 @@ impl CustomDataFrame {
       pub fn configure_cache(max_size: usize, ttl_seconds: Option<u64>) {
           *QUERY_CACHE.lock().unwrap() = QueryCache::new(max_size, ttl_seconds);
       }
+
+
+    // ========== REDIS CACHE
+    /// Cashing query result to Redis
+    pub async fn elusion_with_redis_cache(
+        &self, 
+        redis_conn: &RedisCacheConnection,
+        alias: &str,
+        ttl_seconds: Option<u64>
+    ) -> ElusionResult<Self> {
+        elusion_with_redis_cache_impl(self, redis_conn, alias, ttl_seconds).await
+    }
+
+    /// Clear Redis cache for specific patterns
+    pub async fn clear_redis_cache(
+        redis_conn: &RedisCacheConnection,
+        pattern: Option<&str>
+    ) -> ElusionResult<()> {
+        clear_redis_cache_impl(redis_conn, pattern).await
+    }
+
+
+    /// Get Redis cache statistics
+    pub async fn redis_cache_stats(
+        redis_conn: &RedisCacheConnection
+    ) -> ElusionResult<RedisCacheStats> {
+        get_redis_cache_stats_impl(redis_conn).await
+    }
+
+    /// Invalidate Redis cache by pattern
+    pub async fn invalidate_redis_cache(
+        redis_conn: &RedisCacheConnection,
+        table_names: &[&str]
+    ) -> ElusionResult<()> {
+        invalidate_redis_cache_impl(redis_conn, table_names).await
+    }
+
+    /// Convinient funciton to create Redis cache connection
+    pub async fn create_redis_cache_connection() -> ElusionResult<RedisCacheConnection> {
+        create_redis_cache_connection().await
+    }
+
+    /// Convinient funciton to create Redis cache connection with configurations
+    pub async fn create_redis_cache_connection_with_config(
+        host: &str,
+        port: u16,
+        password: Option<&str>,
+        database: Option<u8>,
+    ) -> ElusionResult<RedisCacheConnection> {
+        create_redis_cache_connection_with_config(host, port, password, database).await
+    }
+
 
     //=========== SHARE POINT
     #[cfg(feature = "sharepoint")]

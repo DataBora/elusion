@@ -13,8 +13,7 @@
 ![Elusion Logo](images/elusion.png)
 ---
 
-Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame.
-Additionally you can easily create Reports and Dashboard by passing DataFrame results.
+Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -56,10 +55,23 @@ Async Support: Built on tokio for non-blocking operations.
 ### 🚀 High-Performance DataFrame Query Operations
 Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
 SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
-
-### 🚀 Caching and Views
+---
+### 🏪 Caching and Views (Native)
 The caching and views functionality offer several significant advantages over regular querying:
 #### Reduced Computation Time, Memory Management, Query Optimization, Interactive Analysis, Multiple visualizations for Dashboards and Reports, Resource Utilization, Concurrency
+
+### 🏬 Redis Caching
+**High-performance distributed caching** for production environments, multi-server deployments, and large-scale data processing. Redis caching provides:
+- **Persistent cache** across application restarts
+- **Distributed caching** for multiple application instances  
+- **Production-ready** performance and reliability
+- **Automatic TTL management** and expiration
+- **6-10x performance improvements** for repeated queries
+
+### When to Use Redis vs Native Cache:
+- **Native Cache**: Development, single-instance apps, temporary caching
+- **Redis Cache**: Production, distributed systems, persistent caching, large datasets
+---
 
 ### 📉 Aggregations and Analytics
 Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
@@ -85,19 +97,37 @@ Export Tables data to EXCEL and CSV
 Readable Queries: Construct SQL queries that are both readable and reusable.
 Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
 
-### 🛠️ Easy-to-Use API
-Chainable Interface: 
-- Build queries using a chainable and intuitive API for streamlined development.
-Debugging Support: Access readable debug outputs of the generated SQL for easy verification and troubleshooting.
-- **Data Preview**: Quickly preview your data by displaying a subset of rows in the terminal.
-- **Composable Queries**: Seamlessly chain transformations to create reusable and testable workflows.
+
+## 🎨 **Developer Experience That Delights**
+
+### 🔗 **Fluent, Chainable API**
+Write data transformations that read like natural language:
+```rust
+sales_df
+    .join_many([
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "INNER"),
+    ])
+    .select(["c.name", "p.category", "s.amount"])
+    .filter("s.amount > 1000")
+    .agg(["SUM(s.amount) AS total_revenue"])
+    .group_by(["c.region", "p.category"]) 
+    .order_by(["total_revenue"], ["DESC"])
+    .elusion("quarterly_report")
+    .await?
+```
+---
+**Ready to transform your data engineering workflow?** 
+Elusion combines the **performance of Rust**, the **flexibility of modern DataFrames**, and the **reliability of enterprise software** into one powerful library.
+
+*Join thousands of developers building the future of data engineering with Elusion.*
 ---
 ## INSTALLATION
 
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.0.0"
+elusion = "5.1.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -150,25 +180,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.0.0", features = ["postgres"] }
+elusion = { version = "5.1.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.0.0"
+elusion = "5.1.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.0.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "5.1.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.0.0", features = ["all"] }
+elusion = { version = "5.1.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -2181,7 +2211,7 @@ post_df.from_api_with_dates(
 ).await?;
 ```
 ---
-# CREATE VIEWS and CACHING
+# CREATE VIEWS and CACHING (Native)
 ---
 ## Materialized Views:
 For long-term storage of complex query results. When results need to be referenced by name. For data that changes infrequently.  Example: Monthly sales summaries, customer metrics, product analytics
@@ -2196,7 +2226,7 @@ let sales_df = CustomDataFrame::new(sales, "s").await?;
 let customers_df = CustomDataFrame::new(customers, "c").await?;
 let products_df = CustomDataFrame::new(products, "p").await?;
 
-// Example 1: Using materialized view for customer count
+//  Using materialized view for customer count
 // The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
 customers_df.clone()
     .select(["COUNT(*) as count"])
@@ -2239,6 +2269,98 @@ CustomDataFrame::clear_cache(); // Clear entire cache
 CustomDataFrame::refresh_view("view_name").await?; // Refresh a materialized view
 CustomDataFrame::drop_view("view_name").await?; // Remove a materialized view
 CustomDataFrame::list_views().await; // Get info about all views
+```
+---
+# REDIS CACHING
+### Redis Setup:
+```bash
+# Install Redis (Windows)
+# Download from: https://github.com/tporadowski/redis/releases
+
+# Install Redis (macOS)
+brew install redis
+brew services start redis
+
+# Install Redis (Linux)
+sudo apt install redis-server
+sudo systemctl start redis
+
+# Docker (All platforms)
+docker run --name redis-cache -p 6379:6379 -d redis:latest
+
+# Test connection
+redis-cli ping  # Should return: PONG
+```
+### EXAMPLE USAGE:
+```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv";
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
+// Connect to Redis (requires Redis server running)
+let redis_conn = CustomDataFrame::create_redis_cache_connection().await?;
+
+// Use Redis caching for high-performance distributed caching
+let redis_cached_result = sales_df
+    .join_many([
+        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "RIGHT"),
+        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "LEFT OUTER"),
+    ])
+    .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .agg([
+        "SUM(s.OrderQuantity) AS total_quantity",
+        "AVG(s.OrderQuantity) AS avg_quantity"
+    ])
+    .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+    .having_many([
+        ("total_quantity > 10"),
+        ("avg_quantity < 100")
+    ])
+    .order_by_many([
+        ("total_quantity", "ASC"),
+        ("p.ProductName", "DESC")
+    ])
+    .elusion_with_redis_cache(&redis_conn, "sales_join_redis", Some(3600)) // Redis caching with 1-hour TTL
+    .await?;
+
+redis_cached_result.display().await?;
+```
+### Another option to connect to Redis is with Config
+```rust
+// Custom Redis connection with authentication
+let redis_conn = CustomDataFrame::create_redis_cache_connection_with_config(
+    "localhost",         // host
+    6379,               // port  
+    Some("password"),   // password (optional)
+    Some(1)             // database (optional)
+).await?;
+```
+### Clearing cache
+```rust
+// Clear Redis cache
+CustomDataFrame::clear_redis_cache(&redis_conn, None).await?;
+
+// Invalidate cache for specific tables
+CustomDataFrame::invalidate_redis_cache(&redis_conn, &["sales", "customers"]).await?;
+```
+### Checking stats
+```rust
+    println!("📊 Getting Redis cache statistics...");
+
+    let stats = CustomDataFrame::redis_cache_stats(&redis_conn).await?;
+    
+    println!("🔹 Cache Statistics:");
+    println!("   📈 Total cached keys: {}", stats.total_keys);
+    println!("   ✅ Cache hits: {}", stats.cache_hits);
+    println!("   ❌ Cache misses: {}", stats.cache_misses);
+    println!("   📊 Hit rate: {:.2}%", stats.hit_rate);
+    println!("   💾 Memory used: {}", stats.total_memory_used);
+    println!("   ⏱️  Average query time: {:.2}ms", stats.avg_query_time_ms);
+    println!();
 ```
 ---
 # Postgres Database Connector 

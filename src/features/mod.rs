@@ -10,3 +10,4 @@ pub mod cashandview;
 pub mod delta;
 pub mod calendar;
 pub mod csv;
+pub mod redis;

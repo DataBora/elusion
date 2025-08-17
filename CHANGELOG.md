@@ -1,3 +1,7 @@
+## [5.1.0] - 2025-08-17
+## Added
+- Redis caching
+
 ## [5.0.0] - 2025-08-16
 ## BREAKING CHANGES
 - Added `uses_group_by_all` field to `CustomDataFrame` struct

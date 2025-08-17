@@ -857,8 +857,86 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
     group.finish();
 }
 
+fn benchmark_cache_comparison(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (sales_df, customers_df, products_df, _) = rt.block_on(setup_test_dataframes()).unwrap();
+    
+    let redis_conn = match rt.block_on(CustomDataFrame::create_redis_cache_connection()) {
+        Ok(conn) => Some(conn),
+        Err(_) => {
+            println!("⚠️ Redis not available - skipping Redis cache benchmarks");
+            None
+        }
+    };
+
+    let mut group = c.benchmark_group("Cache_Comparison");
+    group.sample_size(50); // Reduced for cache tests
+    group.measurement_time(std::time::Duration::from_secs(180));
+
+    group.bench_function("native_cache_complex_join_miss", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "RIGHT"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "LEFT OUTER"),
+                ])
+                .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_quantity",
+                    "AVG(se.OrderQuantity) AS avg_quantity"
+                ])
+                .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+                .having_many([
+                    ("total_quantity > 10"),
+                    ("avg_quantity < 100")
+                ])
+                .order_by_many([
+                    ("total_quantity", "ASC"),
+                    ("p.ProductName", "DESC")
+                ])
+                .elusion_with_cache("native_cache_benchmark") // Native caching
+                .await
+                .unwrap()
+        })
+    }));
+
+    group.bench_function("native_cache_complex_join_hit", |b| b.iter(|| {
+        rt.block_on(async {
+            sales_df.clone()
+                .join_many([
+                    (customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "RIGHT"),
+                    (products_df.clone(), ["se.ProductKey = p.ProductKey"], "LEFT OUTER"),
+                ])
+                .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+                .agg([
+                    "SUM(se.OrderQuantity) AS total_quantity",
+                    "AVG(se.OrderQuantity) AS avg_quantity"
+                ])
+                .group_by(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
+                .having_many([
+                    ("total_quantity > 10"),
+                    ("avg_quantity < 100")
+                ])
+                .order_by_many([
+                    ("total_quantity", "ASC"),
+                    ("p.ProductName", "DESC")
+                ])
+                .elusion_with_cache("native_cache_benchmark") // Same cache key - should hit
+                .await
+                .unwrap()
+        })
+    }));
+
+    if let Some(ref redis_connection) = redis_conn {
+        let _ = rt.block_on(CustomDataFrame::clear_redis_cache(redis_connection, None));
+
+    group.finish();
+}
+}
+
 criterion_group!(
     benches, 
+    benchmark_cache_comparison,
     benchmark_star_selection_patterns,
     benchmark_groupby_alias_scenarios,
     benchmark_groupby_performance_comparison,
