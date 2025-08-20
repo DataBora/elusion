@@ -36,6 +36,88 @@ static NULL_VALUES: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(||
     ["", "NULL", "null", "N/A", "n/a", "-"].into_iter().collect()
 });
 
+async fn detect_delimiter(file_path: &str) -> ElusionResult<u8> {
+    
+    let file = File::open(file_path)
+        .map_err(|e| ElusionError::Custom(format!("Failed to open file for delimiter detection: {}", e)))?;
+    
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+    
+    // Read header line 
+    let header = lines.next().transpose()
+        .map_err(|e| ElusionError::Custom(format!("Failed to read header line: {}", e)))?
+        .ok_or_else(|| ElusionError::Custom("File is empty".to_string()))?;
+    
+    let mut delimiter_scores = std::collections::HashMap::new();
+    let sample_size = 10; // Check first 10 lines
+    
+    // Test 
+    for &delimiter in &[b',', b'\t', b';', b'|'] {
+        let header_cols = header.split(delimiter as char).count();
+        let mut consistent_lines = 0;
+        let mut total_lines = 0;
+        
+        // Re-read file 
+        let file = File::open(file_path).map_err(|e| ElusionError::Custom(format!("Failed to reopen file: {}", e)))?;
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+        let _header = lines.next(); // Skip header
+        
+        for line in lines.take(sample_size) {
+            if let Ok(line) = line {
+                total_lines += 1;
+                let cols = line.split(delimiter as char).count();
+                if cols == header_cols && cols > 1 {
+                    consistent_lines += 1;
+                }
+            }
+        }
+        
+        // Score based on consistency and column count
+        let consistency_score = if total_lines > 0 { 
+            (consistent_lines as f64 / total_lines as f64) * 100.0 
+        } else { 
+            0.0 
+        };
+        
+        delimiter_scores.insert(delimiter, (consistency_score, header_cols));
+    }
+    
+    // Choose delimiter with highest consistency score, then by column count
+    let detected_delimiter = delimiter_scores
+        .into_iter()
+        .max_by(|(_, (score1, cols1)), (_, (score2, cols2))| {
+            score1.partial_cmp(score2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(cols1.cmp(cols2))
+        })
+        .map(|(delim, (score, cols))| {
+            let delimiter_name = match delim {
+                b'\t' => "tab (TSV)",
+                b',' => "comma (CSV)", 
+                b';' => "semicolon",
+                b'|' => "pipe",
+                _ => "unknown"
+            };
+            println!("🔍 Testing {}: {:.1}% consistency with {} columns", delimiter_name, score, cols);
+            delim
+        })
+        .unwrap_or(b',');
+        
+    let delimiter_name = match detected_delimiter {
+        b'\t' => "TSV (tab-separated)",
+        b',' => "CSV (comma-separated)",
+        b';' => "semicolon-separated", 
+        b'|' => "pipe-separated",
+        _ => "unknown format"
+    };
+    
+    println!("🎯 Auto-detected file format: {}", delimiter_name);
+    
+    Ok(detected_delimiter)
+}
+
 ///Load CSV with smart casting
 pub async fn load_csv_with_type_handling(
     file_path: &str, 
@@ -54,11 +136,21 @@ pub async fn load_csv_with_type_handling(
 
     let read_start = std::time::Instant::now();
 
+    let delimiter = detect_delimiter(file_path).await?;
+    let delimiter_name = match delimiter {
+        b'\t' => "TSV (tab-separated)",
+        b',' => "CSV (comma-separated)",
+        b';' => "semicolon-separated",
+        b'|' => "pipe-separated",
+        _ => "custom delimiter"
+    };
+
     let df = ctx.read_csv(
         file_path,
         CsvReadOptions::new()
             .has_header(true)
             .schema_infer_max_records(0) 
+            .delimiter(delimiter)
     ).await.map_err(ElusionError::DataFusion)?;
 
     let read_elapsed = read_start.elapsed();
@@ -70,7 +162,8 @@ pub async fn load_csv_with_type_handling(
         println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
     }
 
-    println!("✅ Successfully loaded CSV with {} columns as strings in {:?}", column_count, read_elapsed);
+    println!("✅ Successfully loaded {} with {} columns as strings in {:?}", 
+        delimiter_name, column_count, read_elapsed);
 
     let schema = df.schema();
     let sample_data = get_sample_data(&df, &ctx).await?;
@@ -777,6 +870,15 @@ pub async fn load_csv_with_type_handling_streaming(
         });
     }
 
+    let delimiter = detect_delimiter(file_path).await?;
+    let delimiter_name = match delimiter {
+        b'\t' => "TSV (tab-separated)",
+        b',' => "CSV (comma-separated)",
+        b';' => "semicolon-separated",
+        b'|' => "pipe-separated",
+        _ => "custom delimiter"
+    };
+
     println!("🚀 Reading CSV file with streaming and schema detection...");
     let read_start = std::time::Instant::now();
 
@@ -785,6 +887,7 @@ pub async fn load_csv_with_type_handling_streaming(
         CsvReadOptions::new()
             .has_header(true)
             .schema_infer_max_records(0)  
+            .delimiter(delimiter)
     ).await.map_err(ElusionError::DataFusion)?;
 
     let schema = temp_df.schema();
@@ -806,13 +909,14 @@ pub async fn load_csv_with_type_handling_streaming(
         &sample_data, 
         schema.fields(), 
         &ctx, 
-        alias
+        alias,
+        delimiter  
     ).await?;
     
     let total_elapsed = read_start.elapsed();
     println!("✅ Streaming schema applied in {:?}", casting_start.elapsed());
-    println!("🎉 Streaming CSV DataFrame setup completed in {:?} for table alias: '{}'", 
-        total_elapsed, alias);
+     println!("🎉 Streaming {} DataFrame setup completed in {:?} for table alias: '{}'", 
+        delimiter_name, total_elapsed, alias);
     println!("💡 Data will be processed in chunks when .elusion() is called");
 
     Ok(AliasedDataFrame {
@@ -821,7 +925,6 @@ pub async fn load_csv_with_type_handling_streaming(
     })
 }
 
-/// Use  get_sample_data approach (but limit to small sample for efficiency)
 async fn get_sample_data_proven(df: &DataFrame, ctx: &SessionContext) -> ElusionResult<HashMap<String, Vec<String>>> {
     
     let sample_df = df.clone().limit(0, Some(500))?;
@@ -863,13 +966,13 @@ async fn get_sample_data_proven(df: &DataFrame, ctx: &SessionContext) -> Elusion
     Ok(column_samples)
 }
 
-/// Create streaming DataFrame using YOUR proven smart casting approach
 async fn create_streaming_csv_dataframe(
     file_path: &str,
     sample_data: &HashMap<String, Vec<String>>,
     original_fields: &[Arc<Field>],
     ctx: &SessionContext,
     alias: &str,
+    delimiter: u8
 ) -> ElusionResult<DataFrame> {
     
     let temp_csv_table = format!("{}_csv_source", alias);
@@ -877,6 +980,7 @@ async fn create_streaming_csv_dataframe(
     ctx.register_csv(&temp_csv_table, file_path, CsvReadOptions::new()
         .has_header(true)
         .schema_infer_max_records(0) 
+        .delimiter(delimiter)
     ).await.map_err(ElusionError::DataFusion)?;
     
     let cast_sql = generate_smart_casting_sql_streaming(sample_data, original_fields, &temp_csv_table)?;
@@ -911,7 +1015,6 @@ fn generate_smart_casting_sql_streaming(
     Ok(format!("SELECT {} FROM {}", select_parts.join(", "), table_name))
 }
 
-// Keep your simplified smart loader
 pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
     load_csv_with_type_handling_streaming(file_path, alias).await
 }
@@ -935,6 +1038,16 @@ fn debug_regex_matches() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_test_csv(content: &str, filename: &str, temp_dir: &TempDir) -> String {
+        let file_path = temp_dir.path().join(filename);
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file_path.to_str().unwrap().to_string()
+    }
 
     #[test]
     fn test_debug_specific_case() {
@@ -1161,5 +1274,255 @@ mod tests {
             "Decembar".to_string()
         ];
         assert!(matches!(infer_column_type(&serbian_months, "mesec"), InferredDataType::String));
+    }
+
+    #[tokio::test]
+    async fn test_regular_csv_still_works() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"name,age,salary,active
+        John,25,50000.50,true
+        Jane,30,75000.00,false
+        Bob,35,60000.25,true"#;
+                
+        let csv_path = create_test_csv(csv_content, "test.csv", &temp_dir);
+
+        let result = load_csv_with_type_handling(&csv_path, "test_csv").await;
+        assert!(result.is_ok(), "Regular CSV loading should work: {:?}", result.err());
+        
+        let df = result.unwrap();
+        let schema = df.dataframe.schema();
+        
+        // Verify we have 4 columns
+        assert_eq!(schema.fields().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_csv_with_quoted_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"name,description,price
+        "John Doe","Software Engineer, Senior",75000
+        "Jane Smith","Data Scientist, Lead",85000
+        "Bob Wilson","Product Manager",70000"#;
+        
+        let csv_path = create_test_csv(csv_content, "quoted.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "quoted_csv").await;
+        assert!(result.is_ok(), "CSV with quoted fields should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_csv_with_mixed_types() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,score,date,percentage,currency,active
+        1,Alice,95.5,2024-01-15,85%,$50000,true
+        2,Bob,87.2,2024-02-20,92%,$55000,false
+        3,Carol,91.8,2024-03-10,78%,$48000,true"#;
+        
+        let csv_path = create_test_csv(csv_content, "mixed_types.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "mixed_csv").await;
+        assert!(result.is_ok(), "CSV with mixed types should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_comma() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"col1,col2,col3
+        val1,val2,val3
+        data1,data2,data3"#;
+        
+        let csv_path = create_test_csv(csv_content, "comma.csv", &temp_dir);
+        
+        let detected = detect_delimiter(&csv_path).await.unwrap();
+        assert_eq!(detected, b',', "Should detect comma delimiter");
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_tab() {
+        let temp_dir = TempDir::new().unwrap();
+        let tsv_content = "col1\tcol2\tcol3\nval1\tval2\tval3\ndata1\tdata2\tdata3";
+        
+        let tsv_path = create_test_csv(tsv_content, "test.tsv", &temp_dir);
+        
+        let detected = detect_delimiter(&tsv_path).await.unwrap();
+        assert_eq!(detected, b'\t', "Should detect tab delimiter");
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_semicolon() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"col1;col2;col3
+        val1;val2;val3
+        data1;data2;data3"#;
+        
+        let csv_path = create_test_csv(csv_content, "semicolon.csv", &temp_dir);
+        
+        let detected = detect_delimiter(&csv_path).await.unwrap();
+        assert_eq!(detected, b';', "Should detect semicolon delimiter");
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_pipe() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"col1|col2|col3
+        val1|val2|val3
+        data1|data2|data3"#;
+        
+        let csv_path = create_test_csv(csv_content, "pipe.csv", &temp_dir);
+        
+        let detected = detect_delimiter(&csv_path).await.unwrap();
+        assert_eq!(detected, b'|', "Should detect pipe delimiter");
+    }
+
+    #[tokio::test]
+    async fn test_csv_with_empty_values() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"name,age,salary,notes
+        John,25,50000,Has experience
+        Jane,,75000,
+        Bob,35,,New hire
+        Alice,28,60000,N/A"#;
+        
+        let csv_path = create_test_csv(csv_content, "empty_vals.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "empty_csv").await;
+        assert!(result.is_ok(), "CSV with empty values should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_csv_with_special_characters() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"name,city,country
+        José,São Paulo,Brazil
+        François,Zürich,Switzerland
+        Müller,München,Germany"#;
+        
+        let csv_path = create_test_csv(csv_content, "special_chars.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "special_csv").await;
+        assert!(result.is_ok(), "CSV with special characters should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_large_csv_columns() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create CSV with many columns
+        let mut headers = Vec::new();
+        let mut values = Vec::new();
+        for i in 1..=50 {
+            headers.push(format!("col{}", i));
+            values.push(format!("val{}", i));
+        }
+        
+        let csv_content = format!("{}\n{}", headers.join(","), values.join(","));
+        let csv_path = create_test_csv(&csv_content, "wide.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "wide_csv").await;
+        assert!(result.is_ok(), "CSV with many columns should work: {:?}", result.err());
+        
+        let df = result.unwrap();
+        let schema = df.dataframe.schema();
+        assert_eq!(schema.fields().len(), 50, "Should have 50 columns");
+    }
+
+    #[tokio::test]
+    async fn test_streaming_csv_compatibility() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,value
+        1,test1,100
+        2,test2,200
+        3,test3,300"#;
+        
+        let csv_path = create_test_csv(csv_content, "stream_test.csv", &temp_dir);
+        
+        // Test streaming version
+        let result = load_csv_with_type_handling_streaming(&csv_path, "stream_csv").await;
+        assert!(result.is_ok(), "Streaming CSV loading should work: {:?}", result.err());
+        
+        let df = result.unwrap();
+        let schema = df.dataframe.schema();
+        assert_eq!(schema.fields().len(), 3, "Should have 3 columns");
+    }
+
+    #[tokio::test]
+    async fn test_csv_smart_loader() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"product,price,in_stock
+        Widget,19.99,true
+        Gadget,29.50,false
+        Tool,15.00,true"#;
+        
+        let csv_path = create_test_csv(csv_content, "smart_test.csv", &temp_dir);
+        
+        let result = load_csv_smart(&csv_path, "smart_csv").await;
+        assert!(result.is_ok(), "Smart CSV loading should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_end_to_end_csv_workflow() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"customer_id,customer_name,order_total,order_date,is_premium
+        1001,John Smith,250.75,2024-01-15,true
+        1002,Jane Doe,189.99,2024-01-16,false
+        1003,Bob Johnson,375.50,2024-01-17,true"#;
+        
+        let csv_path = create_test_csv(csv_content, "workflow_test.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling(&csv_path, "workflow").await;
+        assert!(result.is_ok(), "End-to-end workflow should work");
+        
+        if let Ok(aliased_df) = result {
+            assert_eq!(aliased_df.alias, "workflow");
+ 
+            let schema = aliased_df.dataframe.schema();
+            assert_eq!(schema.fields().len(), 5);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tsv_detection_and_loading() {
+        let temp_dir = TempDir::new().unwrap();
+        let tsv_content = "name\tage\tsalary\tactive\nJohn\t25\t50000.50\ttrue\nJane\t30\t75000.00\tfalse";
+        
+        let tsv_path = create_test_csv(tsv_content, "test.csv", &temp_dir);
+        
+        let detected = detect_delimiter(&tsv_path).await.unwrap();
+        assert_eq!(detected, b'\t', "Should detect tab delimiter for TSV");
+        
+        let result = load_csv_with_type_handling(&tsv_path, "tsv_test").await;
+        assert!(result.is_ok(), "TSV loading should work with enhanced CSV loader: {:?}", result.err());
+        
+        let df = result.unwrap();
+        let schema = df.dataframe.schema();
+        assert_eq!(schema.fields().len(), 4, "TSV should have 4 columns");
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_consistency_check() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let mixed_content = r#"col1,col2,col3
+        val1,val2,val3
+        bad1;bad2;bad3
+        good1,good2,good3"#;
+        
+        let mixed_path = create_test_csv(mixed_content, "mixed.csv", &temp_dir);
+        
+        let detected = detect_delimiter(&mixed_path).await.unwrap();
+
+        assert_eq!(detected, b',', "Should detect comma as most consistent delimiter");
+    }
+
+    #[test]
+    fn test_null_value_detection() {
+        assert!(NULL_VALUES.contains(""));
+        assert!(NULL_VALUES.contains("NULL"));
+        assert!(NULL_VALUES.contains("null"));
+        assert!(NULL_VALUES.contains("N/A"));
+        assert!(NULL_VALUES.contains("n/a"));
+        assert!(NULL_VALUES.contains("-"));
+        assert!(!NULL_VALUES.contains("0"));
+        assert!(!NULL_VALUES.contains("false"));
     }
 }

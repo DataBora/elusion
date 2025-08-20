@@ -1,3 +1,7 @@
+## [5.2.0] - 2025-08-20
+## Added / Enhanced
+- Auto CSV file delimiter detection:   b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
+
 ## [5.1.0] - 2025-08-17
 ## Added
 - Redis caching

@@ -180,25 +180,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.1.0", features = ["postgres"] }
+elusion = { version = "5.2.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.1.0"
+elusion = "5.2.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.1.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "5.2.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.1.0", features = ["all"] }
+elusion = { version = "5.2.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -255,6 +255,7 @@ async fn main() -> ElusionResult<()> {
 ## REGULAR LOADING
 ---
 ### LOADING data from CSV into CustomDataFrame
+#### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
 ```rust
 let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
 let df = CustomDataFrame::new(csv_path, "csv_data").await?; 
@@ -285,6 +286,7 @@ let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 
 ---
 ### LOADING data from CSV into CustomDataFrame
+#### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
 ```rust
 let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
 let df = CustomDataFrame::new_with_stream(csv_path, "csv_data").await?; 
