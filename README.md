@@ -127,7 +127,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.1.0"
+elusion = "5.2.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
