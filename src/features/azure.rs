@@ -776,6 +776,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
                 raw_having_conditions: Vec::new(),
                 raw_join_conditions: Vec::new(),
                 raw_aggregations: Vec::new(),
+                uses_group_by_all: false
             })
             
         } else {
@@ -962,6 +963,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
                 raw_having_conditions: Vec::new(),
                 raw_join_conditions: Vec::new(),
                 raw_aggregations: Vec::new(),
+                uses_group_by_all: false
             })
         }
     }

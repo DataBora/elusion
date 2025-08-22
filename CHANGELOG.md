@@ -1,3 +1,7 @@
+## [5.3.0] - 2025-08-22
+## Fixed
+- Streaming loading - new_with_stream() - to read schema directly from file not from DataFrame, to avoid loading into memory.
+
 ## [5.2.0] - 2025-08-20
 ## Added / Enhanced
 - Auto CSV file delimiter detection:   b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"

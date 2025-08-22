@@ -854,170 +854,191 @@ let quoted_clean_col = format!("\"{}\"", clean_col_name);
 
 // ==============  STREAMING CSV ==============
 
-/// Load CSV with smart casting and Streaming
-pub async fn load_csv_with_type_handling_streaming(
-    file_path: &str, 
-    alias: &str,
-) -> ElusionResult<AliasedDataFrame> {
-    let ctx = SessionContext::new();
+    /// Load CSV with smart casting and Streaming
+    pub async fn load_csv_with_type_handling_streaming(
+        file_path: &str, 
+        alias: &str,
+    ) -> ElusionResult<AliasedDataFrame> {
+        let ctx = SessionContext::new();
 
-    if !LocalPath::new(file_path).exists() {
-        return Err(ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "read".to_string(),
-            reason: "File not found".to_string(),
-            suggestion: "💡 Check if the file path is correct".to_string()
-        });
-    }
+        if !LocalPath::new(file_path).exists() {
+            return Err(ElusionError::WriteError {
+                path: file_path.to_string(),
+                operation: "read".to_string(),
+                reason: "File not found".to_string(),
+                suggestion: "💡 Check if the file path is correct".to_string()
+            });
+        }
 
-    let delimiter = detect_delimiter(file_path).await?;
-    let delimiter_name = match delimiter {
-        b'\t' => "TSV (tab-separated)",
-        b',' => "CSV (comma-separated)",
-        b';' => "semicolon-separated",
-        b'|' => "pipe-separated",
-        _ => "custom delimiter"
-    };
+        let delimiter = detect_delimiter(file_path).await?;
+        let delimiter_name = match delimiter {
+            b'\t' => "TSV (tab-separated)",
+            b',' => "CSV (comma-separated)",
+            b';' => "semicolon-separated",
+            b'|' => "pipe-separated",
+            _ => "custom delimiter"
+        };
 
-    println!("🚀 Reading CSV file with streaming and schema detection...");
-    let read_start = std::time::Instant::now();
+        println!("🚀 Reading CSV file with streaming and schema detection...");
+        let read_start = std::time::Instant::now();
 
-    let temp_df = ctx.read_csv(
-        file_path,
-        CsvReadOptions::new()
-            .has_header(true)
-            .schema_infer_max_records(0)  
-            .delimiter(delimiter)
-    ).await.map_err(ElusionError::DataFusion)?;
-
-    let schema = temp_df.schema();
-    let column_count = schema.fields().len();
-    
-    if let Ok(metadata) = std::fs::metadata(file_path) {
-        let file_size = metadata.len();
-        println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
-    }
-
-    println!("✅ Successfully detected schema with {} columns (using ALL records)", column_count);
-
-    let sample_data = get_sample_data_proven(&temp_df, &ctx).await?;
-    
-    let casting_start = std::time::Instant::now();
-
-    let df = create_streaming_csv_dataframe(
-        file_path, 
-        &sample_data, 
-        schema.fields(), 
-        &ctx, 
-        alias,
-        delimiter  
-    ).await?;
-    
-    let total_elapsed = read_start.elapsed();
-    println!("✅ Streaming schema applied in {:?}", casting_start.elapsed());
-     println!("🎉 Streaming {} DataFrame setup completed in {:?} for table alias: '{}'", 
-        delimiter_name, total_elapsed, alias);
-    println!("💡 Data will be processed in chunks when .elusion() is called");
-
-    Ok(AliasedDataFrame {
-        dataframe: df,
-        alias: alias.to_string(),
-    })
-}
-
-async fn get_sample_data_proven(df: &DataFrame, ctx: &SessionContext) -> ElusionResult<HashMap<String, Vec<String>>> {
-    
-    let sample_df = df.clone().limit(0, Some(500))?;
-    let sample_batches = sample_df.collect().await.map_err(ElusionError::DataFusion)?;
-    
-    let mem_table = MemTable::try_new(df.schema().clone().into(), vec![sample_batches])
-        .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
-    
-    ctx.register_table("temp_sample_streaming", Arc::new(mem_table))
-        .map_err(ElusionError::DataFusion)?;
-    
-    let sample_df = ctx.sql("SELECT * FROM temp_sample_streaming LIMIT 500").await
-        .map_err(ElusionError::DataFusion)?;
-    
-    let sample_batches = sample_df.collect().await.map_err(ElusionError::DataFusion)?;
-    
-    let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
-    
-    if let Some(batch) = sample_batches.first() {
-        let schema = batch.schema();
+        // metadata
+        if let Ok(metadata) = std::fs::metadata(file_path) {
+            let file_size = metadata.len();
+            println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
+        }
+        //sampledata fro file not fromm dataframe that is in memory
+        let sample_data = get_sample_data_from_file_proven(file_path, delimiter, 1000).await?;
         
-        for (col_idx, field) in schema.fields().iter().enumerate() {
-            let column = batch.column(col_idx);
-            let mut samples = Vec::new();
+        let temp_df = ctx.read_csv(
+            file_path,
+            CsvReadOptions::new()
+                .has_header(true)
+                .schema_infer_max_records(10)  
+                .delimiter(delimiter)
+        ).await.map_err(ElusionError::DataFusion)?;
+
+        let schema = temp_df.schema();
+        let column_count = schema.fields().len();
+        
+        println!("✅ Successfully detected schema with {} columns (file-based sampling)", column_count);
+        
+        let casting_start = std::time::Instant::now();
+
+        let df = create_streaming_csv_dataframe(
+            file_path, 
+            &sample_data, 
+            schema.fields(), 
+            &ctx, 
+            alias,
+            delimiter  
+        ).await?;
+        
+        let total_elapsed = read_start.elapsed();
+        println!("✅ Streaming schema applied in {:?}", casting_start.elapsed());
+        println!("🎉 Streaming {} DataFrame setup completed in {:?} for table alias: '{}'", 
+            delimiter_name, total_elapsed, alias);
+        println!("💡 Data will be processed in chunks when .elusion() is called");
+
+        Ok(AliasedDataFrame {
+            dataframe: df,
+            alias: alias.to_string(),
+        })
+    }
+
+    async fn get_sample_data_from_file_proven(
+        file_path: &str, 
+        delimiter: u8, 
+        sample_size: usize
+    ) -> ElusionResult<HashMap<String, Vec<String>>> {
+        use std::io::{BufRead, BufReader};
+        
+        println!("🔬 Reading {} sample rows directly from file...", sample_size);
+        
+        let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "sample_read".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check file permissions".to_string()
+        })?;
+        
+        let mut reader = BufReader::new(file);
+        
+        // Read header
+        let mut header_line = String::new();
+        reader.read_line(&mut header_line).map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
+        
+        let headers: Vec<String> = header_line.trim()
+            .split(delimiter as char)
+            .map(|s| s.trim().to_string())
+            .collect();
+        
+        println!("📋 Found {} columns in header", headers.len());
+        
+        // Initialize column samples
+        let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
+        for header in &headers {
+            column_samples.insert(header.clone(), Vec::new());
+        }
+        
+        // Read sample rows directly from file
+        let mut rows_read = 0;
+        for line_result in reader.lines() {
+            if rows_read >= sample_size { break; }
             
-            for row_idx in 0..column.len().min(500) {
-                if !column.is_null(row_idx) {
-                    let value = array_value_to_string(column.as_ref(), row_idx);
-                    if !value.is_empty() && value != "null" {
-                        samples.push(value);
+            let line = line_result.map_err(|e| ElusionError::Custom(format!("Failed to read line: {}", e)))?;
+            let values: Vec<&str> = line.split(delimiter as char).collect();
+            
+            for (i, header) in headers.iter().enumerate() {
+                if let Some(value) = values.get(i) {
+                    let trimmed_value = value.trim();
+                    if !trimmed_value.is_empty() && trimmed_value != "null" {
+                        if let Some(samples) = column_samples.get_mut(header) {
+                            samples.push(trimmed_value.to_string());
+                        }
                     }
                 }
             }
-            
-            column_samples.insert(field.name().to_string(), samples);
+            rows_read += 1;
         }
-    }
-    
-    Ok(column_samples)
-}
-
-async fn create_streaming_csv_dataframe(
-    file_path: &str,
-    sample_data: &HashMap<String, Vec<String>>,
-    original_fields: &[Arc<Field>],
-    ctx: &SessionContext,
-    alias: &str,
-    delimiter: u8
-) -> ElusionResult<DataFrame> {
-    
-    let temp_csv_table = format!("{}_csv_source", alias);
-
-    ctx.register_csv(&temp_csv_table, file_path, CsvReadOptions::new()
-        .has_header(true)
-        .schema_infer_max_records(0) 
-        .delimiter(delimiter)
-    ).await.map_err(ElusionError::DataFusion)?;
-    
-    let cast_sql = generate_smart_casting_sql_streaming(sample_data, original_fields, &temp_csv_table)?;
-    
-    let df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
-    
-    println!("✅ Streaming DataFrame created with proven smart casting logic");
-    
-    Ok(df)
-}
-
-fn generate_smart_casting_sql_streaming(
-    sample_data: &HashMap<String, Vec<String>>, 
-    fields: &[Arc<Field>],
-    table_name: &str
-) -> ElusionResult<String> {
-    let mut select_parts = Vec::new();
-    let empty_samples = Vec::new(); 
-    
-    for field in fields {
-        let original_col_name = field.name();
-        let clean_col_name = clean_column_name(original_col_name);
-
-        let samples = sample_data.get(original_col_name).unwrap_or(&empty_samples);
         
-        let data_type = infer_column_type(samples, original_col_name);
-        let cast_expr = create_casting_expression(original_col_name, &clean_col_name, &data_type);
+        println!("✅ Read {} sample rows from file for schema detection", rows_read);
         
-        select_parts.push(cast_expr);
+        Ok(column_samples)
     }
-    
-    Ok(format!("SELECT {} FROM {}", select_parts.join(", "), table_name))
-}
 
-pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
-    load_csv_with_type_handling_streaming(file_path, alias).await
-}
+    async fn create_streaming_csv_dataframe(
+        file_path: &str,
+        sample_data: &HashMap<String, Vec<String>>,
+        original_fields: &[Arc<Field>],
+        ctx: &SessionContext,
+        alias: &str,
+        delimiter: u8
+    ) -> ElusionResult<DataFrame> {
+        
+        let temp_csv_table = format!("{}_csv_source", alias);
+
+        ctx.register_csv(&temp_csv_table, file_path, CsvReadOptions::new()
+            .has_header(true)
+            .schema_infer_max_records(0) 
+            .delimiter(delimiter)
+        ).await.map_err(ElusionError::DataFusion)?;
+        
+        let cast_sql = generate_smart_casting_sql_streaming(sample_data, original_fields, &temp_csv_table)?;
+        
+        let df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
+        
+        println!("✅ Streaming DataFrame created with proven smart casting logic");
+        
+        Ok(df)
+    }
+
+    fn generate_smart_casting_sql_streaming(
+        sample_data: &HashMap<String, Vec<String>>, 
+        fields: &[Arc<Field>],
+        table_name: &str
+    ) -> ElusionResult<String> {
+        let mut select_parts = Vec::new();
+        let empty_samples = Vec::new(); 
+        
+        for field in fields {
+            let original_col_name = field.name();
+            let clean_col_name = clean_column_name(original_col_name);
+
+            let samples = sample_data.get(original_col_name).unwrap_or(&empty_samples);
+            
+            let data_type = infer_column_type(samples, original_col_name);
+            let cast_expr = create_casting_expression(original_col_name, &clean_col_name, &data_type);
+            
+            select_parts.push(cast_expr);
+        }
+        
+        Ok(format!("SELECT {} FROM {}", select_parts.join(", "), table_name))
+    }
+
+    pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
+        load_csv_with_type_handling_streaming(file_path, alias).await
+    }
 //==========================================================================
 
 #[cfg(test)]
