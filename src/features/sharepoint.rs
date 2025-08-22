@@ -956,6 +956,7 @@ impl SharePointClient {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -1012,6 +1013,7 @@ impl SharePointClient {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -1069,6 +1071,7 @@ impl SharePointClient {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -1126,6 +1129,7 @@ impl SharePointClient {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 
@@ -1183,6 +1187,7 @@ impl SharePointClient {
             raw_having_conditions: Vec::new(),
             raw_join_conditions: Vec::new(),
             raw_aggregations: Vec::new(),
+            uses_group_by_all: false
         })
     }
 

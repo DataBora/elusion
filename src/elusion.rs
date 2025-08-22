@@ -5908,48 +5908,102 @@ impl CustomDataFrame {
             
             match file_name.split('.').last().unwrap_or("").to_lowercase().as_str() {
                 "csv" => {
-                    match Self::load_csv(file_path_str, "local_data").await {
-                        Ok(aliased_df) => {
-                            println!("✅ Loaded CSV: {}", file_name);
-                            
-                            // Normalize column names to lowercase and create CustomDataFrame
-                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
-                            
-                            let df = CustomDataFrame {
-                                df: normalized_df,
-                                table_alias: "local_csv".to_string(),
-                                from_table: "local_csv".to_string(),
-                                selected_columns: Vec::new(),
-                                alias_map: Vec::new(),
-                                aggregations: Vec::new(),
-                                group_by_columns: Vec::new(),
-                                where_conditions: Vec::new(),
-                                having_conditions: Vec::new(),
-                                order_by_columns: Vec::new(),
-                                limit_count: None,
-                                joins: Vec::new(),
-                                window_functions: Vec::new(),
-                                ctes: Vec::new(),
-                                subquery_source: None,
-                                set_operations: Vec::new(),
-                                query: String::new(),
-                                aggregated_df: None,
-                                union_tables: None,
-                                original_expressions: Vec::new(),
-                                needs_normalization: false,
-                                raw_selected_columns: Vec::new(),
-                                raw_group_by_columns: Vec::new(),
-                                raw_where_conditions: Vec::new(),
-                                raw_having_conditions: Vec::new(),
-                                raw_join_conditions: Vec::new(),
-                                raw_aggregations: Vec::new(),
-                                uses_group_by_all: false
-                            };
-                            dataframes.push(df);
-                        },
-                        Err(e) => {
-                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
-                            continue;
+                    let file_size = std::fs::metadata(file_path_str)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                        
+                    if file_size > 500_000_000 { 
+                        println!("📊 Large CSV detected ({} bytes), using streaming loader", file_size);
+                        
+                        match load_csv_smart(file_path_str, "local_data").await {
+                            Ok(aliased_df) => {
+                                println!("✅ Loaded large CSV: {}", file_name);
+                                
+                                // Normalize column names to lowercase and create CustomDataFrame
+                                let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                                
+                                let df = CustomDataFrame {
+                                    df: normalized_df,
+                                    table_alias: "local_csv".to_string(),
+                                    from_table: "local_csv".to_string(),
+                                    selected_columns: Vec::new(),
+                                    alias_map: Vec::new(),
+                                    aggregations: Vec::new(),
+                                    group_by_columns: Vec::new(),
+                                    where_conditions: Vec::new(),
+                                    having_conditions: Vec::new(),
+                                    order_by_columns: Vec::new(),
+                                    limit_count: None,
+                                    joins: Vec::new(),
+                                    window_functions: Vec::new(),
+                                    ctes: Vec::new(),
+                                    subquery_source: None,
+                                    set_operations: Vec::new(),
+                                    query: String::new(),
+                                    aggregated_df: None,
+                                    union_tables: None,
+                                    original_expressions: Vec::new(),
+                                    needs_normalization: false,
+                                    raw_selected_columns: Vec::new(),
+                                    raw_group_by_columns: Vec::new(),
+                                    raw_where_conditions: Vec::new(),
+                                    raw_having_conditions: Vec::new(),
+                                    raw_join_conditions: Vec::new(),
+                                    raw_aggregations: Vec::new(),
+                                    uses_group_by_all: false
+                                };
+                                dataframes.push(df); 
+                            },
+                            Err(e) => {
+                                eprintln!("⚠️ Failed to load large CSV file {}: {}", file_name, e);
+                                continue;
+                            }
+                        }
+                    } else {
+                        // Use regular loader for smaller files
+                        match Self::load_csv(file_path_str, "local_data").await {
+                            Ok(aliased_df) => {
+                                println!("✅ Loaded CSV: {}", file_name);
+                                
+                                // Normalize column names to lowercase and create CustomDataFrame
+                                let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                                
+                                let df = CustomDataFrame {
+                                    df: normalized_df,
+                                    table_alias: "local_csv".to_string(),
+                                    from_table: "local_csv".to_string(),
+                                    selected_columns: Vec::new(),
+                                    alias_map: Vec::new(),
+                                    aggregations: Vec::new(),
+                                    group_by_columns: Vec::new(),
+                                    where_conditions: Vec::new(),
+                                    having_conditions: Vec::new(),
+                                    order_by_columns: Vec::new(),
+                                    limit_count: None,
+                                    joins: Vec::new(),
+                                    window_functions: Vec::new(),
+                                    ctes: Vec::new(),
+                                    subquery_source: None,
+                                    set_operations: Vec::new(),
+                                    query: String::new(),
+                                    aggregated_df: None,
+                                    union_tables: None,
+                                    original_expressions: Vec::new(),
+                                    needs_normalization: false,
+                                    raw_selected_columns: Vec::new(),
+                                    raw_group_by_columns: Vec::new(),
+                                    raw_where_conditions: Vec::new(),
+                                    raw_having_conditions: Vec::new(),
+                                    raw_join_conditions: Vec::new(),
+                                    raw_aggregations: Vec::new(),
+                                    uses_group_by_all: false
+                                };
+                                dataframes.push(df);  
+                            },
+                            Err(e) => {
+                                eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
+                                continue;
+                            }
                         }
                     }
                 },
@@ -6320,51 +6374,103 @@ impl CustomDataFrame {
             
             match file_name.split('.').last().unwrap_or("").to_lowercase().as_str() {
                 "csv" => {
-                    match Self::load_csv(file_path_str, "local_data").await {
-                        Ok(aliased_df) => {
-                            println!("✅ Loaded CSV: {}", file_name);
-                            
-                            // Normalize column names to lowercase and create CustomDataFrame
+
+            let file_size = std::fs::metadata(file_path_str)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+                if file_size > 500_000_000 { 
+                    println!("📊 Large CSV detected ({}), using streaming loader", file_name);
+
+                match load_csv_smart(file_path_str, "local_data").await {
+                    Ok(aliased_df) => {
+                        println!("✅ Loaded large CSV: {}", file_name);
                             let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
-                            
-                            let df = CustomDataFrame {
-                                df: normalized_df,
-                                table_alias: "local_csv".to_string(),
-                                from_table: "local_csv".to_string(),
-                                selected_columns: Vec::new(),
-                                alias_map: Vec::new(),
-                                aggregations: Vec::new(),
-                                group_by_columns: Vec::new(),
-                                where_conditions: Vec::new(),
-                                having_conditions: Vec::new(),
-                                order_by_columns: Vec::new(),
-                                limit_count: None,
-                                joins: Vec::new(),
-                                window_functions: Vec::new(),
-                                ctes: Vec::new(),
-                                subquery_source: None,
-                                set_operations: Vec::new(),
-                                query: String::new(),
-                                aggregated_df: None,
-                                union_tables: None,
-                                original_expressions: Vec::new(),
-                                needs_normalization: false,
-                                raw_selected_columns: Vec::new(),
-                                raw_group_by_columns: Vec::new(),
-                                raw_where_conditions: Vec::new(),
-                                raw_having_conditions: Vec::new(),
-                                raw_join_conditions: Vec::new(),
-                                raw_aggregations: Vec::new(),
-                                uses_group_by_all: false
-                            };
-                            loaded_df = Some(df);
-                        },
-                        Err(e) => {
-                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
-                            continue;
+                        
+                        let df = CustomDataFrame {
+                            df: normalized_df,
+                            table_alias: "local_csv".to_string(),
+                            from_table: "local_csv".to_string(),
+                            selected_columns: Vec::new(),
+                            alias_map: Vec::new(),
+                            aggregations: Vec::new(),
+                            group_by_columns: Vec::new(),
+                            where_conditions: Vec::new(),
+                            having_conditions: Vec::new(),
+                            order_by_columns: Vec::new(),
+                            limit_count: None,
+                            joins: Vec::new(),
+                            window_functions: Vec::new(),
+                            ctes: Vec::new(),
+                            subquery_source: None,
+                            set_operations: Vec::new(),
+                            query: String::new(),
+                            aggregated_df: None,
+                            union_tables: None,
+                            original_expressions: Vec::new(),
+                            needs_normalization: false,
+                            raw_selected_columns: Vec::new(),
+                            raw_group_by_columns: Vec::new(),
+                            raw_where_conditions: Vec::new(),
+                            raw_having_conditions: Vec::new(),
+                            raw_join_conditions: Vec::new(),
+                            raw_aggregations: Vec::new(),
+                            uses_group_by_all: false
+                        };
+                        loaded_df = Some(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load large CSV file {}: {}", file_name, e);
+                        continue;
                         }
                     }
-                },
+                } else {
+                    match Self::load_csv(file_path_str, "local_data").await {
+                    Ok(aliased_df) => {
+                        println!("✅ Loaded CSV: {}", file_name);
+                        
+                        // Normalize column names to lowercase and create CustomDataFrame
+                        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                        
+                        let df = CustomDataFrame {
+                            df: normalized_df,
+                            table_alias: "local_csv".to_string(),
+                            from_table: "local_csv".to_string(),
+                            selected_columns: Vec::new(),
+                            alias_map: Vec::new(),
+                            aggregations: Vec::new(),
+                            group_by_columns: Vec::new(),
+                            where_conditions: Vec::new(),
+                            having_conditions: Vec::new(),
+                            order_by_columns: Vec::new(),
+                            limit_count: None,
+                            joins: Vec::new(),
+                            window_functions: Vec::new(),
+                            ctes: Vec::new(),
+                            subquery_source: None,
+                            set_operations: Vec::new(),
+                            query: String::new(),
+                            aggregated_df: None,
+                            union_tables: None,
+                            original_expressions: Vec::new(),
+                            needs_normalization: false,
+                            raw_selected_columns: Vec::new(),
+                            raw_group_by_columns: Vec::new(),
+                            raw_where_conditions: Vec::new(),
+                            raw_having_conditions: Vec::new(),
+                            raw_join_conditions: Vec::new(),
+                            raw_aggregations: Vec::new(),
+                            uses_group_by_all: false
+                        };
+                        loaded_df = Some(df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to load CSV file {}: {}", file_name, e);
+                        continue;
+                        }
+                    }
+                }
+            },
                 "xlsx" | "xls" => {
                     match crate::features::excel::load_excel(file_path_str, "local_data").await {
                         Ok(aliased_df) => {
