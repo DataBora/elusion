@@ -13,7 +13,9 @@ static FLOAT_COMMA_PATTERN: Lazy<Regex> = Lazy::new(|| {
 });
 
 static THOUSAND_SEPARATOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[+-]?[0-9]{1,3}([,.][0-9]{3})*([.,][0-9]{1,2})?$").expect("Failed to compile thousand separator regex")
+    //Regex::new(r"^[+-]?[0-9]{1,3}([,.][0-9]{3})*([.,][0-9]{1,2})?$").expect("Failed to compile thousand separator regex")
+    Regex::new(r"^[+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,}(?:\.[0-9]{1,2})?|[0-9]{1,3}(?:\.[0-9]{3}){2,}(?:,[0-9]{1,2})?)$")
+        .expect("Failed to compile thousand separator regex")
 });
 
 static BOOLEAN_PATTERN: Lazy<Regex> = Lazy::new(|| {
@@ -50,8 +52,8 @@ async fn detect_delimiter(file_path: &str) -> ElusionResult<u8> {
         .ok_or_else(|| ElusionError::Custom("File is empty".to_string()))?;
     
     let mut delimiter_scores = std::collections::HashMap::new();
-    let sample_size = 10; // Check first 10 lines
-    
+    let sample_size = 10; 
+
     // Test 
     for &delimiter in &[b',', b'\t', b';', b'|'] {
         let header_cols = header.split(delimiter as char).count();
@@ -390,29 +392,31 @@ fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
     if total_non_null == 0 {
         return InferredDataType::String;
     }
+
+    let threshold = 0.75;
     
     // Priority order: Integer -> Float -> Boolean -> Date -> String
     if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
-        if int_count as f32 / total_non_null as f32 > 0.8 {
+        if int_count as f32 / total_non_null as f32 > threshold {
             return InferredDataType::Integer;
         }
     }
     
     if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
         let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-        if (float_count + int_count) as f32 / total_non_null as f32 > 0.8 {
+        if (float_count + int_count) as f32 / total_non_null as f32 > threshold {
             return InferredDataType::Float;
         }
     }
     
     if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
-        if bool_count as f32 / total_non_null as f32 > 0.8 {
+        if bool_count as f32 / total_non_null as f32 > threshold {
             return InferredDataType::Boolean;
         }
     }
     
     if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
-        if date_count as f32 / total_non_null as f32 > 0.8 {
+        if date_count as f32 / total_non_null as f32 > threshold {
             return InferredDataType::Date;
         }
     }
@@ -429,24 +433,18 @@ fn classify_value(value: &str) -> InferredDataType {
     if FLOAT_DOT_PATTERN.is_match(value) {
         if value.matches('.').count() == 1 {
             return InferredDataType::Float;
-        } else {
-            return InferredDataType::String; 
         }
     }
 
     if FLOAT_COMMA_PATTERN.is_match(value) {
         if value.matches(',').count() == 1 {
             return InferredDataType::Float;
-        } else {
-            return InferredDataType::String; 
         }
     }
     
     if THOUSAND_SEPARATOR_PATTERN.is_match(value) {
         if is_valid_thousand_separator_number(value) {
             return InferredDataType::Float;
-        } else {
-            return InferredDataType::String;
         }
     }
     
@@ -478,74 +476,131 @@ fn classify_value(value: &str) -> InferredDataType {
 
 // Simple validation for thousand separator numbers
 fn is_valid_thousand_separator_number(value: &str) -> bool {
-    // Remove leading +/- sign
     let cleaned = value.trim_start_matches(['+', '-']);
     
-   // println!("Validating thousand separator: '{}'", cleaned);
-    
-    // Check for comma thousands, dot decimal 1,234.56
+    // US Format: comma thousands, dot decimal 1,234.56
     if cleaned.contains(',') && cleaned.contains('.') {
-        let parts: Vec<&str> = cleaned.split('.').collect();
-        if parts.len() == 2 {
-            let integer_part = parts[0];
-            let decimal_part = parts[1];
-            
-            // Decimal part should be 1-6 digits
-            if decimal_part.len() > 6 {
-              //  println!("Invalid: decimal part too long");
-                return false;
-            }
-            
-            // Check comma grouping in integer part
-            let result = is_valid_comma_grouping(integer_part);
-          //  println!("Comma grouping valid: {}", result);
-            return result;
-        }
+        return validate_us_format(cleaned);
     }
     
-    // Check for dot thousands, comma decimal 1.234,56  
+    // EU Format: dot thousands, comma decimal 1.234,56
+    // Must have at least 2 dot groups to be considered thousands separator
     if cleaned.contains('.') && cleaned.contains(',') {
-        let parts: Vec<&str> = cleaned.split(',').collect();
-        if parts.len() == 2 {
-            let integer_part = parts[0];
-            let decimal_part = parts[1];
-            
-            // Decimal part should be 1-6 digits
-            if decimal_part.len() > 6 {
-               //println!("Invalid: decimal part too long");
-                return false;
-            }
-            
-            // Check dot grouping in integer 
-            let result = is_valid_dot_grouping(integer_part);
-           // println!(" Dot grouping valid: {}", result);
-            return result;
+        let dot_count = cleaned.matches('.').count();
+        if dot_count >= 2 { // At least 2 dots required for EU thousands format
+            return validate_eu_format(cleaned);
         }
+        return false; // Single dot with comma is not valid thousands format
     }
     
-    // Pure comma separators, no decimal
+    // Pure comma separators 1,234
     if cleaned.contains(',') && !cleaned.contains('.') {
-        let result = is_valid_comma_grouping(cleaned);
-       // println!("Pure comma grouping valid: {}", result);
-        return result;
+        return validate_comma_thousands_only(cleaned);
     }
     
-    // Pure dot separators -need to distinguish from decimals
+    // Pure dot separators 1.234.567
     if cleaned.contains('.') && !cleaned.contains(',') {
         let dot_count = cleaned.matches('.').count();
-       // println!("Dot count: {}", dot_count);
-        if dot_count > 1 {
-            // Multiple dots, likely thousand separators
-            let result = is_valid_dot_grouping(cleaned);
-           // println!("Multiple dot grouping valid: {}", result);
-            return result;
-        } else {
-            //println!("Single dot, should be handled by FLOAT_DOT_PATTERN");
-            return false;
+        if dot_count >= 2 { // Multiple dots required
+            return validate_dot_thousands_only(cleaned) && !looks_like_ip_or_version(cleaned);
+        }
+        return false; // Single dot should be handled by FLOAT_DOT_PATTERN
+    }
+    
+    false
+}
+
+fn validate_us_format(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    
+    let integer_part = parts[0];
+    let decimal_part = parts[1];
+    
+    // Decimal part should be 1-2 digits
+    if decimal_part.is_empty() || decimal_part.len() > 2 || !decimal_part.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    
+    is_valid_comma_grouping(integer_part)
+}
+
+fn validate_eu_format(value: &str) -> bool {
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+    
+    let integer_part = parts[0];
+    let decimal_part = parts[1];
+    
+    // Decimal part should be 1-2 digits
+    if decimal_part.is_empty() || decimal_part.len() > 2 || !decimal_part.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    
+    // Integer part must have at least 2 dot groups for thousands
+    let dot_count = integer_part.matches('.').count();
+    if dot_count < 2 {
+        return false; // Need at least 2 dots for proper thousands separator
+    }
+    
+    is_valid_dot_grouping(integer_part)
+}
+
+fn validate_comma_thousands_only(value: &str) -> bool {
+    is_valid_comma_grouping(value)
+}
+
+fn validate_dot_thousands_only(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    
+    // Must have at least 3 parts (2+ dots) for thousands separators  
+    if parts.len() < 3 {
+        return false;
+    }
+    
+    // Reject if there are too many groups
+    if parts.len() > 4 {
+        return false;
+    }
+    
+    // Check for obvious non-numbers
+    if looks_like_ip_or_version(value) {
+        return false;
+    }
+    
+    is_valid_dot_grouping(value)
+}
+
+fn looks_like_ip_or_version(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    
+    // IP address pattern 4 parts, all <= 255
+    if parts.len() == 4 {
+        return parts.iter().all(|p| {
+            p.parse::<u32>().map_or(false, |n| n <= 255)
+        });
+    }
+    
+    // Version number pattern 2-4 parts, small numbers
+    if parts.len() >= 2 && parts.len() <= 4 {
+        // All parts are small numbers (<=50)
+        if parts.iter().all(|p| p.parse::<u32>().map_or(false, |n| n <= 50)) {
+            return true;
+        }
+        
+        // Pattern like 999.999.999 all same repeated digits
+        if parts.len() == 3 && parts.iter().all(|p| p.len() == 3) {
+            let all_same = parts.iter().all(|p| p == &parts[0]);
+            if all_same {
+                return true; // Likely not a real number
+            }
         }
     }
     
-   // println!("No valid pattern found, returning false");
     false
 }
 
@@ -574,51 +629,24 @@ fn is_valid_comma_grouping(value: &str) -> bool {
 
 fn is_valid_dot_grouping(value: &str) -> bool {
     let parts: Vec<&str> = value.split('.').collect();
-    //println!("Checking dot grouping parts: {:?}", parts);
     
-    // Must have at least 2 parts for thousand separators  
+    // Must have at least 2 parts
     if parts.len() < 2 {
-       // println!("Invalid: less than 2 parts");
         return false;
-    }
-    
-    // Reject if there are too many groups - 999,999,999 
-    if parts.len() > 4 {
-      //  println!("Invalid: too many groups ({}), likely not a number", parts.len());
-        return false;
-    }
-    
-
-    // 999.999.999 would have 3 parts of 3 digits each, which is likely an IP address or similar
-    if parts.len() >= 3 && parts.iter().all(|p| p.len() == 3) {
-        // Check if this could be an IP address (all parts <= 255)
-        if parts.iter().all(|p| p.parse::<u32>().map_or(false, |n| n <= 255)) {
-           // println!("Invalid: looks like IP address or similar pattern");
-            return false;
-        }
-        
-        // Even if not IP, having 3+ groups of exactly 3 digits is suspicious
-        if parts.len() >= 3 {
-          //  println!("Invalid: too many groups of exactly 3 digits, likely not a number");
-            return false;
-        }
     }
     
     // First part: 1-3 digits
     if parts[0].is_empty() || parts[0].len() > 3 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
-       // println!("Invalid: first part '{}' is empty, too long, or contains non-digits", parts[0]);
         return false;
     }
     
     // Remaining parts: exactly 3 digits each
-    for (i, part) in parts[1..].iter().enumerate() {
+    for part in &parts[1..] {
         if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
-            println!("Invalid: part {} '{}' is not exactly 3 digits", i + 1, part);
             return false;
         }
     }
     
-   // println!("Valid dot grouping");
     true
 }
 
@@ -675,15 +703,15 @@ fn looks_like_version_number(nums: &[u32]) -> bool {
     
     // Version numbers typically have small numbers
     // If all numbers are <= 20, it's likely a version number
-    // Examples: 1.2.3, 2.0.1, 10.15.2
+    // 1.2.3, 2.0.1, 10.15.2
     if nums.iter().all(|&n| n <= 20) {
         return true;
     }
     
-    // If the first number is small (<=50) and others are small (<=100), 
+    // If the first number is small <=50 and others are small <=100, 
     // and none looks like a year, it's probably a version
     if nums[0] <= 50 && nums[1] <= 100 && nums[2] <= 100 {
-        // Make sure none of the numbers looks like a year
+        //  none of the numbers looks like a year
         if !nums.iter().any(|&n| n >= 1900 && n <= 2100) {
             return true;
         }
@@ -699,7 +727,6 @@ fn is_plausible_date(nums: &[u32]) -> bool {
     
   //  println!("Checking date values: {:?}", nums);
     
-    // Try common date arrangements and validate each
     let arrangements = [
         (nums[0], nums[1], nums[2]), // YYYY-MM-DD 
         (nums[2], nums[1], nums[0]), // DD-MM-YYYY
@@ -710,7 +737,6 @@ fn is_plausible_date(nums: &[u32]) -> bool {
     for (year, month, day) in arrangements {
        // println!(" Trying arrangement: year={}, month={}, day={}", year, month, day);
         
-        // Check if this could be a valid date
         if is_valid_date_components(year, month, day) {
             //println!("Valid date found");
             return true;
@@ -748,12 +774,12 @@ fn is_valid_date_components(year: u32, month: u32, day: u32) -> bool {
         return false;
     }
     
-    // Month validation (1-12)
+    // Month validation 1-12
     if month < 1 || month > 12 {
         return false;
     }
     
-    // Day validation (1-31, with basic month-specific checks)
+    // Day validation 1-31, with basic month-specific checks
     if day < 1 || day > 31 {
         return false;
     }
@@ -784,7 +810,7 @@ fn is_valid_date_components(year: u32, month: u32, day: u32) -> bool {
 
 fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data_type: &InferredDataType) -> String {
    let quoted_original_col = format!("\"{}\"", original_col_name);
-let quoted_clean_col = format!("\"{}\"", clean_col_name);
+    let quoted_clean_col = format!("\"{}\"", clean_col_name);
     
     match data_type {
         InferredDataType::Integer => {
@@ -955,13 +981,13 @@ let quoted_clean_col = format!("\"{}\"", clean_col_name);
         
         println!("📋 Found {} columns in header", headers.len());
         
-        // Initialize column samples
+        // initialize column samples
         let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
         for header in &headers {
             column_samples.insert(header.clone(), Vec::new());
         }
         
-        // Read sample rows directly from file
+        // directly from file
         let mut rows_read = 0;
         for line_result in reader.lines() {
             if rows_read >= sample_size { break; }
@@ -1545,5 +1571,154 @@ mod tests {
         assert!(NULL_VALUES.contains("-"));
         assert!(!NULL_VALUES.contains("0"));
         assert!(!NULL_VALUES.contains("false"));
+    }
+
+    #[test]
+    fn test_thousand_separator_regex_matches() {
+        println!("🔍 Testing THOUSAND_SEPARATOR_PATTERN regex...");
+        
+        // These should match the regex
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("2,162.00"), 
+            "2,162.00 should match THOUSAND_SEPARATOR_PATTERN");
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("1,234.56"), 
+            "1,234.56 should match THOUSAND_SEPARATOR_PATTERN");
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("999,999.99"), 
+            "999,999.99 should match THOUSAND_SEPARATOR_PATTERN");
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("1,000,000.00"), 
+            "1,000,000.00 should match THOUSAND_SEPARATOR_PATTERN");
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("1,234"), 
+            "1,234 should match THOUSAND_SEPARATOR_PATTERN");
+        
+        // These WILL match the regex but should be rejected by validation
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("999.999.999"), 
+            "999.999.999 WILL match regex but should be rejected by validation");
+        assert!(THOUSAND_SEPARATOR_PATTERN.is_match("192.168.001"), 
+            "192.168.001 WILL match regex but should be rejected by validation");
+        
+        // These should NOT match the regex at all
+        assert!(!THOUSAND_SEPARATOR_PATTERN.is_match("192.168.1.1"), 
+            "192.168.1.1 should NOT match (not 3 digits in groups)");
+        assert!(!THOUSAND_SEPARATOR_PATTERN.is_match("1.2.3"), 
+            "1.2.3 should NOT match (not 3 digits in groups)");
+        assert!(!THOUSAND_SEPARATOR_PATTERN.is_match("2.162,00"), 
+            "2.162,00 should NOT match (mixed separators not supported by this regex)");
+    }
+
+    #[test]
+    fn test_thousand_separator_numbers() {
+        println!("🔍 Testing thousand separator number classification...");
+        
+        // US format
+        assert!(matches!(classify_value("2,162.00"), InferredDataType::Float), 
+            "2,162.00 should be classified as Float");
+        assert!(matches!(classify_value("1,234.56"), InferredDataType::Float), 
+            "1,234.56 should be classified as Float");
+        assert!(matches!(classify_value("999,999.99"), InferredDataType::Float), 
+            "999,999.99 should be classified as Float");
+        assert!(matches!(classify_value("1,000,000.00"), InferredDataType::Float), 
+            "1,000,000.00 should be classified as Float");
+        
+        // European format
+        assert!(matches!(classify_value("2.162,00"), InferredDataType::String), 
+            "2.162,00 should be String (not supported by current regex)");
+        assert!(matches!(classify_value("1.234,56"), InferredDataType::String), 
+            "1.234,56 should be String (not supported by current regex)");
+        
+        // Thousands only 
+        assert!(matches!(classify_value("1,234"), InferredDataType::Float), 
+            "1,234 should be classified as Float");
+        assert!(matches!(classify_value("999,999"), InferredDataType::Float), 
+            "999,999 should be classified as Float");
+        
+        // Single group 
+        assert!(matches!(classify_value("1.234"), InferredDataType::Float), 
+            "1.234 should be regular Float (FLOAT_DOT_PATTERN)");
+        
+        // More than 2 decimal
+        assert!(matches!(classify_value("1,234.567"), InferredDataType::String), 
+            "1,234.567 should be String (>2 decimal places not supported)");
+        assert!(matches!(classify_value("2,162.123456"), InferredDataType::String), 
+            "2,162.123456 should be String (>2 decimal places not supported)");
+        
+        // Negative numbers
+        assert!(matches!(classify_value("-2,162.00"), InferredDataType::Float), 
+            "-2,162.00 should be classified as Float");
+        
+        // Positive signed numbers
+        assert!(matches!(classify_value("+2,162.00"), InferredDataType::Float), 
+            "+2,162.00 should be classified as Float");
+        
+        // Should NOT be classified as float
+        assert!(matches!(classify_value("999.999.999"), InferredDataType::String), 
+            "999.999.999 should be classified as String");
+        assert!(matches!(classify_value("192.168.1.1"), InferredDataType::String), 
+            "192.168.1.1 should be classified as String");
+        assert!(matches!(classify_value("1.2.3"), InferredDataType::String), 
+            "1.2.3 should be classified as String");
+    }
+
+    #[test]
+    fn test_thousand_separator_validation_functions() {
+        println!("🔍 Testing thousand separator validation functions...");
+        
+        // Valid US format
+        assert!(is_valid_thousand_separator_number("2,162.00"), 
+            "2,162.00 should be valid thousand separator number");
+        assert!(is_valid_thousand_separator_number("1,234.56"), 
+            "1,234.56 should be valid thousand separator number");
+        assert!(is_valid_thousand_separator_number("999,999.99"), 
+            "999,999.99 should be valid thousand separator number");
+        assert!(is_valid_thousand_separator_number("1,000,000.00"), 
+            "1,000,000.00 should be valid thousand separator number");
+        
+        // European format won't work with current implementation
+        assert!(!is_valid_thousand_separator_number("2.162,00"), 
+            "2.162,00 should NOT be valid (mixed separators not supported)");
+        assert!(!is_valid_thousand_separator_number("1.234,56"), 
+            "1.234,56 should NOT be valid (mixed separators not supported)");
+        
+        // Valid thousands only
+        assert!(is_valid_thousand_separator_number("1,234"), 
+            "1,234 should be valid thousand separator number");
+        assert!(is_valid_thousand_separator_number("999,999"), 
+            "999,999 should be valid thousand separator number");
+        
+        // Invalid cases
+        assert!(!is_valid_thousand_separator_number("999.999.999"), 
+            "999.999.999 should NOT be valid thousand separator number");
+        assert!(!is_valid_thousand_separator_number("192.168.1.1"), 
+            "192.168.1.1 should NOT be valid thousand separator number");
+        assert!(!is_valid_thousand_separator_number("1.2.3"), 
+            "1.2.3 should NOT be valid thousand separator number");
+    }
+
+    #[test]
+    fn test_type_inference_with_mixed_number_formats() {
+        println!("🔍 Testing type inference with mixed number formats...");
+        
+        // Only US format will work with current regex
+        let us_format_samples = vec![
+            "1,234.56".to_string(),   // US format
+            "999,999.99".to_string(), // US format
+            "5,678.90".to_string(),   // US format
+            "1,000.00".to_string(),   // US format
+        ];
+        
+        let result = infer_column_type(&us_format_samples, "us_numbers");
+        assert!(matches!(result, InferredDataType::Float), 
+            "US format numbers should be inferred as Float, got {:?}", result);
+        
+        // Test the exact scenario from user's problem
+        let user_scenario_samples = vec![
+            "1293.36".to_string(),    // Regular float
+            "1724.65".to_string(),    // Regular float
+            "479.4".to_string(),      // Regular float
+            "1211.66".to_string(),    // Regular float
+            "2,162.00".to_string(),   // Thousand separator
+        ];
+        
+        let result = infer_column_type(&user_scenario_samples, "neto_cena");
+        assert!(matches!(result, InferredDataType::Float), 
+            "User scenario should be inferred as Float, got {:?}", result);
     }
 }

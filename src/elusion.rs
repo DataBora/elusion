@@ -3968,7 +3968,7 @@ impl CustomDataFrame {
         } else if has_star && error_msg.contains("duplicate") {
             "💡 Star selection with duplicate columns. This should auto-deduplicate - check for mixed star/explicit selection".to_string()
         } else {
-            "💡 Check SQL syntax, column names, and table aliases. Use .dg_schema() to see available columns".to_string()
+            "💡 Check SQL syntax, column names, and table aliases. Use .df_schema() to see available columns".to_string()
         }
     }
 

@@ -1,3 +1,7 @@
+## [5.3.1] - 2025-08-22
+## Fixed
+- Enhanced float types conversion for US and EU format for Streaming loading - new_with_stream() on different systems
+
 ## [5.3.0] - 2025-08-22
 ## Fixed
 - Streaming loading - new_with_stream() - to read schema directly from file not from DataFrame, to avoid loading into memory.
