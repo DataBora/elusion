@@ -316,7 +316,7 @@ let df = CustomDataFrame::new_with_stream(csv_path, "csv_data").await?;
 let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
 let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
 
-big_file_path_df.clone()
+big_file_path_df
     .select(["first_name", "last_name","company", "city" ,"country"])
     .string_functions(["CAST(subscription_date AS DATE) as date"])
     .limit(10)
@@ -327,7 +327,7 @@ big_file_path_df.clone()
 let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
 let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
 
-big_file_path_df.clone()
+big_file_path_df
     .select(["first_name", "last_name","company", "city" ,"country"])
     .string_functions(["CAST(subscription_date AS DATE) as date"])
     .limit(10)
@@ -642,7 +642,7 @@ df_arhiva.df_schema();
 #### THIS CAN BE INACCURATE if analyzer can't figure out overly complex generated query
 #### It works accurate in most cases
 ```rust
-let complex_result = df_arhiva.clone()
+let complex_result = df_arhiva
     .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
     .select([
         "veledrogerija as pharm",
@@ -1988,9 +1988,9 @@ let append_many_df = result_df1.append_many([result_df2, result_df3, result_df4,
 #### INTERSECT: Intersection of two sets (only rows in both).
 ```rust
 //UNION
-let df1 = sales_df.clone()
+let df1 = sales_df
 .join(
-    customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER",
+    customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER",
 )
 .select(["c.FirstName", "c.LastName"])
 .string_functions([
@@ -1998,9 +1998,9 @@ let df1 = sales_df.clone()
     "CONCAT(TRIM(c.FirstName), ' ', TRIM(c.LastName)) AS full_name",
 ]);
 
-let df2 = sales_df.clone()
+let df2 = sales_df
 .join(
-    customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER",
+    customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER",
 )
 .select(["c.FirstName", "c.LastName"])
 .string_functions([
@@ -2276,7 +2276,7 @@ let products_df = CustomDataFrame::new(products, "p").await?;
 
 //  Using materialized view for customer count
 // The TTL parameter (3600) specifies how long the view remains valid in seconds (1 hour)
-customers_df.clone()
+customers_df
     .select(["COUNT(*) as count"])
     .limit(10)
     .create_view("customer_count_view", Some(3600)) 
@@ -2289,8 +2289,8 @@ customer_count.display().await?;
 // First execution computes and stores the result
 let join_result = sales_df
     .join_many([
-        (customers_df.clone(), ["s.CustomerKey = c.CustomerKey"], "INNER"),
-        (products_df.clone(), ["s.ProductKey = p.ProductKey"], "INNER"),
+        (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
+        (products_df, ["s.ProductKey = p.ProductKey"], "INNER"),
     ])
     .select(["c.CustomerKey", "c.FirstName", "c.LastName", "p.ProductName"])
     .agg([
@@ -3018,7 +3018,7 @@ data.write_json_to_azure_with_sas(
 let ord = "C:\\Borivoj\\RUST\\Elusion\\sales_order_report.csv";
 let sales_order_df = CustomDataFrame::new(ord, "ord").await?;
 
-let mix_query = sales_order_df.clone()
+let mix_query = sales_order_df
 .select([
     "customer_name",
     "order_date",
@@ -3109,7 +3109,7 @@ let donut = mix_res
    ).await?;
 
  // Create Tables to add to report
-let summary_table = mix_res.clone() //Clone for multiple usages
+let summary_table = mix_res //Clone for multiple usages
     .select([
         "customer_name",
         "total_billable",
