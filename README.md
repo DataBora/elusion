@@ -15,6 +15,8 @@
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
 
+This Library is designed to be used for Business Data Engineering, with focus on user experience and accuracy, not for Data Science 1TB datasets etc. 
+
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
 Tailored for Data Engineers and Data Analysts seeking a powerful abstraction over data transformations. Elusion streamlines complex operations like filtering, joining, aggregating, and more with its intuitive, chainable DataFrame API, and provides a robust interface for managing and querying data efficiently, as well as Integrated Plotting and Interactive Dashboard features.
@@ -30,18 +32,37 @@ Tested for MacOS, Linux and Windows
 
 ## Security
 Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it is fully prepared for Production.
-
+---
 ## Key Features
 
 ### 📩 2 Ways to Load data into DataFrame:
-- 1. 🔃 Regular Loading with loading all data into memory, which is good for smaller files
-- 2. 🚀 Streaming Loading a.k.a Lazy loading (Data isn't fully materialized until .elusion() is called)
+- 1. 🔃 Regular Loading with loading all data into memory, with CustomDataFrame::new() which is good for files that can fit your RAM memory
+- 2. 🚀 Streaming Loading a.k.a Lazy loading CustomDataFrame::new_with_stream() (Data isn't fully materialized until .elusion_streaming() is called)
 #### Processes data in chunks rather than loading everything at once
-- 🚀 Streaming is ~27% faster for loading and query execution (tested on 900k rows of real business data)
-- Regular loading and fairly complex query execution with **CustomDataFrame::new()**: ~4.95 seconds
-- Streaming loading and fairly complex query execution with **CustomDataFrame::new_with_stream()**: ~3.62 seconds
-- Performance improvement: ~1.33 seconds faster (26.9% improvement)
 
+### 🔄 2 Ways to Process Results:
+- 1. 🔃 Regular Processing - .elusion() loads all results into memory (good for smaller result sets)
+- 2. 🚀 Streaming Processing - .elusion_streaming() processes results in chunks without memory accumulation
+
+### 📤 3 Ways to Export Results:
+- 1. 🔃 In-Memory Export - .write_to_csv(), .write_to_json(), .write_to_parquet() .write_to_delta() (loads results into memory first)
+- 2. 🚀 Streaming Export - .elusion_streaming_write() streams results directly to files (options: .json, .csv and .parquet)
+- 3. 📊 Console Display - .elusion() or .elusion_streaming() displays results in terminal
+
+### POSSIBLE Combinations and benefits:
+<div align="center">
+
+| Approach | Source Data | Query Processing | Memory Usage | Best For |
+|:---------|:-----------:|:----------------:|:------------:|:---------|
+| `new()` + `elusion()` | **In Memory** | **In Memory** | **High** | Small datasets, multiple queries, interactive analysis |
+| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | **Medium** | Medium datasets, large result sets, memory-conscious processing |
+| `new_with_stream()` + `elusion()` | **On Disk** | **In Memory** | **Medium** | Large source files, small result sets, need results in memory |
+| `new_with_stream()` + `elusion_streaming()` | **On Disk** | **Streaming** | **Minimal** | Massive datasets, memory constraints, file-to-file processing |
+
+</div>
+
+### For Streaming examples scroll down ⬇
+---
 ### 🔄 Job Scheduling (PipelineScheduler)
 Flexible Intervals: From 1 minute to 30 days scheduling intervals.
 Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
@@ -127,7 +148,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.3.3"
+elusion = "5.4.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -180,25 +201,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.3.3", features = ["postgres"] }
+elusion = { version = "5.4.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.3.3"
+elusion = "5.4.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.3.3", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "5.4.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.3.3", features = ["all"] }
+elusion = { version = "5.4.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -282,14 +303,39 @@ let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 ```
 ---
 ## STREAMING LOADING (optimized for larger files)
-#### currently suppots only CSV files (soon will be adding parquet, json, excel, and delta)
-
+#### currently supports only CSV files (soon will be adding json)
 ---
 ### LOADING data from CSV into CustomDataFrame
 #### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
 ```rust
 let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
 let df = CustomDataFrame::new_with_stream(csv_path, "csv_data").await?; 
+```
+#### Example for Stream processing (Process and display results without loading into memory)
+```rust
+let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
+let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
+
+big_file_path_df.clone()
+    .select(["first_name", "last_name","company", "city" ,"country"])
+    .string_functions(["CAST(subscription_date AS DATE) as date"])
+    .limit(10)
+    .elusion_streaming("logentries1").await?;
+```
+#### Example for Stream writing (Writes DataFrame result into file extension choosen)
+```rust
+let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
+let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
+
+big_file_path_df.clone()
+    .select(["first_name", "last_name","company", "city" ,"country"])
+    .string_functions(["CAST(subscription_date AS DATE) as date"])
+    .limit(10)
+    .elusion_streaming_write("data", "C:\\output\\results.csv", "overwrite").await?; // you can also use "append"
+
+SAME USAGE IS FOR .json and .parquet
+.elusion_streaming_write("data", "C:\\output\\results.json", "overwrite").await?; // you can also use "append"
+.elusion_streaming_write("data", "C:\\output\\results.parquet", "overwrite").await?; // you can also use "append"
 ```
 ---
 ### LOADING data from LOCAL FOLDER into CustomDataFrame

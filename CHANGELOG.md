@@ -1,3 +1,13 @@
+## [5.4.0] - 2025-08-23
+## Fixed
+- Excluded DataFusion loading into memory for STREAMING
+## Added
+- Streaming writers for .json, .csv and .parquet
+
+## [5.3.4] - 2025-08-23
+## Fixed
+- Enhanced string types conversion for different qurencies and edge cases and formats for Streaming loading - new_with_stream() on different systems
+
 ## [5.3.3] - 2025-08-23
 ## Fixed
 - Enhanced string and int types conversion for different qurencies and edge cases and formats for Streaming loading - new_with_stream() on different systems

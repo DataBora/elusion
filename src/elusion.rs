@@ -121,6 +121,7 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
 use crate::features::csv::load_csv_smart;
 use crate::features::excel::load_excel;
+use arrow::util::pretty::pretty_format_batches;
 
 //cache redis
 use crate::features::redis::RedisCacheConnection;
@@ -3267,7 +3268,7 @@ impl CustomDataFrame {
         } else {
             sql
         };
-      //  println!("{:?}", final_sql);
+       // println!("{:?}", final_sql);
 
         // Execute the SQL query with context-aware error handling
         let df = ctx.sql(&final_sql).await
@@ -6943,24 +6944,255 @@ impl CustomDataFrame {
 
     // ============== CSV STREAMING =================
 
-    /// streaming iterator over the DataFrame - TRUE streaming
+    /// Simple streaming version of elusion - processes chunks without OOM
+    /// Just like regular elusion() but doesn't load everything into memory
+    pub async fn elusion_streaming(&self, alias: &str) -> ElusionResult<()> {
+
+        if alias.trim().is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Elusion Streaming".to_string(),
+                reason: "Alias cannot be empty".to_string(),
+                suggestion: "💡 Provide a valid table alias".to_string()
+            });
+        }
+
+        println!("🚀 Executing streaming query for '{}'...", alias);
+        
+        let sql = self.construct_sql();
+      //  println!("Generated SQL: {}", sql);
+        
+        let mut stream = match self.stream().await {
+            Ok(stream) => stream,
+            Err(e) => {
+                println!("❌ Failed to create stream: {}", e);
+                return Err(e);
+            }
+        };
+        
+        let mut chunk_count = 0;
+        let mut total_rows = 0;
+        let start_time = std::time::Instant::now();
+        let mut has_shown_sample = false;
+        
+        println!("🔃 Starting to process stream...");
+        
+        while let Some(batch_result) = stream.next().await {
+            let batch = match batch_result {
+                Ok(batch) => batch,
+                Err(e) => {
+                    println!("❌ Error processing batch {}: {}", chunk_count + 1, e);
+                    return Err(ElusionError::InvalidOperation {
+                        operation: "Stream Processing".to_string(),
+                        reason: format!("Failed to process batch: {}", e),
+                        suggestion: "💡 Check query syntax and data integrity".to_string()
+                    });
+                }
+            };
+            
+            chunk_count += 1;
+            let batch_rows = batch.num_rows();
+            total_rows += batch_rows;
+            
+            if batch_rows > 0 {
+                println!("📦 Chunk {}: {} rows", chunk_count, batch_rows);
+            } else {
+                println!("📦 Chunk {}: {} rows (empty)", chunk_count, batch_rows);
+            }
+        
+            // Show progress summary periodically
+            if chunk_count <= 3 || chunk_count % 100 == 0 {
+                let elapsed = start_time.elapsed();
+                let rows_per_sec = if elapsed.as_secs() > 0 {
+                    total_rows as f64 / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+                println!("🔁 Progress: {} chunks processed | {} total rows | {:.0} rows/sec", 
+                    chunk_count, total_rows, rows_per_sec);
+            }
+
+            if !has_shown_sample && batch_rows > 0 {
+                println!("📋 Sample results ({} rows shown):", batch_rows.min(15));
+                match self.display_sample(&batch) {
+                    Ok(_) => has_shown_sample = true,
+                    Err(e) => println!("⚠️ Could not display sample: {}", e)
+                }
+            }
+                
+            // small pause for large datasets
+            if chunk_count % 1000 == 0 {
+                println!("💤 Brief pause after {} chunks to prevent system overload", chunk_count);
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        }
+        
+        let total_time = start_time.elapsed();
+        
+        if total_rows == 0 {
+            println!("⚠️ Query completed but returned 0 rows");
+            println!("💡 This could indicate:");
+            println!("   - Filters eliminated all data");
+            println!("   - Empty source dataset");
+            println!("   - Query logic issue");
+            println!("🔍 Generated SQL was: {}", sql);
+        } else {
+            println!("✅ Streaming complete: {} chunks, {} rows in {:?}", 
+                chunk_count, total_rows, total_time);
+        }
+        
+        Ok(())
+    }
+
+    // pub async fn elusion_streaming_debug(&self, alias: &str) -> ElusionResult<()> {
+    //     if alias.trim().is_empty() {
+    //         return Err(ElusionError::InvalidOperation {
+    //             operation: "Elusion Streaming Verbose".to_string(),
+    //             reason: "Alias cannot be empty".to_string(),
+    //             suggestion: "💡 Provide a valid table alias".to_string()
+    //         });
+    //     }
+
+    //     println!("🚀 Executing streaming query for '{}'...", alias);
+        
+    //     let mut stream = self.stream().await?;
+        
+    //     let mut chunk_count = 0;
+    //     let mut total_rows = 0;
+    //     let start_time = std::time::Instant::now();
+    //     let mut empty_chunks = 0;
+        
+    //     while let Some(batch_result) = stream.next().await {
+    //         let batch = batch_result.map_err(|e| ElusionError::InvalidOperation {
+    //             operation: "Stream Processing".to_string(),
+    //             reason: format!("Failed to process batch: {}", e),
+    //             suggestion: "💡 Check data integrity and query syntax".to_string()
+    //         })?;
+            
+    //         chunk_count += 1;
+    //         let batch_rows = batch.num_rows();
+    //         total_rows += batch_rows;
+            
+    //         if batch_rows == 0 {
+    //             empty_chunks += 1;
+    //         }
+            
+    //         // Show every chunk for verbose mode
+    //         let elapsed = start_time.elapsed();
+    //         let rows_per_sec = if elapsed.as_secs() > 0 {
+    //             total_rows as f64 / elapsed.as_secs_f64()
+    //         } else {
+    //             0.0
+    //         };
+            
+    //         println!("📦 Chunk {}: {} rows | Running Total: {} | Speed: {:.0} rows/sec | Memory: {:.2} MB", 
+    //             chunk_count, 
+    //             batch_rows, 
+    //             total_rows, 
+    //             rows_per_sec,
+    //             batch.get_array_memory_size() as f64 / 1024.0 / 1024.0
+    //         );
+            
+    //         // Show data from all non-empty chunks
+    //         if batch_rows > 0 {
+    //             if let Err(e) = self.display_sample(&batch) {
+    //                 println!("⚠️ Could not display batch {}: {}", chunk_count, e);
+    //             }
+    //         }
+            
+    //         if chunk_count % 1000 == 0 {
+    //             println!("💤 Brief pause after {} chunks to prevent system overload", chunk_count);
+    //             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    //         }
+    //     }
+        
+    //     let total_time = start_time.elapsed();
+    //     println!("✅ Streaming complete!");
+    //     println!("📊 Summary:");
+    //     println!("   - Total chunks: {}", chunk_count);
+    //     println!("   - Empty chunks: {}", empty_chunks);
+    //     println!("   - Total rows: {}", total_rows);
+    //     println!("   - Duration: {:?}", total_time);
+    //     println!("   - Average speed: {:.0} rows/sec", 
+    //         if total_time.as_secs() > 0 { total_rows as f64 / total_time.as_secs_f64() } else { 0.0 });
+        
+    //     if total_rows == 0 {
+    //         println!("⚠️ ZERO ROWS RETURNED - Possible issues:");
+    //         println!("   1. Filters are too restrictive");
+    //         println!("   2. Source data is empty");
+    //         println!("   3. Query logic has issues");
+    //         println!("   4. Data types don't match filter conditions");
+    //     }
+        
+    //     Ok(())
+    // }
+
+    /// Helper to display sample from first chunk
+    fn display_sample(&self, batch: &RecordBatch) -> ElusionResult<()> {
+        if batch.num_rows() == 0 {
+            println!("📋 Empty batch (0 rows)");
+            return Ok(());
+        }
+        
+        // Determine sample size based on result set size
+        let sample_size = if batch.num_rows() <= 20 {
+            batch.num_rows()
+        } else {
+            15 
+        };
+        
+        let sample_batch = batch.slice(0, sample_size);
+        
+        let formatted = pretty_format_batches(&[sample_batch])
+            .map_err(|e| ElusionError::Custom(format!("Display error: {}", e)))?;
+        
+        if batch.num_rows() <= 20 {
+            println!("📑 Complete result ({} rows):", batch.num_rows());
+        } else {
+            println!("📋 Sample result ({} of {} rows shown):", sample_size, batch.num_rows());
+        }
+        
+        println!("{}", formatted);
+        
+        if batch.num_rows() > sample_size {
+            println!("... ({} more rows in this chunk)", batch.num_rows() - sample_size);
+        }
+        
+        Ok(())
+    }
+
+     /// streaming iterator over the DataFrame - TRUE streaming
     pub async fn stream(&self) -> ElusionResult<SendableRecordBatchStream> {
         let ctx = SessionContext::new();
         
-        self.register_all_tables(&ctx).await?;
+        // Register tables with error handling
+        if let Err(e) = self.register_all_tables(&ctx).await {
+            println!("❌ Failed to register tables: {}", e);
+            return Err(e);
+        }
         
         let sql = self.construct_sql();
+        //println!("🔍 Executing SQL: {}", sql);
         
-        let df = ctx.sql(&sql).await.map_err(|e| ElusionError::InvalidOperation {
-            operation: "SQL Execution".to_string(),
-            reason: format!("Failed to execute SQL: {}", e),
-            suggestion: "💡 Verify SQL syntax and table/column references and aliases, and are you using right function scope eg: .select(), .agg(), .string_functions(), .datetime_functions()...".to_string()
+        // Create DataFrame from SQL
+        let df = ctx.sql(&sql).await.map_err(|e| {
+            println!("❌ SQL parsing failed: {}", e);
+            ElusionError::InvalidOperation {
+                operation: "SQL Parsing".to_string(),
+                reason: format!("Failed to parse SQL: {}", e),
+                suggestion: "💡 Check SQL syntax, table aliases, and column names".to_string()
+            }
         })?;
         
-        df.execute_stream().await.map_err(|e| ElusionError::InvalidOperation {
-            operation: "Stream Execution".to_string(),
-            reason: format!("Failed to create stream: {}", e),
-            suggestion: "💡 Check query complexity and memory settings".to_string()
+        println!("✅ Query parsed successfully, creating execution stream...");
+        
+        // Execute stream directly from DataFrame
+        df.execute_stream().await.map_err(|e| {
+            println!("❌ Stream execution failed: {}", e);
+            ElusionError::InvalidOperation {
+                operation: "Stream Execution".to_string(),
+                reason: format!("Failed to execute stream: {}", e),
+                suggestion: "💡 Check data integrity and memory availability".to_string()
+            }
         })
     }
     
@@ -7063,5 +7295,358 @@ impl CustomDataFrame {
             uses_group_by_all: false
         })
     }
+
+    //============ STREAMING WRITE ============
+
+    /// Streaming elusion that writes results using your existing writers
+    pub async fn elusion_streaming_write(
+        &self, 
+        alias: &str,
+        output_path: &str,
+        write_mode: &str  // "overwrite" or "append"
+    ) -> ElusionResult<()> {
+        if alias.trim().is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "Elusion Streaming Write".to_string(),
+                reason: "Alias cannot be empty".to_string(),
+                suggestion: "💡 Provide a valid table alias".to_string()
+            });
+        }
+
+        println!("📄 Streaming query results to: {}", output_path);
+        
+        // Determine file type from extension
+        let ext = output_path.split('.').last().unwrap_or_default().to_lowercase();
+        
+        match ext.as_str() {
+            "csv" => {
+                self.stream_to_csv(alias, output_path, write_mode).await
+            },
+            "json" => {
+                self.stream_to_json(alias, output_path, write_mode).await
+            },
+            "parquet" => {
+                // Parquet doesn't support true streaming, so we'll batch it
+                self.stream_to_parquet_batched(alias, output_path, write_mode).await
+            },
+            _ => {
+                Err(ElusionError::InvalidOperation {
+                    operation: "Streaming Write".to_string(),
+                    reason: format!("Unsupported file extension: {}", ext),
+                    suggestion: "💡 Use .csv, .json, or .parquet extensions".to_string()
+                })
+            }
+        }
+    }
+
+    /// Stream to CSV using your existing CSV writer logic
+    async fn stream_to_csv(&self, _alias: &str, output_path: &str, mode: &str) -> ElusionResult<()> {
+        // overwrite
+        if mode == "overwrite" && std::fs::metadata(output_path).is_ok() {
+            std::fs::remove_file(output_path).map_err(|e| ElusionError::WriteError {
+                path: output_path.to_string(),
+                operation: "overwrite".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check file permissions".to_string()
+            })?;
+        }
+        
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(mode == "append")
+            .truncate(mode == "overwrite")
+            .open(output_path)
+            .map_err(|e| ElusionError::WriteError {
+                path: output_path.to_string(),
+                operation: "file_create".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check path and permissions".to_string()
+            })?;
+
+        let mut writer = std::io::BufWriter::new(file);
+
+        let mut stream = self.stream().await?;
+
+        let mut is_first_batch = true;
+        let mut total_rows = 0;
+        let mut chunk_count = 0;
+
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result.map_err(|e| ElusionError::DataFusion(e))?;
+            chunk_count += 1;
+            total_rows += batch.num_rows();
+
+            // Write header only for first batch (and only if not appending to existing file)
+            let write_header = is_first_batch && (mode == "overwrite" || !std::fs::metadata(output_path).is_ok());
+            
+            let mut csv_writer = WriterBuilder::new()
+                .with_header(write_header)
+                .build(&mut writer);
+
+            csv_writer.write(&batch).map_err(|e| ElusionError::WriteError {
+                path: output_path.to_string(),
+                operation: "write_batch".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check disk space and permissions".to_string()
+            })?;
+
+            if chunk_count % 100 == 0 {
+                println!("📦 Written {} chunks ({} rows) to CSV", chunk_count, total_rows);
+            }
+
+            is_first_batch = false;
+        }
+
+        writer.flush().map_err(|e| ElusionError::WriteError {
+            path: output_path.to_string(),
+            operation: "flush".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Failed to flush data".to_string()
+        })?;
+
+        println!("✅ Streaming CSV write complete: {} rows in {} chunks", total_rows, chunk_count);
+        Ok(())
+    }
+
+    /// Stream to JSON 
+    async fn stream_to_json(&self, _alias: &str, output_path: &str, mode: &str) -> ElusionResult<()> {
+        
+        if mode == "overwrite" && std::fs::metadata(output_path).is_ok() {
+            std::fs::remove_file(output_path).map_err(|e| ElusionError::WriteError {
+                path: output_path.to_string(),
+                operation: "overwrite".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check file permissions".to_string()
+            })?;
+        }
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(mode == "overwrite")
+            .open(output_path)
+            .map_err(|e| ElusionError::WriteError {
+                path: output_path.to_string(),
+                operation: "file_create".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check path and permissions".to_string()
+            })?;
+
+        let mut writer = std::io::BufWriter::new(file);
+        let mut stream = self.stream().await?;
+        let mut is_first_row = true;
+        let mut total_rows = 0;
+
+        // Start JSON array
+        writeln!(writer, "[").map_err(|e| ElusionError::WriteError {
+            path: output_path.to_string(),
+            operation: "write_start".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check disk space".to_string()
+        })?;
+
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result.map_err(|e| ElusionError::DataFusion(e))?;
+            total_rows += batch.num_rows();
+
+            // Process each row in the batch
+            for row_idx in 0..batch.num_rows() {
+                if !is_first_row {
+                    writeln!(writer, ",").map_err(|e| ElusionError::WriteError {
+                        path: output_path.to_string(),
+                        operation: "write_separator".to_string(),
+                        reason: e.to_string(),
+                        suggestion: "💡 Check disk space".to_string()
+                    })?;
+                }
+                is_first_row = false;
+
+                // Convert row to JSON (use your existing array_value_to_json logic)
+                let mut row_obj = serde_json::Map::new();
+                for col_idx in 0..batch.num_columns() {
+                    let schema = batch.schema();
+                    let field = schema.field(col_idx); 
+                    let array = batch.column(col_idx);
+                    let json_value = array_value_to_json(array, row_idx)?;
+                    row_obj.insert(field.name().clone(), json_value);
+                }
+
+                let json_value = serde_json::Value::Object(row_obj);
+                serde_json::to_writer(&mut writer, &json_value).map_err(|e| ElusionError::WriteError {
+                    path: output_path.to_string(),
+                    operation: "write_json".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check JSON serialization".to_string()
+                })?;
+            }
+        }
+
+        // Close JSON array
+        writeln!(writer, "\n]").map_err(|e| ElusionError::WriteError {
+            path: output_path.to_string(),
+            operation: "write_end".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check disk space".to_string()
+        })?;
+
+        writer.flush().map_err(|e| ElusionError::WriteError {
+            path: output_path.to_string(),
+            operation: "flush".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Failed to flush data".to_string()
+        })?;
+
+        println!("✅ Streaming JSON write complete: {} rows", total_rows);
+        Ok(())
+    }
+
+    /// For Parquet, we'll collect in larger batches to maintain efficiency
+    async fn stream_to_parquet_batched(&self, _alias: &str, output_path: &str, mode: &str) -> ElusionResult<()> {
+        println!("⚠️  Parquet streaming: collecting batches of 50k rows for efficiency");
+        
+        let mut stream = self.stream().await?;
+        let mut accumulated_batches = Vec::new();
+        let mut total_rows = 0;
+        let batch_limit = 50000; //  50k rows before writing
+        
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result.map_err(|e| ElusionError::DataFusion(e))?;
+            total_rows += batch.num_rows();
+            accumulated_batches.push(batch);
+            
+            // Write when we hit the batch limit
+            if total_rows >= batch_limit {
+                self.write_parquet_batches(&accumulated_batches, output_path, mode).await?;
+                accumulated_batches.clear();
+                total_rows = 0;
+                println!("📦 Written batch to Parquet ({}k+ rows)", batch_limit / 1000);
+            }
+        }
+        
+        // Write remaining batches
+        if !accumulated_batches.is_empty() {
+            self.write_parquet_batches(&accumulated_batches, output_path, mode).await?;
+        }
+        
+        println!("✅ Streaming Parquet write complete");
+        Ok(())
+    }
+
+    /// Helper to write accumulated batches to Parquet
+    async fn write_parquet_batches(&self, batches: &[RecordBatch], output_path: &str, mode: &str) -> ElusionResult<()> {
+
+        let ctx = SessionContext::new();
+        let schema = batches[0].schema();
+        let mem_table = MemTable::try_new(schema.into(), vec![batches.to_vec()])
+            .map_err(|e| ElusionError::Custom(format!("Failed to create temp table: {}", e)))?;
+        
+        ctx.register_table("temp_batches", Arc::new(mem_table))
+            .map_err(|e| ElusionError::DataFusion(e))?;
+        
+        let temp_df = ctx.table("temp_batches").await.map_err(|e| ElusionError::DataFusion(e))?;
+        
+        let temp_custom_df = CustomDataFrame {
+            df: temp_df,
+            table_alias: "temp".to_string(),
+            from_table: "temp".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        };
+        
+        temp_custom_df.write_to_parquet(mode, output_path, None).await
+    }
+
+
+    // pub async fn debug_stream_basic(&self, alias: &str) -> ElusionResult<()> {
+    //     println!("🔍 DEBUG: Testing basic streaming for '{}'", alias);
+        
+    //     // Test 1: Check table registration
+    //     let ctx = SessionContext::new();
+    //     match self.register_all_tables(&ctx).await {
+    //         Ok(_) => println!("✅ Tables registered successfully"),
+    //         Err(e) => {
+    //             println!("❌ Table registration failed: {}", e);
+    //             return Err(e);
+    //         }
+    //     }
+        
+    //     // Test 2: Check SQL construction
+    //     let sql = self.construct_sql();
+    //     println!("🔍 Generated SQL: {}", sql);
+        
+    //     // Test 3: Try to create DataFrame
+    //     match ctx.sql(&sql).await {
+    //         Ok(df) => {
+    //             println!("✅ SQL executed successfully");
+                
+    //             // Test 4: Try to get schema
+    //             let schema = df.schema();
+    //             println!("📊 Result schema: {} columns", schema.fields().len());
+    //             for (i, field) in schema.fields().iter().enumerate() {
+    //                 println!("   {}: {} ({})", i + 1, field.name(), field.data_type());
+    //             }
+                
+    //             // Test 5: Try streaming
+    //             match df.execute_stream().await {
+    //                 Ok(mut stream) => {
+    //                     println!("✅ Stream created successfully");
+                        
+    //                     let mut batch_count = 0;
+    //                     while let Some(batch_result) = stream.next().await {
+    //                         match batch_result {
+    //                             Ok(batch) => {
+    //                                 batch_count += 1;
+    //                                 println!("📦 Batch {}: {} rows", batch_count, batch.num_rows());
+    //                                 if batch_count >= 3 { // Limit debug output
+    //                                     break;
+    //                                 }
+    //                             },
+    //                             Err(e) => {
+    //                                 println!("❌ Batch error: {}", e);
+    //                                 break;
+    //                             }
+    //                         }
+    //                     }
+    //                 },
+    //                 Err(e) => {
+    //                     println!("❌ Stream creation failed: {}", e);
+    //                     return Err(ElusionError::DataFusion(e));
+    //                 }
+    //             }
+    //         },
+    //         Err(e) => {
+    //             println!("❌ SQL execution failed: {}", e);
+    //             return Err(ElusionError::DataFusion(e));
+    //         }
+    //     }
+        
+    //     println!("✅ DEBUG: Basic streaming test completed");
+    //     Ok(())
+    // }
+
    
 }

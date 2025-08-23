@@ -208,6 +208,7 @@ pub use arrow::util::display::array_value_to_string as any_other_array_value_to_
 
 // ----- Stream
 pub use datafusion::physical_plan::SendableRecordBatchStream;
+pub use arrow::util::pretty::pretty_format_batches;
 
 //====== REDIS
 pub use crate::features::redis::{
