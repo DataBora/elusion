@@ -370,61 +370,62 @@ impl std::fmt::Display for InferredDataType {
 }
 
 fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
+    
     if samples.is_empty() {
         return InferredDataType::String;
     }
     
     let mut type_votes = HashMap::new();
+    let mut total_analyzed = 0;
     
-    for sample in samples.iter().take(50) { 
+    for sample in samples.iter().take(100) {
         let trimmed = sample.trim();
         
-        if NULL_VALUES.contains(trimmed) {
+        if NULL_VALUES.contains(trimmed) || trimmed.is_empty() {
             continue; 
         }
         
+        total_analyzed += 1;
         let detected_type = classify_value(trimmed);
         *type_votes.entry(detected_type).or_insert(0) += 1;
     }
     
-    let total_non_null = type_votes.values().sum::<i32>();
-    
-    if total_non_null == 0 {
+    if total_analyzed == 0 {
         return InferredDataType::String;
     }
 
-    let threshold = 0.75;
+    let int_count = *type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
+    let float_count = *type_votes.get(&InferredDataType::Float).unwrap_or(&0);
+    let bool_count = *type_votes.get(&InferredDataType::Boolean).unwrap_or(&0);
+    let date_count = *type_votes.get(&InferredDataType::Date).unwrap_or(&0);
     
-    // Priority order: Integer -> Float -> Boolean -> Date -> String
-    if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
-        if int_count as f32 / total_non_null as f32 > threshold {
-            return InferredDataType::Integer;
-        }
+    let numeric_count = int_count + float_count;
+    let numeric_ratio = numeric_count as f32 / total_analyzed as f32;
+
+    if int_count as f32 / total_analyzed as f32 >= 0.80 {
+        return InferredDataType::Integer;
     }
     
-    if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
-        let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-        if (float_count + int_count) as f32 / total_non_null as f32 > threshold {
-            return InferredDataType::Float;
-        }
+    if numeric_ratio >= 0.70 {
+        return InferredDataType::Float;
+    }
+
+    if bool_count as f32 / total_analyzed as f32 >= 0.80 {
+        return InferredDataType::Boolean;
     }
     
-    if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
-        if bool_count as f32 / total_non_null as f32 > threshold {
-            return InferredDataType::Boolean;
-        }
-    }
-    
-    if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
-        if date_count as f32 / total_non_null as f32 > threshold {
-            return InferredDataType::Date;
-        }
+    if date_count as f32 / total_analyzed as f32 >= 0.80 {
+        return InferredDataType::Date;
     }
     
     InferredDataType::String
 }
 
 fn classify_value(value: &str) -> InferredDataType {
+
+    if value.len() > 50 || value.contains('@') || value.contains("http") {
+        return InferredDataType::String;
+    }
 
     if INTEGER_PATTERN.is_match(value) {
         return InferredDataType::Integer;
@@ -809,7 +810,7 @@ fn is_valid_date_components(year: u32, month: u32, day: u32) -> bool {
 }
 
 fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data_type: &InferredDataType) -> String {
-   let quoted_original_col = format!("\"{}\"", original_col_name);
+    let quoted_original_col = format!("\"{}\"", original_col_name);
     let quoted_clean_col = format!("\"{}\"", clean_col_name);
     
     match data_type {
@@ -828,34 +829,31 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
             format!(
                 "CASE 
                     WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
-                    -- Pure integers
                     WHEN {} ~ '^[+-]?[0-9]+$' THEN CAST({} AS DOUBLE)
-                    -- Decimals with dot
                     WHEN {} ~ '^[+-]?[0-9]*\\.[0-9]+$' THEN CAST({} AS DOUBLE)
-                    -- European decimals with comma
                     WHEN {} ~ '^[+-]?[0-9]+,[0-9]+$' THEN CAST(REPLACE({}, ',', '.') AS DOUBLE)
-                    -- Remove % and convert percentages
-                    WHEN {} ~ '^[+-]?[0-9]*[.,]?[0-9]+%$' THEN 
-                        CAST(REPLACE(REPLACE({}, '%', ''), ',', '.') AS DOUBLE) / 100
-                    -- Remove currency symbols
-                    WHEN {} ~ '^[$€£¥₹]\\s*[+-]?[0-9,.]+$' OR {} ~ '^[+-]?[0-9,.]+\\s*[$€£¥₹]$' THEN
-                        CAST(REGEXP_REPLACE(REPLACE({}, ',', '.'), '[$€£¥₹\\s]', '', 'g') AS DOUBLE)
-                    -- Thousand separators (US format: 1,234.56)
-                    WHEN {} ~ '^[+-]?[0-9]{{1,3}}(,[0-9]{{3}})+\\.[0-9]{{1,2}}$' THEN
+                    WHEN {} ~ '^[+-]?[0-9]{{1,3}}(,[0-9]{{3}})+$' OR {} ~ '^[+-]?[0-9]{{1,3}}(,[0-9]{{3}})+\\.[0-9]{{1,2}}$' THEN
                         CAST(REPLACE({}, ',', '') AS DOUBLE)
-                    -- Thousand separators (EU format: 1.234,56)
-                    WHEN {} ~ '^[+-]?[0-9]{{1,3}}(\\.[0-9]{{3}})+,[0-9]{{1,2}}$' THEN
-                        CAST(REPLACE(REGEXP_REPLACE({}, '\\.(?=.*,)', '', 'g'), ',', '.') AS DOUBLE)
+                    WHEN {} ~ '%$' THEN CAST(REPLACE({}, '%', '') AS DOUBLE) / 100.0
+                    WHEN {} ~ '^[$€£¥₹]' OR {} ~ '[$€£¥₹]$' THEN
+                        CAST(REGEXP_REPLACE({}, '[$$€£¥₹,\\s]', '', 'g') AS DOUBLE)
                     ELSE NULL
                 END AS {}",
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
+                // NULL checks
+                quoted_original_col, quoted_original_col, quoted_original_col,
+                // Integers
+                quoted_original_col, quoted_original_col,
+                // Simple decimals
+                quoted_original_col, quoted_original_col,
+                // European decimals
+                quoted_original_col, quoted_original_col,
+                // US thousands (both with and without decimals)
+                quoted_original_col, quoted_original_col, quoted_original_col,
+                // Percentages
+                quoted_original_col, quoted_original_col,
+                // Currency
+                quoted_original_col, quoted_original_col, quoted_original_col,
+                // Final
                 quoted_clean_col
             )
         },
@@ -872,7 +870,6 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
             )
         },
         InferredDataType::Date | InferredDataType::String => {
-            // Keep as string
             format!("{} AS {}", quoted_original_col, quoted_clean_col)
         }
     }
@@ -953,65 +950,81 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
     }
 
     async fn get_sample_data_from_file_proven(
-        file_path: &str, 
-        delimiter: u8, 
-        sample_size: usize
-    ) -> ElusionResult<HashMap<String, Vec<String>>> {
-        use std::io::{BufRead, BufReader};
+    file_path: &str, 
+    delimiter: u8, 
+    sample_size: usize
+) -> ElusionResult<HashMap<String, Vec<String>>> {
+    use std::io::{BufRead, BufReader};
+    
+    println!("🔬 Reading {} sample rows directly from file for robust analysis...", sample_size);
+    
+    let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
+        path: file_path.to_string(),
+        operation: "sample_read".to_string(),
+        reason: e.to_string(),
+        suggestion: "💡 Check file permissions".to_string()
+    })?;
+    
+    let mut reader = BufReader::new(file);
+    
+    // Read header
+    let mut header_line = String::new();
+    reader.read_line(&mut header_line).map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
+    
+    let headers: Vec<String> = header_line.trim()
+        .split(delimiter as char)
+        .map(|s| s.trim().to_string())
+        .collect();
+    
+    println!("📋 Found {} columns in header", headers.len());
+    
+    // Initialize column samples
+    let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
+    for header in &headers {
+        column_samples.insert(header.clone(), Vec::new());
+    }
+    
+    // Read sample rows with better error handling
+    let mut rows_read = 0;
+    let mut parse_errors = 0;
+    
+    for line_result in reader.lines() {
+        if rows_read >= sample_size { break; }
         
-        println!("🔬 Reading {} sample rows directly from file...", sample_size);
-        
-        let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "sample_read".to_string(),
-            reason: e.to_string(),
-            suggestion: "💡 Check file permissions".to_string()
-        })?;
-        
-        let mut reader = BufReader::new(file);
-        
-        // Read header
-        let mut header_line = String::new();
-        reader.read_line(&mut header_line).map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
-        
-        let headers: Vec<String> = header_line.trim()
-            .split(delimiter as char)
-            .map(|s| s.trim().to_string())
-            .collect();
-        
-        println!("📋 Found {} columns in header", headers.len());
-        
-        // initialize column samples
-        let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
-        for header in &headers {
-            column_samples.insert(header.clone(), Vec::new());
-        }
-        
-        // directly from file
-        let mut rows_read = 0;
-        for line_result in reader.lines() {
-            if rows_read >= sample_size { break; }
-            
-            let line = line_result.map_err(|e| ElusionError::Custom(format!("Failed to read line: {}", e)))?;
-            let values: Vec<&str> = line.split(delimiter as char).collect();
-            
-            for (i, header) in headers.iter().enumerate() {
-                if let Some(value) = values.get(i) {
-                    let trimmed_value = value.trim();
-                    if !trimmed_value.is_empty() && trimmed_value != "null" {
-                        if let Some(samples) = column_samples.get_mut(header) {
-                            samples.push(trimmed_value.to_string());
+        match line_result {
+            Ok(line) => {
+                let values: Vec<&str> = line.split(delimiter as char).collect();
+                
+                // Handle mismatched column counts gracefully
+                for (i, header) in headers.iter().enumerate() {
+                    if let Some(value) = values.get(i) {
+                        let trimmed_value = value.trim().trim_matches('"'); // Remove quotes
+                        if !trimmed_value.is_empty() && trimmed_value != "null" {
+                            if let Some(samples) = column_samples.get_mut(header) {
+                                samples.push(trimmed_value.to_string());
+                            }
                         }
                     }
                 }
+                rows_read += 1;
+            },
+            Err(_) => {
+                parse_errors += 1;
+                if parse_errors > 10 { // Stop if too many parse errors
+                    println!("⚠️  Too many parse errors, stopping sample collection");
+                    break;
+                }
             }
-            rows_read += 1;
         }
-        
-        println!("✅ Read {} sample rows from file for schema detection", rows_read);
-        
-        Ok(column_samples)
     }
+    
+    println!("✅ Read {} sample rows from file for schema detection", rows_read);
+    if parse_errors > 0 {
+        println!("⚠️  Encountered {} parse errors (handled gracefully)", parse_errors);
+    }
+    
+    Ok(column_samples)
+}
 
     async fn create_streaming_csv_dataframe(
         file_path: &str,
@@ -1721,4 +1734,290 @@ mod tests {
         assert!(matches!(result, InferredDataType::Float), 
             "User scenario should be inferred as Float, got {:?}", result);
     }
+
+    #[cfg(test)]
+mod cross_system_tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_test_csv(content: &str, filename: &str, temp_dir: &TempDir) -> String {
+        let file_path = temp_dir.path().join(filename);
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file_path.to_str().unwrap().to_string()
+    }
+
+   #[tokio::test]
+    async fn test_user_reported_mixed_formats() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let problematic_csv = r#"id,neto_cena,neto_vrednost
+        1,1293.36,2500.00
+        2,"2,162.00",3000.50
+        3,1724.65,"1,500.75"
+        4,479.4,900.00
+        5,"3,880.08","2,250.00"
+        6,1211.66,1800.25"#;
+        
+        let csv_path = create_test_csv(problematic_csv, "user_scenario.csv", &temp_dir);
+        
+        let regular_result = load_csv_with_type_handling(&csv_path, "regular").await;
+        assert!(regular_result.is_ok(), "Regular loading should handle mixed formats: {:?}", regular_result.err());
+        
+        let streaming_result = load_csv_with_type_handling_streaming(&csv_path, "streaming").await;
+        assert!(streaming_result.is_ok(), "Streaming loading should handle mixed formats: {:?}", streaming_result.err());
+        
+        if let Ok(df) = regular_result {
+            let schema = df.dataframe.schema();
+            
+            let neto_cena_field = schema.field_with_name(None, "neto_cena").unwrap();
+            let neto_vrednost_field = schema.field_with_name(None, "neto_vrednost").unwrap();
+            
+            println!("🔍 Regular - neto_cena type: {:?}", neto_cena_field.data_type());
+            println!("🔍 Regular - neto_vrednost type: {:?}", neto_vrednost_field.data_type());
+            
+
+            assert!(matches!(neto_cena_field.data_type(), arrow::datatypes::DataType::Float64), 
+                "neto_cena should be Float64, got {:?}", neto_cena_field.data_type());
+        }
+    }
+
+    #[test]
+    fn test_international_number_formats() {
+        println!("🌍 Testing international number formats...");
+        
+        assert!(matches!(classify_value("1,234.56"), InferredDataType::Float));
+        assert!(matches!(classify_value("1,234,567.89"), InferredDataType::Float));
+        
+        assert!(matches!(classify_value("1.234,56"), InferredDataType::String)); 
+        assert!(matches!(classify_value("1.234.567,89"), InferredDataType::String));
+
+        let mixed_samples = vec![
+            "1,234.56".to_string(),  
+            "1234.56".to_string(), 
+            "2,500.00".to_string(), 
+            "invalid".to_string(),   
+        ];
+        let result = infer_column_type(&mixed_samples, "mixed_international");
+        println!("Mixed international formats result: {:?}", result);
+        assert!(matches!(result, InferredDataType::String | InferredDataType::Float));
+    }
+
+    #[test]
+    fn test_edge_cases_cross_system() {
+        println!("⚠️  Testing edge cases that might break cross-system...");
+        
+        // Very large numbers
+        assert!(matches!(classify_value("999999999999999"), InferredDataType::Integer));
+        assert!(matches!(classify_value("1,000,000,000,000.00"), InferredDataType::Float));
+        
+        assert!(matches!(classify_value("1.23e-10"), InferredDataType::String));
+        assert!(matches!(classify_value("2.5E+15"), InferredDataType::String));
+        
+        assert!(matches!(classify_value("€1,234.56"), InferredDataType::Float)); 
+        assert!(matches!(classify_value("£999.99"), InferredDataType::Float));  
+        assert!(matches!(classify_value("¥1,000"), InferredDataType::Float));   
+
+        assert!(matches!(classify_value(""), InferredDataType::String));
+        assert!(matches!(classify_value("   "), InferredDataType::String));
+        assert!(matches!(classify_value("\t"), InferredDataType::String));
+        assert!(matches!(classify_value("\r\n"), InferredDataType::String));
+        
+        assert!(matches!(classify_value("N/A"), InferredDataType::String));
+        assert!(matches!(classify_value("–"), InferredDataType::String)); 
+        assert!(matches!(classify_value("—"), InferredDataType::String)); 
+    }
+
+
+    #[tokio::test]
+    async fn test_sql_generation_cross_version() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,amount,percentage,currency
+        1,"1,234.56",85%,$500.00
+        2,2345.67,90%,€750.50
+        3,"3,456.78",95%,£1000.25"#;
+        
+        let csv_path = create_test_csv(csv_content, "sql_test.csv", &temp_dir);
+        
+        let result = load_csv_with_type_handling_streaming(&csv_path, "sql_test").await;
+        
+        match result {
+            Ok(_) => println!("✅ SQL generation works with current DataFusion version"),
+            Err(e) => {
+                println!("❌ SQL generation failed: {}", e);
+                // Check if it's a regex or SQL syntax error
+                let error_str = e.to_string();
+                if error_str.contains("regex") {
+                    panic!("Regex compatibility issue: {}", e);
+                } else if error_str.contains("SQL") || error_str.contains("syntax") {
+                    panic!("SQL syntax compatibility issue: {}", e);
+                } else {
+                    panic!("Unknown compatibility issue: {}", e);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_memory_efficiency_streaming() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let mut csv_content = String::from("id,value,amount\n");
+        for i in 1..=1000 {
+            csv_content.push_str(&format!("{},test_value_{},\"1,{:03}.00\"\n", i, i, i));
+        }
+        
+        let csv_path = create_test_csv(&csv_content, "large_test.csv", &temp_dir);
+        
+        let start_time = std::time::Instant::now();
+        let result = load_csv_with_type_handling_streaming(&csv_path, "large_streaming").await;
+        let load_duration = start_time.elapsed();
+        
+        assert!(result.is_ok(), "Large CSV streaming should work: {:?}", result.err());
+        assert!(load_duration < std::time::Duration::from_secs(5), 
+            "Streaming load took too long: {:?}", load_duration);
+        
+        println!("✅ Large CSV streaming completed in {:?}", load_duration);
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_edge_cases() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let tricky_csv = r#"name,description,amount
+        "Smith John","Software Engineer Senior","1,234.56"
+        "Doe Jane","Data Scientist Lead","2,345.67"
+        "Wilson Bob","Product Manager","3,456.78""#;
+        
+        let csv_path = create_test_csv(tricky_csv, "tricky_delimiters.csv", &temp_dir);
+        
+        let detected_delimiter = detect_delimiter(&csv_path).await.unwrap();
+        assert_eq!(detected_delimiter, b',', "Should correctly detect comma despite quoted content");
+        
+        let result = load_csv_with_type_handling(&csv_path, "tricky").await;
+        assert!(result.is_ok(), "Should handle quoted fields with internal delimiters: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_problematic_patterns() {
+        println!("🔍 Testing specific patterns that caused user errors...");
+        
+        let problematic_values = vec![
+            "3,880.08",  
+            "2,162.00",  
+            "1,293.36",  
+            "1,724.65", 
+        ];
+        
+        for value in problematic_values {
+            let classification = classify_value(value);
+            println!("Value '{}' → {:?}", value, classification);
+            
+            if value.contains(',') {
+                assert!(matches!(classification, InferredDataType::Float), 
+                    "Comma-separated value '{}' should be Float, got {:?}", value, classification);
+            } else {
+                assert!(matches!(classification, InferredDataType::Float), 
+                    "Decimal value '{}' should be Float, got {:?}", value, classification);
+            }
+        }
+    }
+
+    #[test]
+    fn test_column_inference_user_scenario() {
+        let user_data_samples = vec![
+            "1293.36".to_string(),
+            "1724.65".to_string(), 
+            "479.4".to_string(),
+            "1211.66".to_string(),
+            "2,162.00".to_string(),  
+            "3,880.08".to_string(),  
+        ];
+        
+        let result = infer_column_type(&user_data_samples, "neto_cena");
+        println!("User scenario column inference: {:?}", result);
+ 
+        assert!(matches!(result, InferredDataType::Float), 
+            "User's neto_cena column should be Float, got {:?}", result);
+    }
+
+    #[test]
+    fn test_sql_casting_safety() {
+        println!("🔒 Testing SQL casting expressions for safety...");
+        
+        let test_cases = vec![
+            ("normal_col", "amount"),
+            ("col with spaces", "col_with_spaces"),
+            ("col\"with\"quotes", "col_with_quotes"),
+            ("col'with'apostrophes", "col_with_apostrophes"),
+        ];
+        
+        for (original, clean) in test_cases {
+            let cast_expr = create_casting_expression(original, clean, &InferredDataType::Float);
+ 
+            assert!(cast_expr.contains(&format!("\"{}\"", original)));
+            assert!(cast_expr.contains(&format!("\"{}\"", clean)));
+            
+            // Should not contain unescaped quotes
+            let quote_count = cast_expr.matches('"').count();
+            assert!(quote_count >= 4, "Expression should have properly quoted column names");
+            
+            println!("✅ Safe casting for '{}' → '{}'", original, clean);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_backward_compatibility() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let simple_csv = r#"id,name,amount
+        1,Alice,100.50
+        2,Bob,200.75
+        3,Carol,300.25"#;
+        
+        let csv_path = create_test_csv(simple_csv, "simple.csv", &temp_dir);
+        
+        let regular_result = load_csv_with_type_handling(&csv_path, "regular_compat").await;
+        let streaming_result = load_csv_with_type_handling_streaming(&csv_path, "streaming_compat").await;
+        
+        assert!(regular_result.is_ok(), "Regular approach should still work");
+        assert!(streaming_result.is_ok(), "Streaming approach should still work");
+        
+        if let (Ok(regular_df), Ok(streaming_df)) = (regular_result, streaming_result) {
+            assert_eq!(
+                regular_df.dataframe.schema().fields().len(),
+                streaming_df.dataframe.schema().fields().len(),
+                "Both approaches should produce same number of columns"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_performance_regression() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let mut csv_content = String::from("id,product,price,discount,final_amount\n");
+        for i in 1..=500 {
+            csv_content.push_str(&format!(
+                "{},Product {},\"1,{:03}.{:02}\",{}%,\"2,{:03}.{:02}\"\n", 
+                i, i, i, i % 100, i % 10, i * 2, (i * 2) % 100
+            ));
+        }
+        
+        let csv_path = create_test_csv(&csv_content, "performance_test.csv", &temp_dir);
+        
+        let start_time = std::time::Instant::now();
+        let result = load_csv_with_type_handling_streaming(&csv_path, "perf_test").await;
+        let duration = start_time.elapsed();
+        
+        assert!(result.is_ok(), "Performance test should succeed: {:?}", result.err());
+        
+        assert!(duration < std::time::Duration::from_secs(10), 
+            "Performance test took too long: {:?}", duration);
+        
+        println!("✅ Performance test completed in {:?}", duration);
+    }
+}
 }

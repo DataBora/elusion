@@ -16,7 +16,7 @@ categories = ["data-structures"]
 datafusion = "43.0.0"
 deltalake = "0.23.0"
 arrow = { version = "53.2.0", features = ["ipc"]}
-chrono = {version = "0.4.38", features = ["serde"]} #arrow-arith has same Quarter function
+chrono = {version = "=0.4.38", features = ["serde"]} #arrow-arith has same Quarter function
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 futures = "0.3.31"
 regex = "1.11.1"

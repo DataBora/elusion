@@ -127,7 +127,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.3.1"
+elusion = "5.3.2"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -180,25 +180,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.3.1", features = ["postgres"] }
+elusion = { version = "5.3.2", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.3.1"
+elusion = "5.3.2"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.3.1", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "5.3.2", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.3.1", features = ["all"] }
+elusion = { version = "5.3.2", features = ["all"] }
 ```
 
 ### Feature Implications

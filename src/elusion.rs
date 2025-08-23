@@ -3267,7 +3267,7 @@ impl CustomDataFrame {
         } else {
             sql
         };
-       // println!("{:?}", final_sql);
+      //  println!("{:?}", final_sql);
 
         // Execute the SQL query with context-aware error handling
         let df = ctx.sql(&final_sql).await
@@ -7063,6 +7063,5 @@ impl CustomDataFrame {
             uses_group_by_all: false
         })
     }
-
    
 }
