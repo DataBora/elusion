@@ -1,3 +1,7 @@
+## [5.3.2] - 2025-08-23
+## Fixed
+- Enhanced float types conversion for different qurencies and edge cases and formats for Streaming loading - new_with_stream() on different systems
+
 ## [5.3.1] - 2025-08-22
 ## Fixed
 - Enhanced float types conversion for US and EU format for Streaming loading - new_with_stream() on different systems
