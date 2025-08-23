@@ -369,58 +369,6 @@ impl std::fmt::Display for InferredDataType {
     }
 }
 
-// fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
-    
-//     if samples.is_empty() {
-//         return InferredDataType::String;
-//     }
-    
-//     let mut type_votes = HashMap::new();
-//     let mut total_analyzed = 0;
-    
-//     for sample in samples.iter().take(100) {
-//         let trimmed = sample.trim();
-        
-//         if NULL_VALUES.contains(trimmed) || trimmed.is_empty() {
-//             continue; 
-//         }
-        
-//         total_analyzed += 1;
-//         let detected_type = classify_value(trimmed);
-//         *type_votes.entry(detected_type).or_insert(0) += 1;
-//     }
-    
-//     if total_analyzed == 0 {
-//         return InferredDataType::String;
-//     }
-
-//     let int_count = *type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-//     let float_count = *type_votes.get(&InferredDataType::Float).unwrap_or(&0);
-//     let bool_count = *type_votes.get(&InferredDataType::Boolean).unwrap_or(&0);
-//     let date_count = *type_votes.get(&InferredDataType::Date).unwrap_or(&0);
-    
-//     let numeric_count = int_count + float_count;
-//     let numeric_ratio = numeric_count as f32 / total_analyzed as f32;
-
-//     if int_count as f32 / total_analyzed as f32 >= 0.80 {
-//         return InferredDataType::Integer;
-//     }
-    
-//     if numeric_ratio >= 0.70 {
-//         return InferredDataType::Float;
-//     }
-
-//     if bool_count as f32 / total_analyzed as f32 >= 0.80 {
-//         return InferredDataType::Boolean;
-//     }
-    
-//     if date_count as f32 / total_analyzed as f32 >= 0.80 {
-//         return InferredDataType::Date;
-//     }
-    
-//     InferredDataType::String
-// }
-
 fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
     if samples.is_empty() {
         return InferredDataType::String;
@@ -477,7 +425,19 @@ fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
 
 fn classify_value(value: &str) -> InferredDataType {
 
-    if value.len() > 50 || value.contains('@') || value.contains("http") {
+    let len = value.len();
+    if len == 0 || len > 100 {
+        return InferredDataType::String;
+    }
+
+    let has_letters = value.chars().any(|c| c.is_alphabetic() && !matches!(c, 'e' | 'E')); // Allow scientific notation
+    let has_at_or_url = value.contains('@') || value.contains("http") || value.contains("www");
+    
+    if has_letters {
+        return InferredDataType::String;
+    }
+
+    if has_at_or_url {
         return InferredDataType::String;
     }
 
@@ -529,7 +489,6 @@ fn classify_value(value: &str) -> InferredDataType {
     InferredDataType::String
 }
 
-// Simple validation for thousand separator numbers
 fn is_valid_thousand_separator_number(value: &str) -> bool {
     let cleaned = value.trim_start_matches(['+', '-']);
     
@@ -924,13 +883,12 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
             )
         },
         InferredDataType::Date | InferredDataType::String => {
-            format!(
+           format!(
                 "CASE 
                     WHEN {} IS NULL THEN NULL
-                    WHEN TRIM({}) = '' THEN NULL
                     ELSE {}
                 END AS {}", 
-                quoted_original_col, quoted_original_col, quoted_original_col, quoted_clean_col
+                quoted_original_col, quoted_original_col, quoted_clean_col
             )
         }
     }
@@ -1002,7 +960,7 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
         println!("✅ Streaming schema applied in {:?}", casting_start.elapsed());
         println!("🎉 Streaming {} DataFrame setup completed in {:?} for table alias: '{}'", 
             delimiter_name, total_elapsed, alias);
-        println!("💡 Data will be processed in chunks when .elusion() is called");
+        println!("💡 Data will be processed in chunks when .elusion_streaming() is called. (don't call .elusion() when streaming)");
 
         Ok(AliasedDataFrame {
             dataframe: df,
@@ -1011,81 +969,80 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
     }
 
     async fn get_sample_data_from_file_proven(
-    file_path: &str, 
-    delimiter: u8, 
-    sample_size: usize
-) -> ElusionResult<HashMap<String, Vec<String>>> {
-    use std::io::{BufRead, BufReader};
-    
-    println!("🔬 Reading {} sample rows directly from file for robust analysis...", sample_size);
-    
-    let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
-        path: file_path.to_string(),
-        operation: "sample_read".to_string(),
-        reason: e.to_string(),
-        suggestion: "💡 Check file permissions".to_string()
-    })?;
-    
-    let mut reader = BufReader::new(file);
-    
-    // Read header
-    let mut header_line = String::new();
-    reader.read_line(&mut header_line).map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
-    
-    let headers: Vec<String> = header_line.trim()
-        .split(delimiter as char)
-        .map(|s| s.trim().to_string())
-        .collect();
-    
-    println!("📋 Found {} columns in header", headers.len());
-    
-    // Initialize column samples
-    let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
-    for header in &headers {
-        column_samples.insert(header.clone(), Vec::new());
-    }
-    
-    // Read sample rows with better error handling
-    let mut rows_read = 0;
-    let mut parse_errors = 0;
-    
-    for line_result in reader.lines() {
-        if rows_read >= sample_size { break; }
+        file_path: &str, 
+        delimiter: u8, 
+        sample_size: usize
+    ) -> ElusionResult<HashMap<String, Vec<String>>> {
         
-        match line_result {
-            Ok(line) => {
-                let values: Vec<&str> = line.split(delimiter as char).collect();
-                
-                // Handle mismatched column counts gracefully
-                for (i, header) in headers.iter().enumerate() {
-                    if let Some(value) = values.get(i) {
-                        let trimmed_value = value.trim().trim_matches('"'); // Remove quotes
-                        if !trimmed_value.is_empty() && trimmed_value != "null" {
-                            if let Some(samples) = column_samples.get_mut(header) {
-                                samples.push(trimmed_value.to_string());
+        println!("🔬 Reading {} sample rows directly from file for robust analysis...", sample_size);
+        
+        let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
+            path: file_path.to_string(),
+            operation: "sample_read".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check file permissions".to_string()
+        })?;
+        
+        let mut reader = BufReader::new(file);
+        
+        // Read header
+        let mut header_line = String::new();
+        reader.read_line(&mut header_line).map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
+        
+        let headers: Vec<String> = header_line.trim()
+            .split(delimiter as char)
+            .map(|s| s.trim().trim_matches('"').to_string()) 
+            .collect();
+        
+        println!("📋 Found {} columns in header", headers.len());
+        
+        // Initialize column samples
+        let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
+        for header in &headers {
+            column_samples.insert(header.clone(), Vec::new());
+        }
+        
+        // Read sample rows with better error handling
+        let mut rows_read = 0;
+        let mut parse_errors = 0;
+        
+        for line_result in reader.lines() {
+            if rows_read >= sample_size { break; }
+            
+            match line_result {
+                Ok(line) => {
+                    let values: Vec<&str> = line.split(delimiter as char).collect();
+                    
+                    // Handle mismatched column counts gracefully
+                    for (i, header) in headers.iter().enumerate() {
+                        if let Some(value) = values.get(i) {
+                            let trimmed_value = value.trim().trim_matches('"'); // Remove quotes
+                            if trimmed_value.len() <= 500 { // Include ALL values for proper sampling
+                                if let Some(samples) = column_samples.get_mut(header) {
+                                    samples.push(trimmed_value.to_string());
+                                }
                             }
                         }
                     }
-                }
-                rows_read += 1;
-            },
-            Err(_) => {
-                parse_errors += 1;
-                if parse_errors > 10 { // Stop if too many parse errors
-                    println!("⚠️  Too many parse errors, stopping sample collection");
-                    break;
+                    rows_read += 1;
+                },
+                Err(_) => {
+                    parse_errors += 1;
+                    if parse_errors > 10 { // Stop if too many parse errors
+                        println!("⚠️  Too many parse errors, stopping sample collection");
+                        break;
+                    }
                 }
             }
         }
+        
+        println!("✅ Read {} sample rows from file for schema detection", rows_read);
+        if parse_errors > 0 {
+            println!("⚠️  Encountered {} parse errors (handled gracefully)", parse_errors);
+        }
+        
+        Ok(column_samples)
     }
-    
-    println!("✅ Read {} sample rows from file for schema detection", rows_read);
-    if parse_errors > 0 {
-        println!("⚠️  Encountered {} parse errors (handled gracefully)", parse_errors);
-    }
-    
-    Ok(column_samples)
-}
 
     async fn create_streaming_csv_dataframe(
         file_path: &str,
@@ -1139,7 +1096,7 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
     pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
         load_csv_with_type_handling_streaming(file_path, alias).await
     }
-//==========================================================================
+//====================== TESTING ====================================================
 
 #[cfg(test)]
 fn debug_regex_matches() {
@@ -1797,18 +1754,18 @@ mod tests {
     }
 
     #[cfg(test)]
-mod cross_system_tests {
-    use super::*;
-    use std::fs::File;
-    use std::io::Write;
-    use tempfile::TempDir;
+    mod cross_system_tests {
+        use super::*;
+        use std::fs::File;
+        use std::io::Write;
+        use tempfile::TempDir;
 
-    fn create_test_csv(content: &str, filename: &str, temp_dir: &TempDir) -> String {
-        let file_path = temp_dir.path().join(filename);
-        let mut file = File::create(&file_path).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        file_path.to_str().unwrap().to_string()
-    }
+        fn create_test_csv(content: &str, filename: &str, temp_dir: &TempDir) -> String {
+            let file_path = temp_dir.path().join(filename);
+            let mut file = File::create(&file_path).unwrap();
+            file.write_all(content.as_bytes()).unwrap();
+            file_path.to_str().unwrap().to_string()
+        }
 
    #[tokio::test]
     async fn test_user_reported_mixed_formats() {
@@ -2081,4 +2038,318 @@ mod cross_system_tests {
         println!("✅ Performance test completed in {:?}", duration);
     }
 }
+}
+
+
+
+
+#[cfg(test)]
+mod cross_platform_tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn create_cross_platform_csv(content: &str, filename: &str, temp_dir: &TempDir, line_ending: &str) -> String {
+        let file_path = temp_dir.path().join(filename);
+        let mut file = File::create(&file_path).unwrap();
+        
+        let content_with_endings = content.replace("\n", line_ending);
+        file.write_all(content_with_endings.as_bytes()).unwrap();
+        file_path.to_str().unwrap().to_string()
+    }
+
+    fn create_csv_with_bom(content: &str, filename: &str, temp_dir: &TempDir) -> String {
+        let file_path = temp_dir.path().join(filename);
+        let mut file = File::create(&file_path).unwrap();
+  
+        file.write_all(&[0xEF, 0xBB, 0xBF]).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file_path.to_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn test_windows_line_endings() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,city,amount
+        1,John Doe,BEOGRAD - CENTAR,1250.50
+        2,Jane Smith,,2340.75
+        3,Bob Wilson,NOVI SAD - PETROVARADIN,1890.25
+        4,Alice Brown,ZAGREB - DONJI GRAD,3240.00
+        5,Mike Johnson,,1456.80"#;
+        
+        let csv_path = create_cross_platform_csv(csv_content, "windows_test.csv", &temp_dir, "\r\n");
+        
+        println!("🪟 Testing Windows CRLF line endings...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "windows_csv").await;
+        assert!(result.is_ok(), "Windows CRLF should work: {:?}", result.err());
+        
+        if let Ok(df) = result {
+            let schema = df.dataframe.schema();
+            assert_eq!(schema.fields().len(), 4, "Should have 4 columns");
+
+            let city_field = schema.field_with_name(None, "city");
+            assert!(city_field.is_ok(), "City column should exist");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_unix_line_endings() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,city,amount
+        1,John Doe,BEOGRAD - CENTAR,1250.50
+        2,Jane Smith,,2340.75
+        3,Bob Wilson,NOVI SAD - PETROVARADIN,1890.25"#;
+        
+        let csv_path = create_cross_platform_csv(csv_content, "unix_test.csv", &temp_dir, "\n");
+        
+        println!("🐧 Testing Unix LF line endings...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "unix_csv").await;
+        assert!(result.is_ok(), "Unix LF should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_mac_classic_line_endings() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,city,amount
+        1,John Doe,BEOGRAD - CENTAR,1250.50
+        2,Jane Smith,,2340.75"#;
+        
+        // Test Mac Classic CR line endings
+        let csv_path = create_cross_platform_csv(csv_content, "mac_test.csv", &temp_dir, "\r");
+        
+        println!("🍎 Testing Mac Classic CR line endings...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "mac_csv").await;
+        assert!(result.is_ok(), "Mac CR should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_csv_with_bom() {
+        let temp_dir = TempDir::new().unwrap();
+        let csv_content = r#"id,name,city,amount
+        1,John Doe,BEOGRAD - CENTAR,1250.50
+        2,Jane Smith,,2340.75
+        3,Bob Wilson,NOVI SAD - PETROVARADIN,1890.25"#;
+        
+        let csv_path = create_csv_with_bom(csv_content, "bom_test.csv", &temp_dir);
+        
+        println!("📄 Testing CSV with UTF-8 BOM...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "bom_csv").await;
+        assert!(result.is_ok(), "CSV with BOM should work: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_mixed_empty_and_filled_city_column() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let csv_content = r#"broj_transakcija,ukupna_kolicina,ukupna_vrednost,pharm,regionale,kolicina,neto_vrednost,mesto,region_rank
+        1,3,4889.88,Lekovit,Kosovo,3,4889.88,PRISTINA - CENTAR,1
+        1,12,3294.0,Lekovit,Kosovo,12,3294.0,,2
+        1,11,14226.96,Lekovit,Kosovo,11,14226.96,PRISTINA - NORD,3
+        1,4,5756.4,Lekovit,Kosovo,4,5756.4,,4
+        1,80,45492.0,Inpharm,DM,80,45492.0,BEOGRAD - VRACAR,1
+        1,56,33320.0,Inpharm,DM,56,33320.0,,2
+        1,324,84823.2,Inpharm,DM,324,84823.2,BEOGRAD - NOVI BEOGRAD,3"#;
+        
+        let csv_path = create_cross_platform_csv(csv_content, "mixed_cities.csv", &temp_dir, "\r\n");
+        
+        println!("🏙️ Testing mixed empty and filled city columns...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "mixed_cities").await;
+        assert!(result.is_ok(), "Mixed city data should work: {:?}", result.err());
+        
+        if let Ok(df) = result {
+            let schema = df.dataframe.schema();
+            let mesto_field = schema.field_with_name(None, "mesto");
+            assert!(mesto_field.is_ok(), "Mesto column should exist and be properly typed");
+            
+            if let Ok(field) = mesto_field {
+                match field.data_type() {
+                    arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8 => {
+                        println!("✅ Mesto column correctly typed as string");
+                    },
+                    other => panic!("Mesto should be string type, got {:?}", other)
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_various_encodings() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let csv_content = r#"id,name,grad,region
+        1,Милан Петровић,БЕОГРАД - ВРАЧАР,Војводина
+        2,Marko Jovanović,NOVI SAD - ЦЕНТАР,Војводина  
+        3,Ana Nikolić,NIŠ - ПАЛИЛУЛА,Централна Србија
+        4,Петар Стојановић,,Централна Србија"#;
+        
+        let csv_path = create_cross_platform_csv(csv_content, "serbian_chars.csv", &temp_dir, "\r\n");
+        
+        println!("🇷🇸 Testing Serbian characters (Cyrillic/Latin mix)...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "serbian_csv").await;
+
+        match result {
+            Ok(_) => println!("✅ Serbian characters handled correctly"),
+            Err(e) => {
+                println!("⚠️ Serbian characters failed (encoding issue): {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delimiter_detection_cross_platform() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Test each delimiter with Windows line endings
+        let test_cases = vec![
+            ("comma", ",", r#"a,b,c
+            1,2,3
+            4,5,6"#),
+            ("semicolon", ";", r#"a;b;c
+            1;2;3
+            4;5;6"#),
+            ("tab", "\t", "a\tb\tc\n1\t2\t3\n4\t5\t6"),
+            ("pipe", "|", r#"a|b|c
+            1|2|3
+            4|5|6"#),
+        ];
+        
+        for (name, expected_delim, content) in test_cases {
+            let csv_path = create_cross_platform_csv(content, &format!("{}_test.csv", name), &temp_dir, "\r\n");
+            
+            println!("🔍 Testing {} delimiter detection...", name);
+            let detected = detect_delimiter(&csv_path).await;
+            
+            match detected {
+                Ok(delim) => {
+                    let expected_byte = expected_delim.as_bytes()[0];
+                    assert_eq!(delim, expected_byte, "Should detect {} delimiter", name);
+                    println!("✅ {} delimiter detected correctly", name);
+                },
+                Err(e) => panic!("Delimiter detection failed for {}: {}", name, e)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_system_locale_numbers() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let csv_content = r#"id,amount_us,amount_eu,percentage
+            1,"1,234.56","1.234,56",85%
+            2,"2,345.67","2.345,67",90%
+            3,"999.99","999,99",95%"#;
+        
+        let csv_path = create_cross_platform_csv(csv_content, "locale_numbers.csv", &temp_dir, "\r\n");
+        
+        println!("🌍 Testing system locale number handling...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "locale_test").await;
+        
+        match result {
+            Ok(df) => {
+                let schema = df.dataframe.schema();
+                println!("✅ Locale number test completed, {} columns", schema.fields().len());
+                
+                let amount_us = schema.field_with_name(None, "amount_us");
+                let amount_eu = schema.field_with_name(None, "amount_eu");
+                
+                if let (Ok(us_field), Ok(eu_field)) = (amount_us, amount_eu) {
+                    println!("US amount type: {:?}", us_field.data_type());
+                    println!("EU amount type: {:?}", eu_field.data_type());
+                }
+            },
+            Err(e) => println!("⚠️ Locale number test failed: {}", e)
+        }
+    }
+
+    // Integration test that combines everything
+    #[tokio::test]
+    async fn test_comprehensive_cross_platform() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let comprehensive_content = r#"broj_transakcija,ukupna_kolicina,ukupna_vrednost,veledrogerija,region,kolicina,neto_vrednost,mesto,mesec
+        1,3,4889.88,Lekovit,Kosovo,3,4889.88,PRISTINA - CENTAR,Januar
+        1,12,3294.0,Lekovit,Kosovo,12,3294.0,,Januar
+        1,11,14226.96,Lekovit,Kosovo,11,14226.96,PRISTINA - NOORD,Februar
+        1,4,5756.4,Lekovit,Kosovo,4,5756.4,,Februar
+        1,80,45492.0,Inpharm,DM,80,45492.0,BEOGRAD - VRACAR,Mart
+        1,56,33320.0,Inpharm,DM,56,33320.0,,Mart
+        1,324,84823.2,Inpharm,DM,324,84823.2,NOVI SAD - PETROVARADIN,April
+        2,100,23688.0,Inpharm,DM,50,11844.0,,April"#;
+        
+        let csv_path = create_cross_platform_csv(comprehensive_content, "comprehensive.csv", &temp_dir, "\r\n");
+        
+        println!("🎯 Running comprehensive cross-platform test...");
+        let start_time = std::time::Instant::now();
+        
+        let result = load_csv_with_type_handling_streaming(&csv_path, "comprehensive").await;
+        let load_time = start_time.elapsed();
+        
+        assert!(result.is_ok(), "Comprehensive test should work: {:?}", result.err());
+        
+        if let Ok(df) = result {
+            let schema = df.dataframe.schema();
+            
+            let expected_columns = ["broj_transakcija", "ukupna_kolicina", "ukupna_vrednost", 
+                                  "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto", "mesec"];
+            
+            for col_name in expected_columns {
+                let field = schema.field_with_name(None, col_name);
+                assert!(field.is_ok(), "Column '{}' should exist", col_name);
+            }
+            
+            let mesto_field = schema.field_with_name(None, "mesto").unwrap();
+            assert!(matches!(mesto_field.data_type(), 
+                arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8),
+                "Mesto should be string type, got {:?}", mesto_field.data_type());
+            
+            println!("✅ Comprehensive test passed in {:?}", load_time);
+            println!("📊 Schema: {} columns", schema.fields().len());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_real_world_query_pattern() {
+        let temp_dir = TempDir::new().unwrap();
+        
+        let realistic_data = r#"broj_transakcija,ukupna_kolicina,ukupna_vrednost,veledrogerija,region,kolicina,neto_vrednost,mesto,mesec
+        1,3,4889.88,Lekovit,Kosovo,3,4889.88,PRISTINA - CENTAR,Januar
+        1,12,3294.0,Lekovit,Kosovo,12,3294.0,,Januar  
+        1,11,14226.96,Lekovit,Kosovo,11,14226.96,GNJILANE - CENTAR,Januar
+        1,4,5756.4,Lekovit,Kosovo,4,5756.4,,Januar
+        1,80,45492.0,Inpharm,DM,80,45492.0,BEOGRAD - VRACAR,Januar
+        1,56,33320.0,Inpharm,DM,56,33320.0,,Januar
+        1,324,84823.2,Inpharm,DM,324,84823.2,NOVI SAD - PETROVARADIN,Januar
+        1,200,47376.0,Inpharm,DM,100,23688.0,,Januar
+        1,1152,113702.4,Inpharm,DM,1152,113702.4,BEOGRAD - NOVI BEOGRAD,Februar
+        1,288,39254.4,Inpharm,DM,288,39254.4,,Februar"#;
+        
+        let csv_path = create_cross_platform_csv(realistic_data, "realistic.csv", &temp_dir, "\r\n");
+        
+        println!("🚀 Testing with realistic data and query pattern...");
+        let result = load_csv_with_type_handling_streaming(&csv_path, "realistic_data").await;
+        
+        assert!(result.is_ok(), "Realistic data loading should work: {:?}", result.err());
+        
+        if let Ok(df) = result {
+            let schema = df.dataframe.schema();
+            
+            let checks = vec![
+                ("mesto", "city data"),
+                ("neto_vrednost", "numeric amounts"),
+                ("veledrogerija", "pharmacy names"),
+                ("region", "region names"),
+                ("mesec", "month names")
+            ];
+            
+            for (col_name, description) in checks {
+                let field = schema.field_with_name(None, col_name);
+                assert!(field.is_ok(), "Column '{}' ({}) should exist", col_name, description);
+                
+                if let Ok(f) = field {
+                    println!("✅ {} ({}): {:?}", col_name, description, f.data_type());
+                }
+            }
+        }
+    }
 }

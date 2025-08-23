@@ -934,8 +934,214 @@ fn benchmark_cache_comparison(c: &mut Criterion) {
 }
 }
 
+fn benchmark_platform_specific_performance(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let archive_df = rt.block_on(setup_large_archive()).unwrap();
+    
+    let mut group = c.benchmark_group("Platform_Specific_Performance");
+    group.sample_size(30);
+    group.measurement_time(std::time::Duration::from_secs(90));
+    
+    group.bench_function("memory_intensive_groupby", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "veledrogerija",
+                    "ustanova", 
+                    "proizvod",
+                    "grupa",
+                    "region",
+                    "mesto",
+                    "mesec",
+                    "godina",
+                    "neto_vrednost"
+                ])
+                .agg([
+                    "COUNT(*) AS count",
+                    "SUM(neto_vrednost) AS total",
+                    "AVG(neto_vrednost) AS avg",
+                    "MIN(neto_vrednost) AS min_val",
+                    "MAX(neto_vrednost) AS max_val"
+                ])
+                .group_by_all() 
+                .limit(1000)
+                .elusion("memory_intensive_test")
+                .await
+                .unwrap()
+        })
+    }));
+   
+    group.bench_function("floating_point_calculations", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "neto_vrednost",
+                    "bruto_vrednost_prometa",
+                    "neto_cena",
+                    "kolicina"
+                ])
+                .string_functions([
+                    "CAST(neto_vrednost AS DOUBLE) * 1.21 AS with_tax",
+                    "ROUND(neto_cena * kolicina, 2) AS calculated_total",
+                    "SQRT(neto_vrednost) AS sqrt_value",
+                    "LOG(neto_vrednost + 1) AS log_value"  // +1 to avoid log(0)
+                ])
+                .filter("neto_vrednost > 0")
+                .limit(10000)
+                .elusion("floating_point_test")
+                .await
+                .unwrap()
+        })
+    }));
+    
+    group.finish();
+}
+
+
+
+fn benchmark_concurrency_performance(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (sales_df, customers_df, products_df, _) = rt.block_on(setup_test_dataframes()).unwrap();
+    
+    let mut group = c.benchmark_group("Concurrency_Performance");
+    group.sample_size(20);
+    group.measurement_time(std::time::Duration::from_secs(120));
+    
+    group.bench_function("parallel_joins", |b| b.iter(|| {
+        rt.block_on(async {
+
+            let join1 = sales_df.clone()
+                .join(customers_df.clone(), ["se.CustomerKey = c.CustomerKey"], "INNER")
+                .agg(["COUNT(*) AS count1"])
+                .group_by_all();
+                
+            let join2 = sales_df.clone()
+                .join(products_df.clone(), ["se.ProductKey = p.ProductKey"], "INNER")
+                .agg(["SUM(se.OrderQuantity) AS total_qty"])
+                .group_by_all();
+            
+            let _result1 = join1.elusion("parallel_test1").await.unwrap();
+            let _result2 = join2.elusion("parallel_test2").await.unwrap();
+        })
+    }));
+    
+    group.finish();
+}
+
+// Test system-specific data type handling
+fn benchmark_data_type_performance(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let archive_df = rt.block_on(setup_large_archive()).unwrap();
+    
+    let mut group = c.benchmark_group("Data_Type_Performance");
+    group.sample_size(40);
+    group.measurement_time(std::time::Duration::from_secs(80));
+    
+    // 32-bit vs 64-bit
+    group.bench_function("integer_operations", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "kolicina",
+                    "godina"
+                ])
+                .agg([
+                    "SUM(kolicina) AS total_qty",
+                    "COUNT(*) AS count",
+                    "MAX(kolicina) AS max_qty",
+                    "MIN(godina) AS min_year"
+                ])
+                .group_by_all()
+                .elusion("integer_ops")
+                .await
+                .unwrap()
+        })
+    }));
+    
+    group.bench_function("string_operations_unicode", |b| b.iter(|| {
+        rt.block_on(async {
+            archive_df.clone()
+                .select([
+                    "naziv_proizvoda",
+                    "naziv_ustanove"
+                ])
+                .string_functions([
+                    "UPPER(naziv_proizvoda) AS upper_product",
+                    "LENGTH(naziv_ustanove) AS institution_length",
+                    "SUBSTRING(naziv_proizvoda, 1, 10) AS product_short"
+                ])
+                .filter("naziv_proizvoda IS NOT NULL")
+                .limit(5000)
+                .elusion("string_unicode_ops")
+                .await
+                .unwrap()
+        })
+    }));
+    
+    group.finish();
+}
+
+fn benchmark_csv_type_inference_cross_platform(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    
+    let mut group = c.benchmark_group("CSV_Type_Inference_Cross_Platform");
+    group.sample_size(30);
+    group.measurement_time(std::time::Duration::from_secs(90));
+    
+    group.bench_function("empty_string_handling_performance", |b| b.iter(|| {
+        rt.block_on(async {
+            let df = CustomDataFrame::new_with_stream("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "empty_string_test").await.unwrap();
+            
+            // Query that specifically tests empty string columns (like mesto)
+            df.select([
+                    "mesto", 
+                    "veledrogerija",
+                    "region",
+                    "neto_vrednost"
+                ])
+                .filter("neto_vrednost > 0") 
+                .agg([
+                    "COUNT(*) AS total_records",
+                    "COUNT(mesto) AS non_empty_mesto" 
+                ])
+                .group_by_all()
+                .elusion("empty_string_perf")
+                .await
+                .unwrap()
+        })
+    }));
+    
+    // Test number format parsing across different locales/systems
+    group.bench_function("number_format_parsing", |b| b.iter(|| {
+        rt.block_on(async {
+            let df = CustomDataFrame::new_with_stream("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "number_format_test").await.unwrap();
+            
+            df.select([
+                    "neto_vrednost",
+                    "neto_cena",
+                    "bruto_vrednost_prometa"
+                ])
+                .agg([
+                    "SUM(neto_vrednost) AS total_net_value",
+                    "AVG(neto_cena) AS avg_net_price",
+                    "MAX(bruto_vrednost_prometa) AS max_gross"
+                ])
+                .group_by_all()
+                .elusion("number_parsing_perf")
+                .await
+                .unwrap()
+        })
+    }));
+    
+    group.finish();
+}
+
 criterion_group!(
     benches, 
+    benchmark_platform_specific_performance,                
+    benchmark_concurrency_performance,     
+    benchmark_data_type_performance,    
+    benchmark_csv_type_inference_cross_platform,
     benchmark_cache_comparison,
     benchmark_star_selection_patterns,
     benchmark_groupby_alias_scenarios,
