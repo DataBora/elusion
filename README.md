@@ -74,8 +74,8 @@ Async Support: Built on tokio for non-blocking operations.
 - SharePoint: Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
 
 ### 🚀 High-Performance DataFrame Query Operations
-Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
-SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
+- Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
+- SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
 ---
 ### 🏪 Caching and Views (Native)
 The caching and views functionality offer several significant advantages over regular querying:
