@@ -369,53 +369,107 @@ impl std::fmt::Display for InferredDataType {
     }
 }
 
-fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
+// fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
     
+//     if samples.is_empty() {
+//         return InferredDataType::String;
+//     }
+    
+//     let mut type_votes = HashMap::new();
+//     let mut total_analyzed = 0;
+    
+//     for sample in samples.iter().take(100) {
+//         let trimmed = sample.trim();
+        
+//         if NULL_VALUES.contains(trimmed) || trimmed.is_empty() {
+//             continue; 
+//         }
+        
+//         total_analyzed += 1;
+//         let detected_type = classify_value(trimmed);
+//         *type_votes.entry(detected_type).or_insert(0) += 1;
+//     }
+    
+//     if total_analyzed == 0 {
+//         return InferredDataType::String;
+//     }
+
+//     let int_count = *type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
+//     let float_count = *type_votes.get(&InferredDataType::Float).unwrap_or(&0);
+//     let bool_count = *type_votes.get(&InferredDataType::Boolean).unwrap_or(&0);
+//     let date_count = *type_votes.get(&InferredDataType::Date).unwrap_or(&0);
+    
+//     let numeric_count = int_count + float_count;
+//     let numeric_ratio = numeric_count as f32 / total_analyzed as f32;
+
+//     if int_count as f32 / total_analyzed as f32 >= 0.80 {
+//         return InferredDataType::Integer;
+//     }
+    
+//     if numeric_ratio >= 0.70 {
+//         return InferredDataType::Float;
+//     }
+
+//     if bool_count as f32 / total_analyzed as f32 >= 0.80 {
+//         return InferredDataType::Boolean;
+//     }
+    
+//     if date_count as f32 / total_analyzed as f32 >= 0.80 {
+//         return InferredDataType::Date;
+//     }
+    
+//     InferredDataType::String
+// }
+
+fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
     if samples.is_empty() {
         return InferredDataType::String;
     }
     
     let mut type_votes = HashMap::new();
-    let mut total_analyzed = 0;
     
-    for sample in samples.iter().take(100) {
+    for sample in samples.iter().take(50) { 
         let trimmed = sample.trim();
         
-        if NULL_VALUES.contains(trimmed) || trimmed.is_empty() {
+        if NULL_VALUES.contains(trimmed) {
             continue; 
         }
         
-        total_analyzed += 1;
         let detected_type = classify_value(trimmed);
         *type_votes.entry(detected_type).or_insert(0) += 1;
     }
     
-    if total_analyzed == 0 {
+    let total_non_null = type_votes.values().sum::<i32>();
+    
+    if total_non_null == 0 {
         return InferredDataType::String;
     }
 
-    let int_count = *type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-    let float_count = *type_votes.get(&InferredDataType::Float).unwrap_or(&0);
-    let bool_count = *type_votes.get(&InferredDataType::Boolean).unwrap_or(&0);
-    let date_count = *type_votes.get(&InferredDataType::Date).unwrap_or(&0);
+    let threshold = 0.75;
     
-    let numeric_count = int_count + float_count;
-    let numeric_ratio = numeric_count as f32 / total_analyzed as f32;
-
-    if int_count as f32 / total_analyzed as f32 >= 0.80 {
-        return InferredDataType::Integer;
+    if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
+        if int_count as f32 / total_non_null as f32 > threshold {
+            return InferredDataType::Integer;
+        }
     }
     
-    if numeric_ratio >= 0.70 {
-        return InferredDataType::Float;
-    }
-
-    if bool_count as f32 / total_analyzed as f32 >= 0.80 {
-        return InferredDataType::Boolean;
+    if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
+        let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
+        if (float_count + int_count) as f32 / total_non_null as f32 > threshold {
+            return InferredDataType::Float;
+        }
     }
     
-    if date_count as f32 / total_analyzed as f32 >= 0.80 {
-        return InferredDataType::Date;
+    if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
+        if bool_count as f32 / total_non_null as f32 > threshold {
+            return InferredDataType::Boolean;
+        }
+    }
+    
+    if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
+        if date_count as f32 / total_non_null as f32 > threshold {
+            return InferredDataType::Date;
+        }
     }
     
     InferredDataType::String
@@ -870,7 +924,14 @@ fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data
             )
         },
         InferredDataType::Date | InferredDataType::String => {
-            format!("{} AS {}", quoted_original_col, quoted_clean_col)
+            format!(
+                "CASE 
+                    WHEN {} IS NULL THEN NULL
+                    WHEN TRIM({}) = '' THEN NULL
+                    ELSE {}
+                END AS {}", 
+                quoted_original_col, quoted_original_col, quoted_original_col, quoted_clean_col
+            )
         }
     }
 }
