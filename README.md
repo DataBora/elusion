@@ -15,7 +15,7 @@
 
 Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
 
-This Library is designed to be used for Business Data Engineering, with focus on user experience and accuracy, not for Data Science 1TB datasets etc. 
+This Library is designed to be used for Business Data Engineering with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage (which is very CPU intensive). Elusion is not made for Data Science nor Machine Learning 1TB and 500 columns datasets. 
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -35,21 +35,22 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 ---
 ## Key Features
 
-### 📩 2 Ways to Load data into DataFrame:
-- 1. 🔃 Regular Loading with loading all data into memory, with CustomDataFrame::new() which is good for files that can fit your RAM memory
-- 2. 🚀 Streaming Loading a.k.a Lazy loading CustomDataFrame::new_with_stream() (Data isn't fully materialized until .elusion_streaming() is called)
-#### Processes data in chunks rather than loading everything at once
+### 📩 2 Ways to Load Data into DataFrame:
+- 1. 🔃 **Regular Loading**: `CustomDataFrame::new()` loads all data into memory, ideal for files that fit within your RAM.
+- 2. 🚀 **Optimized Loading**: `CustomDataFrame::new_with_stream()` loads data lazily with minimal memory usage, sampling a small number of rows for schema detection and processing data in chunks during queries. (Data isn't fully materialized until queried with `.elusion()` or `.elusion_streaming()`.)
+#### Optimized loading reduces memory footprint by processing data in chunks rather than loading everything at once.
 
 ### 🔄 2 Ways to Process Results:
-- 1. 🔃 Regular Processing - .elusion() loads all results into memory (good for smaller result sets)
-- 2. 🚀 Streaming Processing - .elusion_streaming() processes results in chunks without memory accumulation
+- 1. 🔃 **Regular Processing**: `.elusion()` loads all results into memory (good for smaller result sets).
+- 2. 🚀 **Streaming Processing**: `.elusion_streaming()` processes results in chunks, minimizing memory accumulation for large datasets.
 
 ### 📤 3 Ways to Export Results:
-- 1. 🔃 In-Memory Export - .write_to_csv(), .write_to_json(), .write_to_parquet() .write_to_delta() (loads results into memory first)
-- 2. 🚀 Streaming Export - .elusion_streaming_write() streams results directly to files (options: .json, .csv and .parquet)
-- 3. 📊 Console Display - .elusion() or .elusion_streaming() displays results in terminal
+- 1. 🔃 **In-Memory Export**: `.write_to_csv()`, `.write_to_json()`, `.write_to_parquet()`, `.write_to_delta_table()` , `write_to_excel()`(loads results into memory first).
+- 2. ☁ **Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
+- 3. 🚀 **Streaming Export**: `.elusion_streaming_write()` streams results directly to files (options: `.json`, `.csv`, and `.parquet`).
+- 4. 📊 **Console Display**: `.elusion()` needs `.display()` in order to display datafame result, while `.elusion_streaming()` displays results in the terminal automatically and .display() is not allowed to be used.
 
-### POSSIBLE Combinations and benefits:
+### POSSIBLE Combinations and Benefits:
 <div align="center">
 
 | Approach | Source Data | Query Processing | Memory Usage | Best For |
@@ -58,21 +59,24 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 | `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | **Medium** | Medium datasets, large result sets, memory-conscious processing |
 | `new_with_stream()` + `elusion()` | **On Disk** | **In Memory** | **Medium** | Large source files, small result sets, need results in memory |
 | `new_with_stream()` + `elusion_streaming()` | **On Disk** | **Streaming** | **Minimal** | Massive datasets, memory constraints, file-to-file processing |
+| `new_with_stream()` + `elusion_streaming_write()` | **On Disk** | **Streaming** | **Minimal** | Massive datasets, memory constraints, file-to-file processing |
 
 </div>
 
-### For Streaming examples scroll down ⬇
+### Reality on Streaming: 
+- While queries process data in chunks, the entire file must be scanned for whole-dataset aggregations. This is I/O-bound, not memory-bound, but if your system has low RAM or other processes running, it could hit OOM. Elusion doesn't yet support fully distributed processing (like Spark), so it's best usage is for files up to sufficient RAM.
+- For Streaming examples scroll down ⬇
 ---
 ### 🔄 Job Scheduling (PipelineScheduler)
 Flexible Intervals: From 1 minute to 30 days scheduling intervals.
 Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
 Async Support: Built on tokio for non-blocking operations.
-
+---
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 - SharePoint: Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
-
+---
 ### 🚀 High-Performance DataFrame Query Operations
 - Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
 - SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
@@ -117,7 +121,7 @@ Export Tables data to EXCEL and CSV
 ### 🧹 Clean Query Construction
 Readable Queries: Construct SQL queries that are both readable and reusable.
 Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
-
+---
 
 ## 🎨 **Developer Experience That Delights**
 
