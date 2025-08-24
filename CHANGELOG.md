@@ -1,3 +1,7 @@
+## [5.4.1] - 2025-08-24
+## Fixed
+- Logic for deciding on different float formats:EU , US...
+
 ## [5.4.0] - 2025-08-23
 ## Fixed
 - Excluded DataFusion loading into memory for STREAMING
