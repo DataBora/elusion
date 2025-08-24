@@ -37,29 +37,44 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 
 ### 📩 2 Ways to Load Data into DataFrame:
 - 1. 🔃 **Regular Loading**: `CustomDataFrame::new()` loads all data into memory, ideal for files that fit within your RAM.
-- 2. 🚀 **Optimized Loading**: `CustomDataFrame::new_with_stream()` loads data lazily with minimal memory usage, sampling a small number of rows for schema detection and processing data in chunks during queries. (Data isn't fully materialized until queried with `.elusion()` or `.elusion_streaming()`.)
-#### Optimized loading reduces memory footprint by processing data in chunks rather than loading everything at once.
+- 2. 🚀 **Optimized Loading**: `CustomDataFrame::new_with_stream()` loads data lazily with less memory usage, sampling a small number of rows for schema detection and processing data in chunks during query execution.
 
-### 🔄 2 Ways to Process Results:
+### 🔄 3 Ways to Process Results:
 - 1. 🔃 **Regular Processing**: `.elusion()` loads all results into memory (good for smaller result sets).
 - 2. 🚀 **Streaming Processing**: `.elusion_streaming()` processes results in chunks, minimizing memory accumulation for large datasets.
+- 3. **💾 Cached Processing**: Smart result caching for repeated queries
+   - `.elusion_with_cache()` - locally saves query results to disk
+   - `.elusion_with_redis_cache()` - uses Redis to store query results for distributed access
+   - ✅ Perfect for: Repeated queries, dashboard applications, multi-user scenarios
 
-### 📤 3 Ways to Export Results:
-- 1. 🔃 **In-Memory Export**: `.write_to_csv()`, `.write_to_json()`, `.write_to_parquet()`, `.write_to_delta_table()` , `write_to_excel()`(loads results into memory first).
-- 2. ☁ **Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
-- 3. 🚀 **Streaming Export**: `.elusion_streaming_write()` streams results directly to files (options: `.json`, `.csv`, and `.parquet`).
-- 4. 📊 **Console Display**: `.elusion()` needs `.display()` in order to display datafame result, while `.elusion_streaming()` displays results in the terminal automatically and .display() is not allowed to be used.
+### 📤 **4 Ways to Export Results**
+- 1. **🔃 In-Memory Export**: 
+   - `.write_to_csv()`, `.write_to_json()`, `.write_to_parquet()`, `.write_to_delta_table()`, `.write_to_excel()`
+   - Loads results into memory first
+   
+- 2. **☁️ Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
+   
+- 3. **🚀 Streaming Export**: 
+   - `.elusion_streaming_write()` streams results directly to files 
+   - Formats: `.json`, `.csv`, `.parquet`
+   
+- 4. **📊 Console Display**: 
+   - `.elusion()` needs `.display()` to display dataframe result
+   - `.elusion_streaming()` displays results automatically (`.display()` not allowed)
 
 ### POSSIBLE Combinations and Benefits:
 <div align="center">
 
-| Approach | Source Data | Query Processing | Memory Usage | Best For |
-|:---------|:-----------:|:----------------:|:------------:|:---------|
-| `new()` + `elusion()` | **In Memory** | **In Memory** | **High** | Small datasets, multiple queries, interactive analysis |
-| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | **Medium** | Medium datasets, large result sets, memory-conscious processing |
-| `new_with_stream()` + `elusion()` | **On Disk** | **In Memory** | **Medium** | Large source files, small result sets, need results in memory |
-| `new_with_stream()` + `elusion_streaming()` | **On Disk** | **Streaming** | **Minimal** | Massive datasets, memory constraints, file-to-file processing |
-| `new_with_stream()` + `elusion_streaming_write()` | **On Disk** | **Streaming** | **Minimal** | Massive datasets, memory constraints, file-to-file processing |
+| Approach | Source Data | Query Processing | Caching | Memory Usage | Best For |
+|:---------|:-----------:|:----------------:|:-------:|:------------:|:---------|
+| `new()` + `elusion()` | **In Memory** | **In Memory** | ❌ | **High** | Small datasets, interactive analysis |
+| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | ❌ | **Medium** | Medium datasets, large result sets |
+| `new()` + `elusion_with_cache()` | **In Memory** | **In Memory** | **💾 Local** | **Medium** | Repeated queries, development |
+| `new()` + `elusion_with_redis_cache()` | **In Memory** | **In Memory** | **🔄 Redis** | **Medium** | Multi-user dashboards, production |
+| `new_with_stream()` + `elusion()` | **On Disk** | **In Memory** | ❌ | **Medium** | Large files, small result sets |
+| `new_with_stream()` + `elusion_streaming()` | **On Disk** | **Streaming** | ❌ | **Minimal** | Massive datasets, ETL pipelines |
+| `new_with_stream()` + `elusion_with_cache()` | **On Disk** | **In Memory** | **💾 Local** | **Low** | Large files, repeated analysis |
+| `new_with_stream()` + `elusion_with_redis_cache()` | **On Disk** | **In Memory** | **🔄 Redis** | **Low** | Production analytics, team sharing |
 
 </div>
 
@@ -68,9 +83,9 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 - For Streaming examples scroll down ⬇
 ---
 ### 🔄 Job Scheduling (PipelineScheduler)
-Flexible Intervals: From 1 minute to 30 days scheduling intervals.
-Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
-Async Support: Built on tokio for non-blocking operations.
+- Flexible Intervals: From 1 minute to 30 days scheduling intervals.
+- Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
+- Async Support: Built on tokio for non-blocking operations.
 ---
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
@@ -82,7 +97,7 @@ Async Support: Built on tokio for non-blocking operations.
 - SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
 ---
 ### 🏪 Caching and Views (Native)
-The caching and views functionality offer several significant advantages over regular querying:
+- The caching and views functionality offer several significant advantages over regular querying:
 #### Reduced Computation Time, Memory Management, Query Optimization, Interactive Analysis, Multiple visualizations for Dashboards and Reports, Resource Utilization, Concurrency
 
 ### 🏬 Redis Caching
@@ -99,28 +114,28 @@ The caching and views functionality offer several significant advantages over re
 ---
 
 ### 📉 Aggregations and Analytics
-Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
-Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
+- Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
+- Advanced Scalar Math: Perform calculations using functions such as ABS, FLOOR, CEIL, SQRT, ISNAN, ISZERO, PI, POWER, and others.
 
 ### 🔗 Flexible Joins
-Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
-Intuitive Syntax: Easily specify join conditions and aliases for clarity and simplicity.
+- Diverse Join Types: Perform joins using INNER, LEFT, RIGHT, FULL, and other join types.
+- Intuitive Syntax: Easily specify join conditions and aliases for clarity and simplicity.
 
 ### 🪟 Window Functions
-Analytical Capabilities: Implement window functions like RANK, DENSE_RANK, ROW_NUMBER, and custom partition-based calculations to perform advanced analytics.
+- Analytical Capabilities: Implement window functions like RANK, DENSE_RANK, ROW_NUMBER, and custom partition-based calculations to - perform advanced analytics.
 
 ### 🔄 Pivot and Unpivot Functions
-Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions to suit your analytical needs.
+- Data Reshaping: Transform your data structure using PIVOT and UNPIVOT functions to suit your analytical needs.
 
 ### 📊 Create REPORTS
-Create HTML files with Interactive Dashboards with multiple interactive Plots and Tables.
-Plots Available: TimeSeries, Bar, Pie, Donut, Histogram, Scatter, Box...
-Tables can Paginate pages, Filter, Resize, Reorder columns...
-Export Tables data to EXCEL and CSV
+- Create HTML files with Interactive Dashboards with multiple interactive Plots and Tables.
+- Plots Available: TimeSeries, Bar, Pie, Donut, Histogram, Scatter, Box...
+- Tables can Paginate pages, Filter, Resize, Reorder columns...
+- Export Tables data to EXCEL and CSV
 
 ### 🧹 Clean Query Construction
-Readable Queries: Construct SQL queries that are both readable and reusable.
-Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
+- Readable Queries: Construct SQL queries that are both readable and reusable.
+- Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
 ---
 
 ## 🎨 **Developer Experience That Delights**
@@ -152,7 +167,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.4.0"
+elusion = "5.4.1"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -205,25 +220,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.4.0", features = ["postgres"] }
+elusion = { version = "5.4.1", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.4.0"
+elusion = "5.4.1"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.4.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "5.4.1", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.4.0", features = ["all"] }
+elusion = { version = "5.4.1", features = ["all"] }
 ```
 
 ### Feature Implications
