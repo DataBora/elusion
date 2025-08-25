@@ -710,7 +710,7 @@ pub static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::n
         ctx.sql(&sql).await.map_err(|e| ElusionError::Custom(format!("Failed to lowercase column names: {}", e)))
     }
 
-    fn normalize_field_name(name: &str) -> Cow<str> {
+    fn normalize_field_name(name: &str) -> Cow<'_,str> {
         let trimmed = name.trim();
         
         if trimmed.chars().all(|c| c.is_ascii_lowercase() || c == '_') && !trimmed.contains(' ') {
@@ -720,7 +720,7 @@ pub static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::n
         }
     }
 
-    pub fn normalize_alias_write(alias: &str) -> Cow<str> {
+    pub fn normalize_alias_write(alias: &str) -> Cow<'_,str> {
         let trimmed = alias.trim();
         
         if trimmed.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
