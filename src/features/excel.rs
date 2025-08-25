@@ -16,24 +16,25 @@ fn excel_date_to_naive_date(excel_date: f64) -> Option<NaiveDate> {
     excel_epoch.checked_add_signed(Duration::days(days))
 }
 
-#[derive(Debug, Clone)]
-pub struct ExcelWriteOptions {
-    // pub autofilter: bool,     
-    // pub freeze_header: bool,   
-    // pub table_style: bool,    
-    // pub sheet_protection: bool, 
-}
 
-impl Default for ExcelWriteOptions {
-    fn default() -> Self {
-        Self {
-            // autofilter: true,
-            // freeze_header: true,
-            // table_style: true,
-            // sheet_protection: false,
-        }
-    }
-}
+// #[derive(Debug, Clone)]
+// pub struct ExcelWriteOptions {
+//     // pub autofilter: bool,     
+//     // pub freeze_header: bool,   
+//     // pub table_style: bool,    
+//     // pub sheet_protection: bool, 
+// }
+
+// impl Default for ExcelWriteOptions {
+//     fn default() -> Self {
+//         Self {
+//             // autofilter: true,
+//             // freeze_header: true,
+//             // table_style: true,
+//             // sheet_protection: false,
+//         }
+//     }
+// }
 
 // Implement From<XlsxError> for ElusionError
 #[cfg(feature = "excel")]

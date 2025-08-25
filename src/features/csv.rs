@@ -397,20 +397,26 @@ fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
     if total_non_null == 0 {
         return InferredDataType::String;
     }
+
+    if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
+        if float_count > 0 {
+            return InferredDataType::Float;
+        }
+    }
     
-    // Priority order: Integer -> Float -> Boolean -> Date -> String
     if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
-        if int_count as f32 / total_non_null as f32 > 0.8 {
+        if int_count as f32 / total_non_null as f32 > 0.95 {
             return InferredDataType::Integer;
         }
     }
     
-    if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
-        let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-        if (float_count + int_count) as f32 / total_non_null as f32 > 0.8 {
-            return InferredDataType::Float;
-        }
-    }
+    // if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
+    //     let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
+    //     if (float_count + int_count) as f32 / total_non_null as f32 >= 0.6 {
+    //         return InferredDataType::Float;
+    //     }
+    // }
+
     
     if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
         if bool_count as f32 / total_non_null as f32 > 0.8 {
@@ -418,12 +424,12 @@ fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
         }
     }
     
-    if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
+      if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
         if date_count as f32 / total_non_null as f32 > 0.8 {
             return InferredDataType::Date;
         }
     }
-    
+
     InferredDataType::String
 }
 
@@ -471,12 +477,16 @@ fn classify_value(value: &str) -> InferredDataType {
     }
     
     if DATE_PATTERN.is_match(value) {
-
         if is_valid_date_or_time(value) {
-            return InferredDataType::Date;
-        } else {
-            return InferredDataType::String;
+            // Only classify as Date if it matches YYYY-MM-DD or YYYY/MM/DD
+            if value.chars().take(4).all(|c| c.is_digit(10)) && 
+               (value.contains('-') || value.contains('/')) && 
+               !value.contains('.') && 
+               value.len() >= 10 {
+                return InferredDataType::Date;
+            }
         }
+        return InferredDataType::String;
     }
     
     InferredDataType::String
@@ -872,7 +882,21 @@ let quoted_clean_col = format!("\"{}\"", clean_col_name);
                 quoted_original_col, quoted_original_col, quoted_clean_col
             )
         },
-        InferredDataType::Date | InferredDataType::String => {
+        InferredDataType::Date => {
+            format!(
+                "CASE 
+                    WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
+                    -- Handle YYYY-MM-DD or YYYY/MM/DD
+                    WHEN {} ~ '^[0-9]{{4}}[-/][0-9]{{1,2}}[-/][0-9]{{1,2}}$' THEN 
+                        CAST(REPLACE({}, '/', '-') AS DATE)
+                    ELSE {} -- Keep as string for non-standard formats
+                END AS {}",
+                quoted_original_col, quoted_original_col, quoted_original_col, 
+                quoted_original_col, quoted_original_col, 
+                quoted_original_col, quoted_clean_col
+            )
+        },
+        InferredDataType::String => {
             format!("{} AS {}", quoted_original_col, quoted_clean_col)
         }
     }
@@ -886,7 +910,6 @@ let quoted_clean_col = format!("\"{}\"", clean_col_name);
         file_path: &str, 
         alias: &str,
     ) -> ElusionResult<AliasedDataFrame> {
-
         if !LocalPath::new(file_path).exists() {
             return Err(ElusionError::WriteError {
                 path: file_path.to_string(),
@@ -905,170 +928,54 @@ let quoted_clean_col = format!("\"{}\"", clean_col_name);
             _ => "custom delimiter"
         };
 
-        println!("🚀 Reading CSV file with streaming and schema detection...");
+        println!("🚀 Reading CSV file with schema detection...");
         let read_start = std::time::Instant::now();
 
-        // metadata
+        // Use the same approach as regular loading - let DataFusion handle the schema
         let mut batch_size = 16384; 
         if let Ok(metadata) = std::fs::metadata(file_path) {
             let file_size = metadata.len();
             println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
             if file_size >= 100_000_000_000 { 
-                batch_size = 4096; // avoid OOM
+                batch_size = 4096;
             }
         }
+        
         let config = SessionConfig::new().with_batch_size(batch_size);
         let ctx = SessionContext::new_with_config(config);
 
-        // sampledata fro file not fromm dataframe that is in memory
-        let sample_data = get_sample_data_from_file_proven(file_path, delimiter, 50).await?;
-        
-        let temp_df = ctx.read_csv(
+        // SAME AS REGULAR LOADING: Let DataFusion read and infer schema
+        let df = ctx.read_csv(
             file_path,
             CsvReadOptions::new()
                 .has_header(true)
-                .schema_infer_max_records(0)  
+                .schema_infer_max_records(0)
                 .delimiter(delimiter)
         ).await.map_err(ElusionError::DataFusion)?;
 
-        let schema = temp_df.schema();
+        let schema = df.schema();
         let column_count = schema.fields().len();
-        
-        println!("✅ Successfully detected schema with {} columns (file-based sampling)", column_count);
+        println!("✅ Successfully loaded {} with {} columns", delimiter_name, column_count);
+
+        let sample_data = get_sample_data(&df, &ctx).await?;
         
         let casting_start = std::time::Instant::now();
-
-        let df = create_streaming_csv_dataframe(
-            file_path, 
-            &sample_data, 
-            schema.fields(), 
-            &ctx, 
-            alias,
-            delimiter  
-        ).await?;
+        let cast_sql = generate_smart_casting_sql(&sample_data, schema.fields(), alias)?;
+        
+        println!("🎯 Applying content-based smart casting...");
+        
+        let final_df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
         
         let total_elapsed = read_start.elapsed();
-        println!("✅ Streaming schema applied in {:?}", casting_start.elapsed());
-        println!("🎉 Streaming {} DataFrame setup completed in {:?} for table alias: '{}'", 
+        println!("✅ Schema applied in {:?}", casting_start.elapsed());
+        println!("🎉 {} DataFrame setup completed in {:?} for table alias: '{}'", 
             delimiter_name, total_elapsed, alias);
         println!("💡 Detected .elusion_streaming() -> Data will be processed in chunks when queried.");
+        
         Ok(AliasedDataFrame {
-            dataframe: df,
+            dataframe: final_df,
             alias: alias.to_string(),
         })
-    }
-
-    async fn get_sample_data_from_file_proven(
-        file_path: &str,
-        delimiter: u8,
-        sample_size: usize,
-    ) -> ElusionResult<HashMap<String, Vec<String>>> {
-
-        let file = File::open(file_path).map_err(|e| ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "sample_read".to_string(),
-            reason: e.to_string(),
-            suggestion: "💡 Check file permissions".to_string(),
-        })?;
-
-        let mut reader = BufReader::with_capacity(65536, file);
-        let mut header_line = String::new();
-        reader
-            .read_line(&mut header_line)
-            .map_err(|e| ElusionError::Custom(format!("Failed to read header: {}", e)))?;
-
-        let headers: Vec<String> = header_line
-            .trim()
-            .split(delimiter as char)
-            .map(|s| s.trim().trim_matches('"').to_string())
-            .collect();
-
-        let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
-        for header in &headers {
-            column_samples.insert(header.clone(), Vec::new());
-        }
-
-        let mut parse_errors = 0;
-
-        for line_result in reader.lines().take(sample_size) {
-            match line_result {
-                Ok(line) => {
-                    let values: Vec<&str> = line.split(delimiter as char).collect();
-                    for (i, header) in headers.iter().enumerate() {
-                        if let Some(value) = values.get(i) {
-                            let trimmed_value = value.trim().trim_matches('"');
-                            if trimmed_value.len() <= 500 {
-                                if let Some(samples) = column_samples.get_mut(header) {
-                                    samples.push(trimmed_value.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(_) => {
-                    parse_errors += 1;
-                    if parse_errors > 10 {
-                        println!("⚠️ Too many parse errors, stopping sample collection");
-                        break;
-                    }
-                }
-            }
-        }
-
-        if parse_errors > 0 {
-            println!("⚠️ Encountered {} parse errors (handled gracefully)", parse_errors);
-        }
-
-        Ok(column_samples)
-    }
-
-    async fn create_streaming_csv_dataframe(
-        file_path: &str,
-        sample_data: &HashMap<String, Vec<String>>,
-        original_fields: &[Arc<Field>],
-        ctx: &SessionContext,
-        alias: &str,
-        delimiter: u8
-    ) -> ElusionResult<DataFrame> {
-        
-        let temp_csv_table = format!("{}_csv_source", alias);
-
-        ctx.register_csv(&temp_csv_table, file_path, CsvReadOptions::new()
-            .has_header(true)
-            .schema_infer_max_records(0) 
-            .delimiter(delimiter)
-        ).await.map_err(ElusionError::DataFusion)?;
-        
-        let cast_sql = generate_smart_casting_sql_streaming(sample_data, original_fields, &temp_csv_table)?;
-        
-        let df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
-        
-        println!("✅ Streaming DataFrame created with proven smart casting logic");
-        
-        Ok(df)
-    }
-
-    fn generate_smart_casting_sql_streaming(
-        sample_data: &HashMap<String, Vec<String>>, 
-        fields: &[Arc<Field>],
-        table_name: &str
-    ) -> ElusionResult<String> {
-        let mut select_parts = Vec::new();
-        let empty_samples = Vec::new(); 
-        
-        for field in fields {
-            let original_col_name = field.name();
-            let clean_col_name = clean_column_name(original_col_name);
-
-            let samples = sample_data.get(original_col_name).unwrap_or(&empty_samples);
-            
-            let data_type = infer_column_type(samples, original_col_name);
-            let cast_expr = create_casting_expression(original_col_name, &clean_col_name, &data_type);
-            
-            select_parts.push(cast_expr);
-        }
-        
-        Ok(format!("SELECT {} FROM {}", select_parts.join(", "), table_name))
     }
 
     pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {

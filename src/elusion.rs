@@ -7235,7 +7235,7 @@ impl CustomDataFrame {
 
         let aliased_df = match ext.as_str() {
             "csv" => {
-                println!("🚀 Loading CSV with streaming support...");
+                println!("🚀 Loading CSV...");
                 load_csv_smart(file_path, alias).await?
             },
             "json" => {
@@ -7251,12 +7251,12 @@ impl CustomDataFrame {
                 load_excel(file_path, alias).await?
             },
             "" => return Err(ElusionError::InvalidOperation {
-                operation: "Streaming File Loading".to_string(),
+                operation: "File Loading".to_string(),
                 reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
                 suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls) or a valid Delta table directory".to_string(),
             }),
             other => return Err(ElusionError::InvalidOperation {
-                operation: "Streaming File Loading".to_string(),
+                operation: "File Loading".to_string(),
                 reason: format!("Unsupported file extension: {other}"),
                 suggestion: "💡 Currently streaming is supported for CSV files. Use .new() for other file types or wait for future updates".to_string(),
             }),

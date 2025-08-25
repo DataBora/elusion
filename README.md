@@ -172,7 +172,7 @@ tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
 ```toml
->= 1.81
+>= 1.89.0
 ```
 ---
 ## Feature Flags
