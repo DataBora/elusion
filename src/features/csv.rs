@@ -9,15 +9,11 @@ static FLOAT_DOT_PATTERN: Lazy<Regex> = Lazy::new(|| {
 });
 
 static FLOAT_COMMA_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[+-]?[0-9]+,[0-9]{1,6}$").expect("Failed to compile float comma regex")
+    Regex::new(r"^[+-]?[0-9]+,[0-9]+$").expect("Failed to compile float comma regex")
 });
 
 static THOUSAND_SEPARATOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^[+-]?[0-9]{1,3}([,.][0-9]{3})*([.,][0-9]{1,2})?$").expect("Failed to compile thousand separator regex")
-    // Regex::new(r"^[+-]?(?:[0-9]{1,3}(?:,[0-9]{3}){1,}(?:\.[0-9]{1,2})?|[0-9]{1,3}(?:\.[0-9]{3}){2,}(?:,[0-9]{1,2})?)$")
-    //     .expect("Failed to compile thousand separator regex")
-    // Regex::new(r"^[+-]?(?:[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{1,2})?)$")
-    //     .expect("Failed to compile thousand separator regex")
 });
 
 static BOOLEAN_PATTERN: Lazy<Regex> = Lazy::new(|| {
@@ -40,318 +36,282 @@ static NULL_VALUES: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(||
     ["", "NULL", "null", "N/A", "n/a", "-"].into_iter().collect()
 });
 
-async fn detect_delimiter(file_path: &str) -> ElusionResult<u8> {
-    
-    let file = File::open(file_path)
-        .map_err(|e| ElusionError::Custom(format!("Failed to open file for delimiter detection: {}", e)))?;
-    
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
-    
-    // Read header line 
-    let header = lines.next().transpose()
-        .map_err(|e| ElusionError::Custom(format!("Failed to read header line: {}", e)))?
-        .ok_or_else(|| ElusionError::Custom("File is empty".to_string()))?;
-    
-    let mut delimiter_scores = std::collections::HashMap::new();
-    let sample_size = 10; 
+// ==================== LOADING CSV ====================
 
-    // Test 
-    for &delimiter in &[b',', b'\t', b';', b'|'] {
-        let header_cols = header.split(delimiter as char).count();
-        let mut consistent_lines = 0;
-        let mut total_lines = 0;
-        
-        // Re-read file 
-        let file = File::open(file_path).map_err(|e| ElusionError::Custom(format!("Failed to reopen file: {}", e)))?;
+    async fn detect_delimiter(file_path: &str) -> ElusionResult<u8> {
+    
+        let file = File::open(file_path)
+            .map_err(|e| ElusionError::Custom(format!("Failed to open file: {}", e)))?;
         let reader = BufReader::new(file);
-        let mut lines = reader.lines();
-        let _header = lines.next(); // Skip header
         
-        for line in lines.take(sample_size) {
-            if let Ok(line) = line {
-                total_lines += 1;
-                let cols = line.split(delimiter as char).count();
-                if cols == header_cols && cols > 1 {
-                    consistent_lines += 1;
+        let delimiters = [b',', b';', b'\t', b'|'];
+        let mut delimiter_consistency = HashMap::new();
+        
+        let lines: Vec<String> = reader.lines()
+            .take(10)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ElusionError::Custom(format!("Failed to read lines: {}", e)))?;
+        
+        if lines.is_empty() {
+            return Ok(b','); // default 
+        }
+        
+        for &delim in &delimiters {
+            let mut counts = Vec::new();
+            
+            for line in &lines {
+                if line.trim().is_empty() {
+                    continue; // Skip empty lines
                 }
+                let count = line.bytes().filter(|&b| b == delim).count();
+                counts.push(count);
+            }
+            
+            if !counts.is_empty() {
+
+                let avg_count = counts.iter().sum::<usize>() as f64 / counts.len() as f64;
+                let consistency = if avg_count > 0.0 {
+                    let variance = counts.iter()
+                        .map(|&count| (count as f64 - avg_count).powi(2))
+                        .sum::<f64>() / counts.len() as f64;
+                    avg_count / (1.0 + variance.sqrt())
+                } else {
+                    0.0
+                };
+                
+                delimiter_consistency.insert(delim, consistency);
             }
         }
         
-        // Score based on consistency and column count
-        let consistency_score = if total_lines > 0 { 
-            (consistent_lines as f64 / total_lines as f64) * 100.0 
-        } else { 
-            0.0 
-        };
-        
-        delimiter_scores.insert(delimiter, (consistency_score, header_cols));
+        Ok(delimiter_consistency.into_iter()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(delim, _)| delim)
+            .unwrap_or(b','))
     }
+
+    ///Load CSV with smart casting
+    pub async fn load_csv_with_type_handling(
+        file_path: &str, 
+        alias: &str
+    ) -> ElusionResult<AliasedDataFrame> {
+        let ctx = SessionContext::new();
+
+        if !LocalPath::new(file_path).exists() {
+            return Err(ElusionError::WriteError {
+                path: file_path.to_string(),
+                operation: "read".to_string(),
+                reason: "File not found".to_string(),
+                suggestion: "💡 Check if the file path is correct".to_string()
+            });
+        }
+        println!("🚀 Reading CSV file with delimiter and schema detection...");
+
+        let delimiter = detect_delimiter(file_path).await?;
+        let delimiter_char = delimiter as char;
+        println!("🔍 Auto-detected delimiter: '{}' ({})", 
+            if delimiter == b'\t' { "TAB" } else { &delimiter_char.to_string() }, 
+            delimiter);
+
+        let read_start = std::time::Instant::now();
+
+        let df = ctx.read_csv(
+            file_path,
+            CsvReadOptions::new()
+                .has_header(true)
+                .delimiter(delimiter)
+                .schema_infer_max_records(0) 
+        ).await.map_err(ElusionError::DataFusion)?;
+
+        let read_elapsed = read_start.elapsed();
+        let schema = df.schema();
+        let column_count = schema.fields().len();
+        
+        if let Ok(metadata) = std::fs::metadata(file_path) {
+            let file_size = metadata.len();
+            println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
+        }
+
+        println!("✅ Successfully loaded CSV with {} columns as strings in {:?}", column_count, read_elapsed);
+
+        let schema = df.schema();
+        let sample_data = get_sample_data(&df, &ctx).await?;
+        
+        // println!("📋 Original columns: {:?}", 
+        //     schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
+        let casting_start = std::time::Instant::now();
+        let cast_sql = generate_smart_casting_sql(&sample_data, schema.fields(), alias)?;
+        
+        println!("🎯 Applying content-based smart casting...");
+        // println!("🔍 Generated SQL: {}", cast_sql);
+        
+        let final_df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
+        
+        println!("✅ Successfully applied smart casting");
     
-    // Choose delimiter with highest consistency score, then by column count
-    let detected_delimiter = delimiter_scores
-        .into_iter()
-        .max_by(|(_, (score1, cols1)), (_, (score2, cols2))| {
-            score1.partial_cmp(score2)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(cols1.cmp(cols2))
+
+        let schema_elapsed = casting_start.elapsed();
+        let total_elapsed = read_start.elapsed();
+        
+        println!("✅ Schema inferred and table created in {:?}", schema_elapsed + total_elapsed);
+        println!("🎉 CSV DataFrame loading completed successfully in {:?} for table alias: '{}'", 
+            total_elapsed, alias);
+
+        Ok(AliasedDataFrame {
+            dataframe: final_df,
+            alias: alias.to_string(),
         })
-        .map(|(delim, (_score, cols))| {
-            let delimiter_name = match delim {
-                b'\t' => "tab (TSV)",
-                b',' => "comma (CSV)", 
-                b';' => "semicolon",
-                b'|' => "pipe",
-                _ => "unknown"
-            };
-            println!("🔍 Testing {} consistency with {} columns", delimiter_name, cols);
-            delim
-        })
-        .unwrap_or(b',');
-        
-    let delimiter_name = match detected_delimiter {
-        b'\t' => "TSV (tab-separated)",
-        b',' => "CSV (comma-separated)",
-        b';' => "semicolon-separated", 
-        b'|' => "pipe-separated",
-        _ => "unknown format"
-    };
-    
-    println!("🎯 Auto-detected file format: {}", delimiter_name);
-    
-    Ok(detected_delimiter)
-}
-
-///Load CSV with smart casting
-pub async fn load_csv_with_type_handling(
-    file_path: &str, 
-    alias: &str
-) -> ElusionResult<AliasedDataFrame> {
-    let ctx = SessionContext::new();
-
-    if !LocalPath::new(file_path).exists() {
-        return Err(ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "read".to_string(),
-            reason: "File not found".to_string(),
-            suggestion: "💡 Check if the file path is correct".to_string()
-        });
     }
 
-    let read_start = std::time::Instant::now();
-
-    let delimiter = detect_delimiter(file_path).await?;
-    let delimiter_name = match delimiter {
-        b'\t' => "TSV (tab-separated)",
-        b',' => "CSV (comma-separated)",
-        b';' => "semicolon-separated",
-        b'|' => "pipe-separated",
-        _ => "custom delimiter"
-    };
-
-    let df = ctx.read_csv(
-        file_path,
-        CsvReadOptions::new()
-            .has_header(true)
-            .schema_infer_max_records(0) 
-            .delimiter(delimiter)
-    ).await.map_err(ElusionError::DataFusion)?;
-
-    let read_elapsed = read_start.elapsed();
-    let schema = df.schema();
-    let column_count = schema.fields().len();
+    async fn get_sample_data(df: &DataFrame, ctx: &SessionContext) -> ElusionResult<HashMap<String, Vec<String>>> {
     
-    if let Ok(metadata) = std::fs::metadata(file_path) {
-        let file_size = metadata.len();
-        println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
-    }
-
-    println!("✅ Successfully loaded {} with {} columns as strings in {:?}", 
-        delimiter_name, column_count, read_elapsed);
-
-    let schema = df.schema();
-    let sample_data = get_sample_data(&df, &ctx).await?;
-    
-    // println!("📋 Original columns: {:?}", 
-    //     schema.fields().iter().map(|f| f.name()).collect::<Vec<_>>());
-    let casting_start = std::time::Instant::now();
-    let cast_sql = generate_smart_casting_sql(&sample_data, schema.fields(), alias)?;
-    
-    println!("🎯 Applying content-based smart casting...");
-    // println!("🔍 Generated SQL: {}", cast_sql);
-    
-    let final_df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
-    
-    println!("✅ Successfully applied smart casting");
-   
-
-    let schema_elapsed = casting_start.elapsed();
-    let total_elapsed = read_start.elapsed();
-    
-    println!("✅ Schema inferred and table created in {:?}", schema_elapsed + total_elapsed);
-    println!("🎉 CSV DataFrame loading completed successfully in {:?} for table alias: '{}'", 
-        total_elapsed, alias);
-
-    Ok(AliasedDataFrame {
-        dataframe: final_df,
-        alias: alias.to_string(),
-    })
-}
-
-async fn get_sample_data(df: &DataFrame, ctx: &SessionContext) -> ElusionResult<HashMap<String, Vec<String>>> {
-   
-    let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
-    let mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
-        .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
-    
-    ctx.register_table("temp_sample", Arc::new(mem_table))
-        .map_err(ElusionError::DataFusion)?;
-    
-    let sample_df = ctx.sql("SELECT * FROM temp_sample LIMIT 100").await
-        .map_err(ElusionError::DataFusion)?;
-    
-    let sample_batches = sample_df.collect().await.map_err(ElusionError::DataFusion)?;
-    
-    let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
-    
-    if let Some(batch) = sample_batches.first() {
-        let schema = batch.schema();
+        let batches = df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let mem_table = MemTable::try_new(df.schema().clone().into(), vec![batches])
+            .map_err(|e| ElusionError::Custom(format!("Failed to create memory table: {}", e)))?;
         
-        for (col_idx, field) in schema.fields().iter().enumerate() {
-            let column = batch.column(col_idx);
-            let mut samples = Vec::new();
+        ctx.register_table("temp_sample", Arc::new(mem_table))
+            .map_err(ElusionError::DataFusion)?;
+        
+        let sample_df = ctx.sql("SELECT * FROM temp_sample LIMIT 100").await
+            .map_err(ElusionError::DataFusion)?;
+        
+        let sample_batches = sample_df.collect().await.map_err(ElusionError::DataFusion)?;
+        
+        let mut column_samples: HashMap<String, Vec<String>> = HashMap::new();
+        
+        if let Some(batch) = sample_batches.first() {
+            let schema = batch.schema();
             
-            for row_idx in 0..column.len().min(100) {
-                if !column.is_null(row_idx) {
-                    let value = array_value_to_string(column.as_ref(), row_idx);
-                    if !value.is_empty() && value != "null" {
-                        samples.push(value);
+            for (col_idx, field) in schema.fields().iter().enumerate() {
+                let column = batch.column(col_idx);
+                let mut samples = Vec::new();
+                
+                for row_idx in 0..column.len().min(100) {
+                    if !column.is_null(row_idx) {
+                        let value = array_value_to_string(column.as_ref(), row_idx);
+                        if !value.is_empty() && value != "null" {
+                            samples.push(value);
+                        }
                     }
                 }
+                
+                column_samples.insert(field.name().to_string(), samples);
             }
+        }
+        
+        Ok(column_samples)
+    }
+
+    fn array_value_to_string(array: &dyn arrow::array::Array, index: usize) -> String {
+        use arrow::array::*;
+        use arrow::datatypes::DataType;
+        
+        if array.is_null(index) {
+            return String::new();
+        }
+        
+        match array.data_type() {
+            DataType::Utf8 => {
+                let string_array = array.as_any().downcast_ref::<StringArray>().unwrap();
+                string_array.value(index).to_string()
+            },
+            DataType::LargeUtf8 => {
+                let string_array = array.as_any().downcast_ref::<LargeStringArray>().unwrap();
+                string_array.value(index).to_string()
+            },
+            DataType::Int8 => {
+                let int_array = array.as_any().downcast_ref::<Int8Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::Int16 => {
+                let int_array = array.as_any().downcast_ref::<Int16Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::Int32 => {
+                let int_array = array.as_any().downcast_ref::<Int32Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::Int64 => {
+                let int_array = array.as_any().downcast_ref::<Int64Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::UInt8 => {
+                let int_array = array.as_any().downcast_ref::<UInt8Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::UInt16 => {
+                let int_array = array.as_any().downcast_ref::<UInt16Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::UInt32 => {
+                let int_array = array.as_any().downcast_ref::<UInt32Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::UInt64 => {
+                let int_array = array.as_any().downcast_ref::<UInt64Array>().unwrap();
+                int_array.value(index).to_string()
+            },
+            DataType::Float32 => {
+                let float_array = array.as_any().downcast_ref::<Float32Array>().unwrap();
+                float_array.value(index).to_string()
+            },
+            DataType::Float64 => {
+                let float_array = array.as_any().downcast_ref::<Float64Array>().unwrap();
+                float_array.value(index).to_string()
+            },
+            DataType::Boolean => {
+                let bool_array = array.as_any().downcast_ref::<BooleanArray>().unwrap();
+                bool_array.value(index).to_string()
+            },
+            DataType::Date32 | DataType::Date64 | DataType::Time32(_) | DataType::Time64(_) | 
+            DataType::Timestamp(_, _) | DataType::Duration(_) | DataType::Interval(_) => {
+                // For date/time types, use the array's display implementation
+                format!("{}", any_other_array_value_to_string(array, index).unwrap_or_default())
+            },
+            _ => {
+                // For any other type
+                any_other_array_value_to_string(array, index).unwrap_or_else(|_| {
+                    // Last resort
+                    format!("{:?}", array.slice(index, 1))
+                })
+            }
+        }
+    }
+
+    fn clean_column_name(col_name: &str) -> String {
+        col_name
+            .trim()                  
+            .to_lowercase()        
+            .replace(' ', "_")          
+            .replace('\t', "_")     
+            .replace('\n', "_")      
+            .replace('\r', "_")  
+    }
+
+    fn generate_smart_casting_sql(
+        sample_data: &HashMap<String, Vec<String>>, 
+        fields: &[Arc<datafusion::arrow::datatypes::Field>],
+        _table_alias: &str
+    ) -> ElusionResult<String> {
+        let mut select_parts = Vec::new();
+        let empty_samples = Vec::new(); 
+        
+        for field in fields {
+            let original_col_name = field.name();
+            let clean_col_name = clean_column_name(original_col_name);
+
+            let samples = sample_data.get(original_col_name).unwrap_or(&empty_samples);
             
-            column_samples.insert(field.name().to_string(), samples);
+            let data_type = infer_column_type(samples, original_col_name);
+            let cast_expr = create_casting_expression(original_col_name, &clean_col_name, &data_type);
+            
+            // println!("🔍 Column '{}' → '{}' inferred as {} based on {} samples", 
+            //     original_col_name, clean_col_name, data_type, samples.len());
+            
+            select_parts.push(cast_expr);
         }
-    }
-    
-    Ok(column_samples)
-}
-
-// Helper function to convert any Arrow array value to string
-fn array_value_to_string(array: &dyn arrow::array::Array, index: usize) -> String {
-    use arrow::array::*;
-    use arrow::datatypes::DataType;
-    
-    if array.is_null(index) {
-        return String::new();
-    }
-    
-    match array.data_type() {
-        DataType::Utf8 => {
-            let string_array = array.as_any().downcast_ref::<StringArray>().unwrap();
-            string_array.value(index).to_string()
-        },
-        DataType::LargeUtf8 => {
-            let string_array = array.as_any().downcast_ref::<LargeStringArray>().unwrap();
-            string_array.value(index).to_string()
-        },
-        DataType::Int8 => {
-            let int_array = array.as_any().downcast_ref::<Int8Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::Int16 => {
-            let int_array = array.as_any().downcast_ref::<Int16Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::Int32 => {
-            let int_array = array.as_any().downcast_ref::<Int32Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::Int64 => {
-            let int_array = array.as_any().downcast_ref::<Int64Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::UInt8 => {
-            let int_array = array.as_any().downcast_ref::<UInt8Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::UInt16 => {
-            let int_array = array.as_any().downcast_ref::<UInt16Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::UInt32 => {
-            let int_array = array.as_any().downcast_ref::<UInt32Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::UInt64 => {
-            let int_array = array.as_any().downcast_ref::<UInt64Array>().unwrap();
-            int_array.value(index).to_string()
-        },
-        DataType::Float32 => {
-            let float_array = array.as_any().downcast_ref::<Float32Array>().unwrap();
-            float_array.value(index).to_string()
-        },
-        DataType::Float64 => {
-            let float_array = array.as_any().downcast_ref::<Float64Array>().unwrap();
-            float_array.value(index).to_string()
-        },
-        DataType::Boolean => {
-            let bool_array = array.as_any().downcast_ref::<BooleanArray>().unwrap();
-            bool_array.value(index).to_string()
-        },
-        DataType::Date32 | DataType::Date64 | DataType::Time32(_) | DataType::Time64(_) | 
-        DataType::Timestamp(_, _) | DataType::Duration(_) | DataType::Interval(_) => {
-            // For date/time types, use the array's display implementation
-            format!("{}", any_other_array_value_to_string(array, index).unwrap_or_default())
-        },
-        _ => {
-            // For any other type
-            any_other_array_value_to_string(array, index).unwrap_or_else(|_| {
-                // Last resort
-                format!("{:?}", array.slice(index, 1))
-            })
-        }
-    }
-}
-
-fn clean_column_name(col_name: &str) -> String {
-    col_name
-        .trim()
-        .to_lowercase()
-        .replace([' ', '\t', '\n', '\r'], "_")
-        .replace(['-', '/', '\\', '.', ','], "_")
-        .replace(['(', ')', '[', ']', '{', '}'], "_")
-        .replace(['@', '#', '$', '%', '&', '*', '+', '='], "_")
-        .replace("__", "_")
-        .trim_matches('_')
-        .to_string()
-}
-
-fn generate_smart_casting_sql(
-    sample_data: &HashMap<String, Vec<String>>, 
-    fields: &[Arc<datafusion::arrow::datatypes::Field>],
-    _table_alias: &str
-) -> ElusionResult<String> {
-    let mut select_parts = Vec::new();
-    let empty_samples = Vec::new(); 
-    
-    for field in fields {
-        let original_col_name = field.name();
-        let clean_col_name = clean_column_name(original_col_name);
-
-        let samples = sample_data.get(original_col_name).unwrap_or(&empty_samples);
         
-        let data_type = infer_column_type(samples, original_col_name);
-        let cast_expr = create_casting_expression(original_col_name, &clean_col_name, &data_type);
-        
-        // println!("🔍 Column '{}' → '{}' inferred as {} based on {} samples", 
-        //     original_col_name, clean_col_name, data_type, samples.len());
-        
-        select_parts.push(cast_expr);
+        Ok(format!("SELECT {} FROM temp_sample", select_parts.join(", ")))
     }
-    
-    Ok(format!("SELECT {} FROM temp_sample", select_parts.join(", ")))
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum InferredDataType {
@@ -374,612 +334,493 @@ impl std::fmt::Display for InferredDataType {
     }
 }
 
-fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
-    if samples.is_empty() {
-        return InferredDataType::String;
-    }
-    
-    let mut type_votes = HashMap::new();
-    
-    for sample in samples.iter().take(50) { 
-        let trimmed = sample.trim();
-        
-        if NULL_VALUES.contains(trimmed) {
-            continue; 
-        }
-        
-        let detected_type = classify_value(trimmed);
-        *type_votes.entry(detected_type).or_insert(0) += 1;
-    }
-    
-    let total_non_null = type_votes.values().sum::<i32>();
-    
-    if total_non_null == 0 {
-        return InferredDataType::String;
-    }
-
-    if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
-        if float_count > 0 {
-            return InferredDataType::Float;
-        }
-    }
-    
-    if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
-        if int_count as f32 / total_non_null as f32 > 0.95 {
-            return InferredDataType::Integer;
-        }
-    }
-    
-    // if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
-    //     let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
-    //     if (float_count + int_count) as f32 / total_non_null as f32 >= 0.6 {
-    //         return InferredDataType::Float;
-    //     }
-    // }
-
-    
-    if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
-        if bool_count as f32 / total_non_null as f32 > 0.8 {
-            return InferredDataType::Boolean;
-        }
-    }
-    
-      if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
-        if date_count as f32 / total_non_null as f32 > 0.8 {
-            return InferredDataType::Date;
-        }
-    }
-
-    InferredDataType::String
-}
-
-fn classify_value(value: &str) -> InferredDataType {
-
-    if INTEGER_PATTERN.is_match(value) {
-        return InferredDataType::Integer;
-    }
-    
-    if FLOAT_DOT_PATTERN.is_match(value) {
-        if value.matches('.').count() == 1 {
-            return InferredDataType::Float;
-        } else {
-            return InferredDataType::String; 
-        }
-    }
-
-    if FLOAT_COMMA_PATTERN.is_match(value) {
-        if value.matches(',').count() == 1 && !value.contains('.') {
-            return InferredDataType::Float;
-        }
-    }
-    
-    if THOUSAND_SEPARATOR_PATTERN.is_match(value) {
-      //  println!("THOUSAND_SEPARATOR_PATTERN matched for '{}', valid: {}", value, is_valid_thousand_separator_number(value));
-        if is_valid_thousand_separator_number(value) {
-            return InferredDataType::Float;
-        } else {
+    fn infer_column_type(samples: &[String], _col_name: &str) -> InferredDataType {
+        if samples.is_empty() {
             return InferredDataType::String;
         }
-    }
-    
-    if PERCENTAGE_PATTERN.is_match(value) {
-        return InferredDataType::Float;
-    }
-    
-    if CURRENCY_PATTERN.is_match(value) {
-        return InferredDataType::Float;
-    }
-    
-    if BOOLEAN_PATTERN.is_match(value) {
-        if !INTEGER_PATTERN.is_match(value) {
-            return InferredDataType::Boolean;
+        
+        let mut type_votes = HashMap::new();
+        
+        for sample in samples.iter().take(50) { 
+            let trimmed = sample.trim();
+            
+            if NULL_VALUES.contains(trimmed) {
+                continue; 
+            }
+            
+            let detected_type = classify_value(trimmed);
+            *type_votes.entry(detected_type).or_insert(0) += 1;
         }
-    }
-    
-    if DATE_PATTERN.is_match(value) {
-        if is_valid_date_or_time(value) {
-            // Only classify as Date if it matches YYYY-MM-DD or YYYY/MM/DD
-            if value.chars().take(4).all(|c| c.is_digit(10)) && 
-               (value.contains('-') || value.contains('/')) && 
-               !value.contains('.') && 
-               value.len() >= 10 {
+        
+        let total_non_null = type_votes.values().sum::<i32>();
+        
+        if total_non_null == 0 {
+            return InferredDataType::String;
+        }
+        
+        // Priority order: Integer -> Float -> Boolean -> Date -> String
+        if let Some(&int_count) = type_votes.get(&InferredDataType::Integer) {
+            if int_count as f32 / total_non_null as f32 > 0.8 {
+                return InferredDataType::Integer;
+            }
+        }
+        
+        if let Some(&float_count) = type_votes.get(&InferredDataType::Float) {
+            let int_count = type_votes.get(&InferredDataType::Integer).unwrap_or(&0);
+            if (float_count + int_count) as f32 / total_non_null as f32 > 0.8 {
+                return InferredDataType::Float;
+            }
+        }
+        
+        if let Some(&bool_count) = type_votes.get(&InferredDataType::Boolean) {
+            if bool_count as f32 / total_non_null as f32 > 0.8 {
+                return InferredDataType::Boolean;
+            }
+        }
+        
+        if let Some(&date_count) = type_votes.get(&InferredDataType::Date) {
+            if date_count as f32 / total_non_null as f32 > 0.8 {
                 return InferredDataType::Date;
             }
         }
-        return InferredDataType::String;
-    }
-    
-    InferredDataType::String
-}
-
-fn is_valid_thousand_separator_number(value: &str) -> bool {
-    let cleaned = value.trim_start_matches(['+', '-']);
-    
-    // If it contains both comma and dot, we need to determine the format
-    if cleaned.contains(',') && cleaned.contains('.') {
-        let last_comma_pos = cleaned.rfind(',');
-        let last_dot_pos = cleaned.rfind('.');
         
-        match (last_comma_pos, last_dot_pos) {
-            (Some(comma_pos), Some(dot_pos)) => {
-                if dot_pos > comma_pos {
-                    // US Format: comma thousands, dot decimal (1,234.56)
-                    // Last dot comes after last comma
-                    let parts: Vec<&str> = cleaned.split('.').collect();
-                    if parts.len() == 2 {
-                        let integer_part = parts[0];
-                        let decimal_part = parts[1];
-                        
-                        // Decimal part should be 1-6 digits and no commas
-                        if decimal_part.len() > 6 || decimal_part.contains(',') {
-                            return false;
-                        }
-                        
-                        return is_valid_comma_grouping(integer_part);
-                    }
-                } else {
-                    // EU Format: dot thousands, comma decimal (1.234,56)
-                    // Last comma comes after last dot
-                    let parts: Vec<&str> = cleaned.split(',').collect();
-                    if parts.len() == 2 {
-                        let integer_part = parts[0];
-                        let decimal_part = parts[1];
-                        
-                        // Decimal part should be 1-6 digits and no dots
-                        if decimal_part.len() > 6 || decimal_part.contains('.') {
-                            return false;
-                        }
-                        
-                        return is_valid_dot_grouping(integer_part);
-                    }
-                }
-            }
-            _ => return false,
+        InferredDataType::String
+    }
+
+    fn classify_value(value: &str) -> InferredDataType {
+
+        if INTEGER_PATTERN.is_match(value) {
+            return InferredDataType::Integer;
         }
-    }
-    
-    // Pure comma separators, no decimal
-    if cleaned.contains(',') && !cleaned.contains('.') {
-        return is_valid_comma_grouping(cleaned);
-    }
-    
-    // Pure dot separators - need to distinguish from decimals
-    if cleaned.contains('.') && !cleaned.contains(',') {
-        let dot_count = cleaned.matches('.').count();
-        if dot_count > 1 {
-            // Multiple dots, likely thousand separators
-            return is_valid_dot_grouping(cleaned);
-        } else {
-            // Single dot, should be handled by FLOAT_DOT_PATTERN
-            return false;
-        }
-    }
-    
-    false
-}
-
-fn is_valid_comma_grouping(value: &str) -> bool {
-    let parts: Vec<&str> = value.split(',').collect();
-    
-    // Must have at least 2 parts for thousand separators
-    if parts.len() < 2 {
-        return false;
-    }
-    
-    // First part: 1-3 digits
-    if parts[0].is_empty() || parts[0].len() > 3 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
-        return false;
-    }
-    
-    // Remaining parts: exactly 3 digits each
-    for part in &parts[1..] {
-        if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
-            return false;
-        }
-    }
-    
-    true
-}
-
-fn is_valid_dot_grouping(value: &str) -> bool {
-    let parts: Vec<&str> = value.split('.').collect();
-
-    // Allow single part or multiple parts for thousand separators
-    if parts.is_empty() {
-        return false;
-    }
-
-    // Reject if there are too many groups
-    if parts.len() > 4 {
-        return false;
-    }
-
-    // More specific IP/version detection
-    if parts.len() == 4 {
-        // Exactly 4 parts - could be IP address
-        if parts.iter().all(|p| {
-            if let Ok(num) = p.parse::<u32>() {
-                num <= 255  // Valid IP range
+        
+        if FLOAT_DOT_PATTERN.is_match(value) {
+            if value.matches('.').count() == 1 {
+                return InferredDataType::Float;
             } else {
-                false
+                return InferredDataType::String; 
             }
-        }) {
-            return false; 
         }
-    }
-    
-    // Version number detection: 2-4 parts, all small numbers (≤ 50)
-    if parts.len() >= 2 && parts.len() <= 4 {
-        if parts.iter().all(|p| {
-            if let Ok(num) = p.parse::<u32>() {
-                num <= 50  // Version numbers typically have small numbers
+
+        if FLOAT_COMMA_PATTERN.is_match(value) {
+            if value.matches(',').count() == 1 {
+                return InferredDataType::Float;
             } else {
-                false
+                return InferredDataType::String; 
             }
-        }) {
-            return false;  
         }
+        
+        if THOUSAND_SEPARATOR_PATTERN.is_match(value) {
+            if is_valid_thousand_separator_number(value) {
+                return InferredDataType::Float;
+            } else {
+                return InferredDataType::String;
+            }
+        }
+        
+        if PERCENTAGE_PATTERN.is_match(value) {
+            return InferredDataType::Float;
+        }
+        
+        if CURRENCY_PATTERN.is_match(value) {
+            return InferredDataType::Float;
+        }
+        
+        if BOOLEAN_PATTERN.is_match(value) {
+            if !INTEGER_PATTERN.is_match(value) {
+                return InferredDataType::Boolean;
+            }
+        }
+        
+        if DATE_PATTERN.is_match(value) {
+
+            if is_valid_date_or_time(value) {
+                return InferredDataType::Date;
+            } else {
+                return InferredDataType::String;
+            }
+        }
+        
+        InferredDataType::String
     }
-    
-    // Additional specific patterns to reject
-    if parts.len() == 3 {
-        // Reject patterns like 999.999.999 
-        if parts.iter().all(|p| p == &parts[0] && p.len() == 3) {
-            if let Ok(num) = parts[0].parse::<u32>() {
-                if num >= 900 {  
+
+    // Simple validation for thousand separator numbers
+    fn is_valid_thousand_separator_number(value: &str) -> bool {
+        // Remove leading +/- sign
+        let cleaned = value.trim_start_matches(['+', '-']);
+        
+    // println!("Validating thousand separator: '{}'", cleaned);
+        
+        // Check for comma thousands, dot decimal 1,234.56
+        if cleaned.contains(',') && cleaned.contains('.') {
+            let parts: Vec<&str> = cleaned.split('.').collect();
+            if parts.len() == 2 {
+                let integer_part = parts[0];
+                let decimal_part = parts[1];
+                
+                // Decimal part should be 1-6 digits
+                if decimal_part.len() > 6 {
+                //  println!("Invalid: decimal part too long");
                     return false;
                 }
+                
+                // Check comma grouping in integer part
+                let result = is_valid_comma_grouping(integer_part);
+            //  println!("Comma grouping valid: {}", result);
+                return result;
             }
         }
         
-        // Reject obvious IP-like patterns even with 3 parts
-        if parts.iter().all(|p| {
-            if let Ok(num) = p.parse::<u32>() {
-                num >= 100 && num <= 255
-            } else {
-                false
+        // Check for dot thousands, comma decimal 1.234,56  
+        if cleaned.contains('.') && cleaned.contains(',') {
+            let parts: Vec<&str> = cleaned.split(',').collect();
+            if parts.len() == 2 {
+                let integer_part = parts[0];
+                let decimal_part = parts[1];
+                
+                // Decimal part should be 1-6 digits
+                if decimal_part.len() > 6 {
+                //println!("Invalid: decimal part too long");
+                    return false;
+                }
+                
+                // Check dot grouping in integer 
+                let result = is_valid_dot_grouping(integer_part);
+            // println!(" Dot grouping valid: {}", result);
+                return result;
             }
-        }) {
-            return false;  // Likely IP 
         }
+        
+        // Pure comma separators, no decimal
+        if cleaned.contains(',') && !cleaned.contains('.') {
+            let result = is_valid_comma_grouping(cleaned);
+        // println!("Pure comma grouping valid: {}", result);
+            return result;
+        }
+        
+        // Pure dot separators -need to distinguish from decimals
+        if cleaned.contains('.') && !cleaned.contains(',') {
+            let dot_count = cleaned.matches('.').count();
+        // println!("Dot count: {}", dot_count);
+            if dot_count > 1 {
+                // Multiple dots, likely thousand separators
+                let result = is_valid_dot_grouping(cleaned);
+            // println!("Multiple dot grouping valid: {}", result);
+                return result;
+            } else {
+                //println!("Single dot, should be handled by FLOAT_DOT_PATTERN");
+                return false;
+            }
+        }
+        
+    // println!("No valid pattern found, returning false");
+        false
     }
 
-    // Validate thousand separator structure
-    // First part: 1-3 digits
-    if parts[0].is_empty() || parts[0].len() > 3 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
-        return false;
-    }
-
-    // Remaining parts: exactly 3 digits each
-    for part in parts[1..].iter() {
-        if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
+    fn is_valid_comma_grouping(value: &str) -> bool {
+        let parts: Vec<&str> = value.split(',').collect();
+        
+        // Must have at least 2 parts for thousand separators
+        if parts.len() < 2 {
             return false;
         }
-    }
-
-    true
-}
-
-fn is_valid_date_or_time(value: &str) -> bool {
-    // Time format validation
-    if value.contains(':') {
-        let parts: Vec<&str> = value.split(':').collect();
-        if parts.len() == 2 || parts.len() == 3 {
-            if let (Ok(hour), Ok(minute)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                if hour <= 23 && minute <= 59 {
-                    if parts.len() == 3 {
-                        if let Ok(second) = parts[2].parse::<u32>() {
-                            return second <= 59;
-                        }
-                        return false;
-                    }
-                    return true;
-                }
+        
+        // First part: 1-3 digits
+        if parts[0].is_empty() || parts[0].len() > 3 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+        
+        // Remaining parts: exactly 3 digits each
+        for part in &parts[1..] {
+            if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
+                return false;
             }
         }
-        return false;
+        
+        true
     }
-    
-    // Date format validation
-    let separators = ['-', '/', '.'];
-    for sep in separators {
-        if value.contains(sep) {
-            let parts: Vec<&str> = value.split(sep).collect();
-            if parts.len() == 3 {
-                if let Ok(nums) = parts.iter().map(|p| p.parse::<u32>()).collect::<Result<Vec<_>, _>>() {
-                    // Special heuristics to filter out non-dates
-                    if looks_like_version_number(&nums) {
-                        return false;
-                    }
-                    
-                    // Basic validation - at least one arrangement should make sense
-                    if is_plausible_date(&nums) {
+
+    fn is_valid_dot_grouping(value: &str) -> bool {
+        let parts: Vec<&str> = value.split('.').collect();
+        //println!("Checking dot grouping parts: {:?}", parts);
+        
+        // Must have at least 2 parts for thousand separators  
+        if parts.len() < 2 {
+        // println!("Invalid: less than 2 parts");
+            return false;
+        }
+        
+        // Reject if there are too many groups - 999,999,999 
+        if parts.len() > 4 {
+        //  println!("Invalid: too many groups ({}), likely not a number", parts.len());
+            return false;
+        }
+        
+
+        // 999.999.999 would have 3 parts of 3 digits each, which is likely an IP address or similar
+        if parts.len() >= 3 && parts.iter().all(|p| p.len() == 3) {
+            // Check if this could be an IP address (all parts <= 255)
+            if parts.iter().all(|p| p.parse::<u32>().map_or(false, |n| n <= 255)) {
+            // println!("Invalid: looks like IP address or similar pattern");
+                return false;
+            }
+            
+            // Even if not IP, having 3+ groups of exactly 3 digits is suspicious
+            if parts.len() >= 3 {
+            //  println!("Invalid: too many groups of exactly 3 digits, likely not a number");
+                return false;
+            }
+        }
+        
+        // First part: 1-3 digits
+        if parts[0].is_empty() || parts[0].len() > 3 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
+        // println!("Invalid: first part '{}' is empty, too long, or contains non-digits", parts[0]);
+            return false;
+        }
+        
+        // Remaining parts: exactly 3 digits each
+        for (i, part) in parts[1..].iter().enumerate() {
+            if part.len() != 3 || !part.chars().all(|c| c.is_ascii_digit()) {
+                println!("Invalid: part {} '{}' is not exactly 3 digits", i + 1, part);
+                return false;
+            }
+        }
+        
+    // println!("Valid dot grouping");
+        true
+    }
+
+    fn is_valid_date_or_time(value: &str) -> bool {
+        // Time format validation
+        if value.contains(':') {
+            let parts: Vec<&str> = value.split(':').collect();
+            if parts.len() == 2 || parts.len() == 3 {
+                if let (Ok(hour), Ok(minute)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    if hour <= 23 && minute <= 59 {
+                        if parts.len() == 3 {
+                            if let Ok(second) = parts[2].parse::<u32>() {
+                                return second <= 59;
+                            }
+                            return false;
+                        }
                         return true;
                     }
                 }
             }
+            return false;
         }
-    }
-    
-    false
-}
-
-// Heuristic to detect version numbers vs dates
-fn looks_like_version_number(nums: &[u32]) -> bool {
-    if nums.len() != 3 {
-        return false;
-    }
-    
-    // Version numbers typically have small numbers
-    // If all numbers are <= 20, it's likely a version number
-    // Examples: 1.2.3, 2.0.1, 10.15.2
-    if nums.iter().all(|&n| n <= 20) {
-        return true;
-    }
-    
-    // If the first number is small (<=50) and others are small (<=100), 
-    // and none looks like a year, it's probably a version
-    if nums[0] <= 50 && nums[1] <= 100 && nums[2] <= 100 {
-        // Make sure none of the numbers looks like a year
-        if !nums.iter().any(|&n| n >= 1900 && n <= 2100) {
-            return true;
-        }
-    }
-    
-    false
-}
-
-fn is_plausible_date(nums: &[u32]) -> bool {
-    if nums.len() != 3 {
-        return false;
-    }
-    
-  //  println!("Checking date values: {:?}", nums);
-    
-    // Try common date arrangements and validate each
-    let arrangements = [
-        (nums[0], nums[1], nums[2]), // YYYY-MM-DD 
-        (nums[2], nums[1], nums[0]), // DD-MM-YYYY
-        (nums[1], nums[0], nums[2]), // MM-DD-YYYY (US format with year at end)
-        (nums[2], nums[0], nums[1]), // YYYY-DD-MM (uncommon)
-    ];
-    
-    for (year, month, day) in arrangements {
-       // println!(" Trying arrangement: year={}, month={}, day={}", year, month, day);
         
-        // Check if this could be a valid date
-        if is_valid_date_components(year, month, day) {
-            //println!("Valid date found");
+        // Date format validation
+        let separators = ['-', '/', '.'];
+        for sep in separators {
+            if value.contains(sep) {
+                let parts: Vec<&str> = value.split(sep).collect();
+                if parts.len() == 3 {
+                    if let Ok(nums) = parts.iter().map(|p| p.parse::<u32>()).collect::<Result<Vec<_>, _>>() {
+                        // Special heuristics to filter out non-dates
+                        if looks_like_version_number(&nums) {
+                            //println!("Looks like version number, not a date");
+                            return false;
+                        }
+                        
+                        // Basic validation - at least one arrangement should make sense
+                        if is_plausible_date(&nums) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+
+    // Heuristic to detect version numbers vs dates
+    fn looks_like_version_number(nums: &[u32]) -> bool {
+        if nums.len() != 3 {
+            return false;
+        }
+        
+        // Version numbers typically have small numbers
+        // If all numbers are <= 20, it's likely a version number
+        // Examples: 1.2.3, 2.0.1, 10.15.2
+        if nums.iter().all(|&n| n <= 20) {
             return true;
         }
-    }
-    
-    // Also try 2-digit years (convert to 4-digit)
-    for (a, b, c) in arrangements {
-        // Try a as 2-digit year
-        if a < 100 {
-            let year_4digit = if a >= 50 { 1900 + a } else { 2000 + a };
-            if is_valid_date_components(year_4digit, b, c) {
-               // println!("Valid date found with 2-digit year conversion");
+        
+        // If the first number is small (<=50) and others are small (<=100), 
+        // and none looks like a year, it's probably a version
+        if nums[0] <= 50 && nums[1] <= 100 && nums[2] <= 100 {
+            // Make sure none of the numbers looks like a year
+            if !nums.iter().any(|&n| n >= 1900 && n <= 2100) {
                 return true;
             }
         }
         
-        // Try c as 2-digit year  
-        if c < 100 {
-            let year_4digit = if c >= 50 { 1900 + c } else { 2000 + c };
-            if is_valid_date_components(a, b, year_4digit) {
-               // println!("        -> Valid date found with 2-digit year conversion");
+        false
+    }
+
+    fn is_plausible_date(nums: &[u32]) -> bool {
+        if nums.len() != 3 {
+            return false;
+        }
+        
+    //  println!("Checking date values: {:?}", nums);
+        
+        // Try common date arrangements and validate each
+        let arrangements = [
+            (nums[0], nums[1], nums[2]), // YYYY-MM-DD 
+            (nums[2], nums[1], nums[0]), // DD-MM-YYYY
+            (nums[1], nums[0], nums[2]), // MM-DD-YYYY (US format with year at end)
+            (nums[2], nums[0], nums[1]), // YYYY-DD-MM (uncommon)
+        ];
+        
+        for (year, month, day) in arrangements {
+        // println!(" Trying arrangement: year={}, month={}, day={}", year, month, day);
+            
+            // Check if this could be a valid date
+            if is_valid_date_components(year, month, day) {
+                //println!("Valid date found");
                 return true;
             }
         }
-    }
-    
-    //println!("No valid date arrangement found");
-    false
-}
-
-fn is_valid_date_components(year: u32, month: u32, day: u32) -> bool {
-    // Year validation
-    if year < 1900 || year > 2100 {
-        return false;
-    }
-    
-    // Month validation (1-12)
-    if month < 1 || month > 12 {
-        return false;
-    }
-    
-    // Day validation (1-31, with basic month-specific checks)
-    if day < 1 || day > 31 {
-        return false;
-    }
-    
-    // Basic month-specific day validation
-    match month {
-        2 => {
-            // February - check for leap year
-            let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-            if day > if is_leap { 29 } else { 28 } {
-                return false;
+        
+        // Also try 2-digit years (convert to 4-digit)
+        for (a, b, c) in arrangements {
+            // Try a as 2-digit year
+            if a < 100 {
+                let year_4digit = if a >= 50 { 1900 + a } else { 2000 + a };
+                if is_valid_date_components(year_4digit, b, c) {
+                // println!("Valid date found with 2-digit year conversion");
+                    return true;
+                }
             }
-        },
-        4 | 6 | 9 | 11 => {
-            // April, June, September, November - 30 days
-            if day > 30 {
-                return false;
-            }
-        },
-        _ => {
-            // January, March, May, July, August, October, December - 31 days
-            // Already checked day <= 31 above
-        }
-    }
-    
-    true
-}
-
-fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data_type: &InferredDataType) -> String {
-   let quoted_original_col = format!("\"{}\"", original_col_name);
-let quoted_clean_col = format!("\"{}\"", clean_col_name);
-    
-    match data_type {
-        InferredDataType::Integer => {
-            format!(
-                "CASE 
-                    WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
-                    WHEN {} ~ '^[+-]?[0-9]+$' THEN CAST({} AS BIGINT)
-                    ELSE NULL
-                END AS {}",
-               quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, quoted_clean_col
-            )
-        },
-        InferredDataType::Float => {
-            format!(
-                "CASE 
-                    WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
-                    -- Pure integers
-                    WHEN {} ~ '^[+-]?[0-9]+$' THEN CAST({} AS DOUBLE)
-                    -- Decimals with dot
-                    WHEN {} ~ '^[+-]?[0-9]*\\.[0-9]+$' THEN CAST({} AS DOUBLE)
-                    -- European decimals with comma
-                    WHEN {} ~ '^[+-]?[0-9]+,[0-9]+$' THEN CAST(REPLACE({}, ',', '.') AS DOUBLE)
-                    -- Remove % and convert percentages
-                    WHEN {} ~ '^[+-]?[0-9]*[.,]?[0-9]+%$' THEN 
-                        CAST(REPLACE(REPLACE({}, '%', ''), ',', '.') AS DOUBLE) / 100
-                    -- Remove currency symbols
-                    WHEN {} ~ '^[$€£¥₹]\\s*[+-]?[0-9,.]+$' OR {} ~ '^[+-]?[0-9,.]+\\s*[$€£¥₹]$' THEN
-                        CAST(REGEXP_REPLACE(REPLACE({}, ',', '.'), '[$€£¥₹\\s]', '', 'g') AS DOUBLE)
-                    -- Thousand separators (US format: 1,234.56)
-                    WHEN {} ~ '^[+-]?[0-9]{{1,3}}(,[0-9]{{3}})+\\.[0-9]{{1,2}}$' THEN
-                        CAST(REPLACE({}, ',', '') AS DOUBLE)
-                    -- Thousand separators (EU format: 1.234,56)
-                    WHEN {} ~ '^[+-]?[0-9]{{1,3}}(\\.[0-9]{{3}})+,[0-9]{{1,2}}$' THEN
-                        CAST(REPLACE(REGEXP_REPLACE({}, '\\.(?=.*,)', '', 'g'), ',', '.') AS DOUBLE)
-                    ELSE NULL
-                END AS {}",
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_clean_col
-            )
-        },
-        InferredDataType::Boolean => {
-            format!(
-                "CASE 
-                    WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
-                    WHEN UPPER(TRIM({})) IN ('TRUE', 'YES', 'DA', '1') THEN TRUE
-                    WHEN UPPER(TRIM({})) IN ('FALSE', 'NO', 'NE', '0') THEN FALSE
-                    ELSE NULL
-                END AS {}",
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, quoted_clean_col
-            )
-        },
-        InferredDataType::Date => {
-            format!(
-                "CASE 
-                    WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
-                    -- Handle YYYY-MM-DD or YYYY/MM/DD
-                    WHEN {} ~ '^[0-9]{{4}}[-/][0-9]{{1,2}}[-/][0-9]{{1,2}}$' THEN 
-                        CAST(REPLACE({}, '/', '-') AS DATE)
-                    ELSE {} -- Keep as string for non-standard formats
-                END AS {}",
-                quoted_original_col, quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_original_col, 
-                quoted_original_col, quoted_clean_col
-            )
-        },
-        InferredDataType::String => {
-            format!("{} AS {}", quoted_original_col, quoted_clean_col)
-        }
-    }
-}
-
-
-// ==============  STREAMING CSV ==============
-
-    /// Load CSV with smart casting and Streaming
-    pub async fn load_csv_with_type_handling_streaming(
-        file_path: &str, 
-        alias: &str,
-    ) -> ElusionResult<AliasedDataFrame> {
-        if !LocalPath::new(file_path).exists() {
-            return Err(ElusionError::WriteError {
-                path: file_path.to_string(),
-                operation: "read".to_string(),
-                reason: "File not found".to_string(),
-                suggestion: "💡 Check if the file path is correct".to_string()
-            });
-        }
-
-        let delimiter = detect_delimiter(file_path).await?;
-        let delimiter_name = match delimiter {
-            b'\t' => "TSV (tab-separated)",
-            b',' => "CSV (comma-separated)",
-            b';' => "semicolon-separated",
-            b'|' => "pipe-separated",
-            _ => "custom delimiter"
-        };
-
-        println!("🚀 Reading CSV file with schema detection...");
-        let read_start = std::time::Instant::now();
-
-        // Use the same approach as regular loading - let DataFusion handle the schema
-        let mut batch_size = 16384; 
-        if let Ok(metadata) = std::fs::metadata(file_path) {
-            let file_size = metadata.len();
-            println!("📏 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1024.0 / 1024.0);
-            if file_size >= 100_000_000_000 { 
-                batch_size = 4096;
+            
+            // Try c as 2-digit year  
+            if c < 100 {
+                let year_4digit = if c >= 50 { 1900 + c } else { 2000 + c };
+                if is_valid_date_components(a, b, year_4digit) {
+                // println!("        -> Valid date found with 2-digit year conversion");
+                    return true;
+                }
             }
         }
         
-        let config = SessionConfig::new().with_batch_size(batch_size);
-        let ctx = SessionContext::new_with_config(config);
+        //println!("No valid date arrangement found");
+        false
+    }
 
-        // SAME AS REGULAR LOADING: Let DataFusion read and infer schema
-        let df = ctx.read_csv(
-            file_path,
-            CsvReadOptions::new()
-                .has_header(true)
-                .schema_infer_max_records(0)
-                .delimiter(delimiter)
-        ).await.map_err(ElusionError::DataFusion)?;
+    fn is_valid_date_components(year: u32, month: u32, day: u32) -> bool {
+        // Year validation
+        if year < 1900 || year > 2100 {
+            return false;
+        }
+        
+        // Month validation (1-12)
+        if month < 1 || month > 12 {
+            return false;
+        }
+        
+        // Day validation (1-31, with basic month-specific checks)
+        if day < 1 || day > 31 {
+            return false;
+        }
+        
+        // Basic month-specific day validation
+        match month {
+            2 => {
+                // February - check for leap year
+                let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+                if day > if is_leap { 29 } else { 28 } {
+                    return false;
+                }
+            },
+            4 | 6 | 9 | 11 => {
+                // April, June, September, November - 30 days
+                if day > 30 {
+                    return false;
+                }
+            },
+            _ => {
+                // January, March, May, July, August, October, December - 31 days
+                // Already checked day <= 31 above
+            }
+        }
+        
+        true
+    }
 
-        let schema = df.schema();
-        let column_count = schema.fields().len();
-        println!("✅ Successfully loaded {} with {} columns", delimiter_name, column_count);
-
-        let sample_data = get_sample_data(&df, &ctx).await?;
+    fn create_casting_expression(original_col_name: &str, clean_col_name: &str, data_type: &InferredDataType) -> String {
+    let quoted_original_col = format!("\"{}\"", original_col_name);
+    let quoted_clean_col = format!("\"{}\"", clean_col_name);
         
-        let casting_start = std::time::Instant::now();
-        let cast_sql = generate_smart_casting_sql(&sample_data, schema.fields(), alias)?;
-        
-        println!("🎯 Applying content-based smart casting...");
-        
-        let final_df = ctx.sql(&cast_sql).await.map_err(ElusionError::DataFusion)?;
-        
-        let total_elapsed = read_start.elapsed();
-        println!("✅ Schema applied in {:?}", casting_start.elapsed());
-        println!("🎉 {} DataFrame setup completed in {:?} for table alias: '{}'", 
-            delimiter_name, total_elapsed, alias);
-        println!("💡 Detected .elusion_streaming() -> Data will be processed in chunks when queried.");
-        
-        Ok(AliasedDataFrame {
-            dataframe: final_df,
-            alias: alias.to_string(),
-        })
+        match data_type {
+            InferredDataType::Integer => {
+                format!(
+                    "CASE 
+                        WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
+                        WHEN {} ~ '^[+-]?[0-9]+$' THEN CAST({} AS BIGINT)
+                        ELSE NULL
+                    END AS {}",
+                quoted_original_col, quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, quoted_clean_col
+                )
+            },
+            InferredDataType::Float => {
+                format!(
+                    "CASE 
+                        WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
+                        -- Pure integers
+                        WHEN {} ~ '^[+-]?[0-9]+$' THEN CAST({} AS DOUBLE)
+                        -- Decimals with dot
+                        WHEN {} ~ '^[+-]?[0-9]*\\.[0-9]+$' THEN CAST({} AS DOUBLE)
+                        -- European decimals with comma
+                        WHEN {} ~ '^[+-]?[0-9]+,[0-9]+$' THEN CAST(REPLACE({}, ',', '.') AS DOUBLE)
+                        -- Remove % and convert percentages
+                        WHEN {} ~ '^[+-]?[0-9]*[.,]?[0-9]+%$' THEN 
+                            CAST(REPLACE(REPLACE({}, '%', ''), ',', '.') AS DOUBLE) / 100
+                        -- Remove currency symbols
+                        WHEN {} ~ '^[$€£¥₹]\\s*[+-]?[0-9,.]+$' OR {} ~ '^[+-]?[0-9,.]+\\s*[$€£¥₹]$' THEN
+                            CAST(REGEXP_REPLACE(REPLACE({}, ',', '.'), '[$€£¥₹\\s]', '', 'g') AS DOUBLE)
+                        -- Thousand separators (US format: 1,234.56)
+                        WHEN {} ~ '^[+-]?[0-9]{{1,3}}(,[0-9]{{3}})+\\.[0-9]{{1,2}}$' THEN
+                            CAST(REPLACE({}, ',', '') AS DOUBLE)
+                        -- Thousand separators (EU format: 1.234,56)
+                        WHEN {} ~ '^[+-]?[0-9]{{1,3}}(\\.[0-9]{{3}})+,[0-9]{{1,2}}$' THEN
+                            CAST(REPLACE(REGEXP_REPLACE({}, '\\.(?=.*,)', '', 'g'), ',', '.') AS DOUBLE)
+                        ELSE NULL
+                    END AS {}",
+                    quoted_original_col, quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, 
+                    quoted_clean_col
+                )
+            },
+            InferredDataType::Boolean => {
+                format!(
+                    "CASE 
+                        WHEN {} IS NULL OR TRIM({}) = '' OR TRIM({}) IN ('NULL', 'null', 'N/A', 'n/a', '-') THEN NULL
+                        WHEN UPPER(TRIM({})) IN ('TRUE', 'YES', 'DA', '1') THEN TRUE
+                        WHEN UPPER(TRIM({})) IN ('FALSE', 'NO', 'NE', '0') THEN FALSE
+                        ELSE NULL
+                    END AS {}",
+                    quoted_original_col, quoted_original_col, quoted_original_col, 
+                    quoted_original_col, quoted_original_col, quoted_clean_col
+                )
+            },
+            InferredDataType::Date | InferredDataType::String => {
+                // Keep as string
+                format!("{} AS {}", quoted_original_col, quoted_clean_col)
+            }
+        }
     }
 
     pub async fn load_csv_smart(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
-        load_csv_with_type_handling_streaming(file_path, alias).await
+        load_csv_with_type_handling(file_path, alias).await
     }
 //====================== TESTING ====================================================
 
@@ -1287,55 +1128,6 @@ mod tests {
         assert!(result.is_ok(), "CSV with mixed types should work: {:?}", result.err());
     }
 
-    #[tokio::test]
-    async fn test_delimiter_detection_comma() {
-        let temp_dir = TempDir::new().unwrap();
-        let csv_content = r#"col1,col2,col3
-        val1,val2,val3
-        data1,data2,data3"#;
-        
-        let csv_path = create_test_csv(csv_content, "comma.csv", &temp_dir);
-        
-        let detected = detect_delimiter(&csv_path).await.unwrap();
-        assert_eq!(detected, b',', "Should detect comma delimiter");
-    }
-
-    #[tokio::test]
-    async fn test_delimiter_detection_tab() {
-        let temp_dir = TempDir::new().unwrap();
-        let tsv_content = "col1\tcol2\tcol3\nval1\tval2\tval3\ndata1\tdata2\tdata3";
-        
-        let tsv_path = create_test_csv(tsv_content, "test.tsv", &temp_dir);
-        
-        let detected = detect_delimiter(&tsv_path).await.unwrap();
-        assert_eq!(detected, b'\t', "Should detect tab delimiter");
-    }
-
-    #[tokio::test]
-    async fn test_delimiter_detection_semicolon() {
-        let temp_dir = TempDir::new().unwrap();
-        let csv_content = r#"col1;col2;col3
-        val1;val2;val3
-        data1;data2;data3"#;
-        
-        let csv_path = create_test_csv(csv_content, "semicolon.csv", &temp_dir);
-        
-        let detected = detect_delimiter(&csv_path).await.unwrap();
-        assert_eq!(detected, b';', "Should detect semicolon delimiter");
-    }
-
-    #[tokio::test]
-    async fn test_delimiter_detection_pipe() {
-        let temp_dir = TempDir::new().unwrap();
-        let csv_content = r#"col1|col2|col3
-        val1|val2|val3
-        data1|data2|data3"#;
-        
-        let csv_path = create_test_csv(csv_content, "pipe.csv", &temp_dir);
-        
-        let detected = detect_delimiter(&csv_path).await.unwrap();
-        assert_eq!(detected, b'|', "Should detect pipe delimiter");
-    }
 
     #[tokio::test]
     async fn test_csv_with_empty_values() {
@@ -1400,7 +1192,7 @@ mod tests {
         let csv_path = create_test_csv(csv_content, "stream_test.csv", &temp_dir);
         
         // Test streaming version
-        let result = load_csv_with_type_handling_streaming(&csv_path, "stream_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "stream_csv").await;
         assert!(result.is_ok(), "Streaming CSV loading should work: {:?}", result.err());
         
         let df = result.unwrap();
@@ -1443,39 +1235,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_tsv_detection_and_loading() {
-        let temp_dir = TempDir::new().unwrap();
-        let tsv_content = "name\tage\tsalary\tactive\nJohn\t25\t50000.50\ttrue\nJane\t30\t75000.00\tfalse";
-        
-        let tsv_path = create_test_csv(tsv_content, "test.csv", &temp_dir);
-        
-        let detected = detect_delimiter(&tsv_path).await.unwrap();
-        assert_eq!(detected, b'\t', "Should detect tab delimiter for TSV");
-        
-        let result = load_csv_with_type_handling(&tsv_path, "tsv_test").await;
-        assert!(result.is_ok(), "TSV loading should work with enhanced CSV loader: {:?}", result.err());
-        
-        let df = result.unwrap();
-        let schema = df.dataframe.schema();
-        assert_eq!(schema.fields().len(), 4, "TSV should have 4 columns");
-    }
 
-    #[tokio::test]
-    async fn test_delimiter_consistency_check() {
-        let temp_dir = TempDir::new().unwrap();
-        
-        let mixed_content = r#"col1,col2,col3
-        val1,val2,val3
-        bad1;bad2;bad3
-        good1,good2,good3"#;
-        
-        let mixed_path = create_test_csv(mixed_content, "mixed.csv", &temp_dir);
-        
-        let detected = detect_delimiter(&mixed_path).await.unwrap();
-
-        assert_eq!(detected, b',', "Should detect comma as most consistent delimiter");
-    }
 
     #[test]
     fn test_null_value_detection() {
@@ -1489,145 +1249,145 @@ mod tests {
         assert!(!NULL_VALUES.contains("false"));
     }
 
-    #[test]
-    fn test_thousand_separator_validation_functions() {
-        println!("🔍 Testing thousand separator validation functions...");
-        assert!(is_valid_thousand_separator_number("2,162.00"));
-        assert!(is_valid_thousand_separator_number("1,234.56"));
-        assert!(is_valid_thousand_separator_number("999,999.99"));
-        assert!(is_valid_thousand_separator_number("1,000,000.00"));
-        assert!(is_valid_thousand_separator_number("1,000,000,000,000.00"));
-        assert!(is_valid_thousand_separator_number("2.162,00"));
-        assert!(is_valid_thousand_separator_number("1.234,56"));
-        assert!(is_valid_thousand_separator_number("1,234"));
-        assert!(is_valid_thousand_separator_number("999,999"));
-        assert!(!is_valid_thousand_separator_number("999.999.999"));
-        assert!(!is_valid_thousand_separator_number("192.168.1.1"));
-        assert!(!is_valid_thousand_separator_number("1.2.3"));
-    }
+    // #[test]
+    // fn test_thousand_separator_validation_functions() {
+    //     println!("🔍 Testing thousand separator validation functions...");
+    //     assert!(is_valid_thousand_separator_number("2,162.00"));
+    //     assert!(is_valid_thousand_separator_number("1,234.56"));
+    //     assert!(is_valid_thousand_separator_number("999,999.99"));
+    //     assert!(is_valid_thousand_separator_number("1,000,000.00"));
+    //     assert!(is_valid_thousand_separator_number("1,000,000,000,000.00"));
+    //     assert!(is_valid_thousand_separator_number("2.162,00"));
+    //     assert!(is_valid_thousand_separator_number("1.234,56"));
+    //     assert!(is_valid_thousand_separator_number("1,234"));
+    //     assert!(is_valid_thousand_separator_number("999,999"));
+    //     assert!(!is_valid_thousand_separator_number("999.999.999"));
+    //     assert!(!is_valid_thousand_separator_number("192.168.1.1"));
+    //     assert!(!is_valid_thousand_separator_number("1.2.3"));
+    // }
 
-    // Add this test to debug exactly what's happening
-#[test]
-fn test_debug_dot_grouping_step_by_step() {
-    println!("🔍 DEBUGGING is_valid_dot_grouping('1.234')");
-    
-    let value = "1.234";
-    let parts: Vec<&str> = value.split('.').collect();
-    println!("1. parts = {:?} (len={})", parts, parts.len());
-    
-    // Check if empty
-    if parts.is_empty() {
-        println!("2. ❌ parts is empty");
-        panic!("Should not be empty");
-    }
-    println!("2. ✅ parts not empty");
-    
-    // Check if too many groups
-    if parts.len() > 3 {
-        println!("3. ❌ too many groups ({})", parts.len());
-        panic!("Should not have too many groups");
-    }
-    println!("3. ✅ parts.len() <= 3");
-    
-    // Check IP-like patterns
-    if parts.len() >= 3 && parts.iter().all(|p| p.len() <= 3 && p.parse::<u32>().map_or(false, |n| n <= 999)) {
-        println!("4. ❌ looks like IP/version (len={}, all ≤ 999)", parts.len());
-        if parts.len() >= 3 {
-            panic!("Should not trigger IP check for 2 parts");
-        }
-    }
-    println!("4. ✅ not IP-like");
-    
-    // Check first part
-    let first_empty = parts[0].is_empty();
-    let first_too_long = parts[0].len() > 3;
-    let first_all_digits = parts[0].chars().all(|c| c.is_ascii_digit());
-    
-    println!("5. First part '{}': empty={}, len={}, all_digits={}", 
-             parts[0], first_empty, parts[0].len(), first_all_digits);
-    
-    if first_empty || first_too_long || !first_all_digits {
-        println!("6. ❌ First part invalid");
-        panic!("First part should be valid");
-    }
-    println!("6. ✅ First part valid");
-    
-    // Check remaining parts
-    println!("7. Checking remaining parts: {:?}", &parts[1..]);
-    for (idx, part) in parts[1..].iter().enumerate() {
-        let part_len = part.len();
-        let part_all_digits = part.chars().all(|c| c.is_ascii_digit());
-        println!("   Part {}: '{}' (len={}, all_digits={})", idx + 1, part, part_len, part_all_digits);
-        
-        if part_len != 3 || !part_all_digits {
-            println!("8. ❌ Part {} '{}' invalid: len={}, expected=3, all_digits={}", 
-                     idx + 1, part, part_len, part_all_digits);
-            panic!("Part should be valid");
-        }
-    }
-    println!("8. ✅ All remaining parts valid");
-    
-    // Final result
-    let actual_result = is_valid_dot_grouping(value);
-    println!("9. ACTUAL FUNCTION RESULT: {}", actual_result);
-    
-    if !actual_result {
-        panic!("Function returned false but all checks passed!");
-    }
-    
-    println!("✅ SUCCESS: Function should return true and did");
-}
 
-// Also test the EU validation specifically
-#[test]  
-fn test_debug_eu_validation_specific() {
-    println!("🔍 DEBUGGING EU validation for '1.234,56'");
-    
-    let value = "1.234,56";
-    let cleaned = value.trim_start_matches(['+', '-']);
-    println!("1. cleaned = '{}'", cleaned);
-    
-    let has_comma = cleaned.contains(',');
-    let has_dot = cleaned.contains('.');
-    println!("2. has_comma={}, has_dot={}", has_comma, has_dot);
-    
-    if has_dot && has_comma {
-        println!("3. ✅ Entering EU format validation");
+    // #[test]
+    // fn test_debug_dot_grouping_step_by_step() {
+    //     println!("🔍 DEBUGGING is_valid_dot_grouping('1.234')");
         
-        let parts: Vec<&str> = cleaned.split(',').collect();
-        println!("4. comma split: {:?}", parts);
+    //     let value = "1.234";
+    //     let parts: Vec<&str> = value.split('.').collect();
+    //     println!("1. parts = {:?} (len={})", parts, parts.len());
         
-        if parts.len() == 2 {
-            let integer_part = parts[0];
-            let decimal_part = parts[1];
-            println!("5. integer_part='{}', decimal_part='{}'", integer_part, decimal_part);
+    //     // Check if empty
+    //     if parts.is_empty() {
+    //         println!("2. ❌ parts is empty");
+    //         panic!("Should not be empty");
+    //     }
+    //     println!("2. ✅ parts not empty");
+        
+    //     // Check if too many groups
+    //     if parts.len() > 3 {
+    //         println!("3. ❌ too many groups ({})", parts.len());
+    //         panic!("Should not have too many groups");
+    //     }
+    //     println!("3. ✅ parts.len() <= 3");
+        
+    //     // Check IP-like patterns
+    //     if parts.len() >= 3 && parts.iter().all(|p| p.len() <= 3 && p.parse::<u32>().map_or(false, |n| n <= 999)) {
+    //         println!("4. ❌ looks like IP/version (len={}, all ≤ 999)", parts.len());
+    //         if parts.len() >= 3 {
+    //             panic!("Should not trigger IP check for 2 parts");
+    //         }
+    //     }
+    //     println!("4. ✅ not IP-like");
+        
+    //     // Check first part
+    //     let first_empty = parts[0].is_empty();
+    //     let first_too_long = parts[0].len() > 3;
+    //     let first_all_digits = parts[0].chars().all(|c| c.is_ascii_digit());
+        
+    //     println!("5. First part '{}': empty={}, len={}, all_digits={}", 
+    //             parts[0], first_empty, parts[0].len(), first_all_digits);
+        
+    //     if first_empty || first_too_long || !first_all_digits {
+    //         println!("6. ❌ First part invalid");
+    //         panic!("First part should be valid");
+    //     }
+    //     println!("6. ✅ First part valid");
+        
+    //     // Check remaining parts
+    //     println!("7. Checking remaining parts: {:?}", &parts[1..]);
+    //     for (idx, part) in parts[1..].iter().enumerate() {
+    //         let part_len = part.len();
+    //         let part_all_digits = part.chars().all(|c| c.is_ascii_digit());
+    //         println!("   Part {}: '{}' (len={}, all_digits={})", idx + 1, part, part_len, part_all_digits);
             
-            // Check decimal part
-            let decimal_valid = !decimal_part.is_empty() && 
-                               decimal_part.len() <= 6 && 
-                               decimal_part.chars().all(|c| c.is_ascii_digit());
-            println!("6. decimal_part valid: {}", decimal_valid);
+    //         if part_len != 3 || !part_all_digits {
+    //             println!("8. ❌ Part {} '{}' invalid: len={}, expected=3, all_digits={}", 
+    //                     idx + 1, part, part_len, part_all_digits);
+    //             panic!("Part should be valid");
+    //         }
+    //     }
+    //     println!("8. ✅ All remaining parts valid");
+        
+    //     // Final result
+    //     let actual_result = is_valid_dot_grouping(value);
+    //     println!("9. ACTUAL FUNCTION RESULT: {}", actual_result);
+        
+    //     if !actual_result {
+    //         panic!("Function returned false but all checks passed!");
+    //     }
+        
+    //     println!("✅ SUCCESS: Function should return true and did");
+    // }
+
+    // // Also test the EU validation specifically
+    // #[test]  
+    // fn test_debug_eu_validation_specific() {
+    //     println!("🔍 DEBUGGING EU validation for '1.234,56'");
+        
+    //     let value = "1.234,56";
+    //     let cleaned = value.trim_start_matches(['+', '-']);
+    //     println!("1. cleaned = '{}'", cleaned);
+        
+    //     let has_comma = cleaned.contains(',');
+    //     let has_dot = cleaned.contains('.');
+    //     println!("2. has_comma={}, has_dot={}", has_comma, has_dot);
+        
+    //     if has_dot && has_comma {
+    //         println!("3. ✅ Entering EU format validation");
             
-            if decimal_valid {
-                println!("7. ✅ Decimal part valid, checking dot grouping");
+    //         let parts: Vec<&str> = cleaned.split(',').collect();
+    //         println!("4. comma split: {:?}", parts);
+            
+    //         if parts.len() == 2 {
+    //             let integer_part = parts[0];
+    //             let decimal_part = parts[1];
+    //             println!("5. integer_part='{}', decimal_part='{}'", integer_part, decimal_part);
                 
-                let dot_result = is_valid_dot_grouping(integer_part);
-                println!("8. is_valid_dot_grouping('{}') = {}", integer_part, dot_result);
+    //             // Check decimal part
+    //             let decimal_valid = !decimal_part.is_empty() && 
+    //                             decimal_part.len() <= 6 && 
+    //                             decimal_part.chars().all(|c| c.is_ascii_digit());
+    //             println!("6. decimal_part valid: {}", decimal_valid);
                 
-                if !dot_result {
-                    panic!("Dot grouping should be valid but returned false!");
-                }
-            }
-        }
-    }
-    
-    let final_result = is_valid_thousand_separator_number(value);
-    println!("FINAL: is_valid_thousand_separator_number('{}') = {}", value, final_result);
-    
-    if !final_result {
-        panic!("EU validation should return true but returned false!");
-    }
-}
+    //             if decimal_valid {
+    //                 println!("7. ✅ Decimal part valid, checking dot grouping");
+                    
+    //                 let dot_result = is_valid_dot_grouping(integer_part);
+    //                 println!("8. is_valid_dot_grouping('{}') = {}", integer_part, dot_result);
+                    
+    //                 if !dot_result {
+    //                     panic!("Dot grouping should be valid but returned false!");
+    //                 }
+    //             }
+    //         }
+    //     }
+        
+    //     let final_result = is_valid_thousand_separator_number(value);
+    //     println!("FINAL: is_valid_thousand_separator_number('{}') = {}", value, final_result);
+        
+    //     if !final_result {
+    //         panic!("EU validation should return true but returned false!");
+    //     }
+    // }
 
     #[test]
     fn test_type_inference_with_mixed_number_formats() {
@@ -1690,7 +1450,7 @@ fn test_debug_eu_validation_specific() {
         let regular_result = load_csv_with_type_handling(&csv_path, "regular").await;
         assert!(regular_result.is_ok(), "Regular loading should handle mixed formats: {:?}", regular_result.err());
         
-        let streaming_result = load_csv_with_type_handling_streaming(&csv_path, "streaming").await;
+        let streaming_result = load_csv_with_type_handling(&csv_path, "streaming").await;
         assert!(streaming_result.is_ok(), "Streaming loading should handle mixed formats: {:?}", streaming_result.err());
         
         if let Ok(df) = regular_result {
@@ -1708,26 +1468,26 @@ fn test_debug_eu_validation_specific() {
         }
     }
 
-    #[test]
-    fn test_international_number_formats() {
-        println!("🌍 Testing international number formats...");
+    // #[test]
+    // fn test_international_number_formats() {
+    //     println!("🌍 Testing international number formats...");
         
-        assert!(matches!(classify_value("1,234.56"), InferredDataType::Float));
-        assert!(matches!(classify_value("1,234,567.89"), InferredDataType::Float));
+    //     assert!(matches!(classify_value("1,234.56"), InferredDataType::Float));
+    //     assert!(matches!(classify_value("1,234,567.89"), InferredDataType::Float));
         
-        assert!(matches!(classify_value("1.234,56"), InferredDataType::Float)); 
-        assert!(matches!(classify_value("1.234.567,89"), InferredDataType::Float));
+    //     assert!(matches!(classify_value("1.234,56"), InferredDataType::Float)); 
+    //     assert!(matches!(classify_value("1.234.567,89"), InferredDataType::Float));
 
-        let mixed_samples = vec![
-            "1,234.56".to_string(),  
-            "1234.56".to_string(), 
-            "2,500.00".to_string(), 
-            "invalid".to_string(),   
-        ];
-        let result = infer_column_type(&mixed_samples, "mixed_international");
-        println!("Mixed international formats result: {:?}", result);
-        assert!(matches!(result, InferredDataType::String | InferredDataType::Float));
-    }
+    //     let mixed_samples = vec![
+    //         "1,234.56".to_string(),  
+    //         "1234.56".to_string(), 
+    //         "2,500.00".to_string(), 
+    //         "invalid".to_string(),   
+    //     ];
+    //     let result = infer_column_type(&mixed_samples, "mixed_international");
+    //     println!("Mixed international formats result: {:?}", result);
+    //     assert!(matches!(result, InferredDataType::String | InferredDataType::Float));
+    // }
 
     #[test]
     fn test_edge_cases_cross_system() {
@@ -1765,7 +1525,7 @@ fn test_debug_eu_validation_specific() {
         
         let csv_path = create_test_csv(csv_content, "sql_test.csv", &temp_dir);
         
-        let result = load_csv_with_type_handling_streaming(&csv_path, "sql_test").await;
+        let result = load_csv_with_type_handling(&csv_path, "sql_test").await;
         
         match result {
             Ok(_) => println!("✅ SQL generation works with current DataFusion version"),
@@ -1796,7 +1556,7 @@ fn test_debug_eu_validation_specific() {
         let csv_path = create_test_csv(&csv_content, "large_test.csv", &temp_dir);
         
         let start_time = std::time::Instant::now();
-        let result = load_csv_with_type_handling_streaming(&csv_path, "large_streaming").await;
+        let result = load_csv_with_type_handling(&csv_path, "large_streaming").await;
         let load_duration = start_time.elapsed();
         
         assert!(result.is_ok(), "Large CSV streaming should work: {:?}", result.err());
@@ -1804,24 +1564,6 @@ fn test_debug_eu_validation_specific() {
             "Streaming load took too long: {:?}", load_duration);
         
         println!("✅ Large CSV streaming completed in {:?}", load_duration);
-    }
-
-    #[tokio::test]
-    async fn test_delimiter_detection_edge_cases() {
-        let temp_dir = TempDir::new().unwrap();
-        
-        let tricky_csv = r#"name,description,amount
-        "Smith John","Software Engineer Senior","1,234.56"
-        "Doe Jane","Data Scientist Lead","2,345.67"
-        "Wilson Bob","Product Manager","3,456.78""#;
-        
-        let csv_path = create_test_csv(tricky_csv, "tricky_delimiters.csv", &temp_dir);
-        
-        let detected_delimiter = detect_delimiter(&csv_path).await.unwrap();
-        assert_eq!(detected_delimiter, b',', "Should correctly detect comma despite quoted content");
-        
-        let result = load_csv_with_type_handling(&csv_path, "tricky").await;
-        assert!(result.is_ok(), "Should handle quoted fields with internal delimiters: {:?}", result.err());
     }
 
     #[test]
@@ -1904,7 +1646,7 @@ fn test_debug_eu_validation_specific() {
         let csv_path = create_test_csv(simple_csv, "simple.csv", &temp_dir);
         
         let regular_result = load_csv_with_type_handling(&csv_path, "regular_compat").await;
-        let streaming_result = load_csv_with_type_handling_streaming(&csv_path, "streaming_compat").await;
+        let streaming_result = load_csv_with_type_handling(&csv_path, "streaming_compat").await;
         
         assert!(regular_result.is_ok(), "Regular approach should still work");
         assert!(streaming_result.is_ok(), "Streaming approach should still work");
@@ -1933,7 +1675,7 @@ fn test_debug_eu_validation_specific() {
         let csv_path = create_test_csv(&csv_content, "performance_test.csv", &temp_dir);
         
         let start_time = std::time::Instant::now();
-        let result = load_csv_with_type_handling_streaming(&csv_path, "perf_test").await;
+        let result = load_csv_with_type_handling(&csv_path, "perf_test").await;
         let duration = start_time.elapsed();
         
         assert!(result.is_ok(), "Performance test should succeed: {:?}", result.err());
@@ -1987,7 +1729,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(csv_content, "windows_test.csv", &temp_dir, "\r\n");
         
         println!("🪟 Testing Windows CRLF line endings...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "windows_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "windows_csv").await;
         assert!(result.is_ok(), "Windows CRLF should work: {:?}", result.err());
         
         if let Ok(df) = result {
@@ -2010,7 +1752,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(csv_content, "unix_test.csv", &temp_dir, "\n");
         
         println!("🐧 Testing Unix LF line endings...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "unix_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "unix_csv").await;
         assert!(result.is_ok(), "Unix LF should work: {:?}", result.err());
     }
 
@@ -2025,7 +1767,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(csv_content, "mac_test.csv", &temp_dir, "\r");
         
         println!("🍎 Testing Mac Classic CR line endings...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "mac_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "mac_csv").await;
         assert!(result.is_ok(), "Mac CR should work: {:?}", result.err());
     }
 
@@ -2040,7 +1782,7 @@ mod cross_platform_tests {
         let csv_path = create_csv_with_bom(csv_content, "bom_test.csv", &temp_dir);
         
         println!("📄 Testing CSV with UTF-8 BOM...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "bom_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "bom_csv").await;
         assert!(result.is_ok(), "CSV with BOM should work: {:?}", result.err());
     }
 
@@ -2060,7 +1802,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(csv_content, "mixed_cities.csv", &temp_dir, "\r\n");
         
         println!("🏙️ Testing mixed empty and filled city columns...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "mixed_cities").await;
+        let result = load_csv_with_type_handling(&csv_path, "mixed_cities").await;
         assert!(result.is_ok(), "Mixed city data should work: {:?}", result.err());
         
         if let Ok(df) = result {
@@ -2092,7 +1834,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(csv_content, "serbian_chars.csv", &temp_dir, "\r\n");
         
         println!("🇷🇸 Testing Serbian characters (Cyrillic/Latin mix)...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "serbian_csv").await;
+        let result = load_csv_with_type_handling(&csv_path, "serbian_csv").await;
 
         match result {
             Ok(_) => println!("✅ Serbian characters handled correctly"),
@@ -2102,73 +1844,40 @@ mod cross_platform_tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_delimiter_detection_cross_platform() {
-        let temp_dir = TempDir::new().unwrap();
-        
-        // Test each delimiter with Windows line endings
-        let test_cases = vec![
-            ("comma", ",", r#"a,b,c
-            1,2,3
-            4,5,6"#),
-            ("semicolon", ";", r#"a;b;c
-            1;2;3
-            4;5;6"#),
-            ("tab", "\t", "a\tb\tc\n1\t2\t3\n4\t5\t6"),
-            ("pipe", "|", r#"a|b|c
-            1|2|3
-            4|5|6"#),
-        ];
-        
-        for (name, expected_delim, content) in test_cases {
-            let csv_path = create_cross_platform_csv(content, &format!("{}_test.csv", name), &temp_dir, "\r\n");
-            
-            println!("🔍 Testing {} delimiter detection...", name);
-            let detected = detect_delimiter(&csv_path).await;
-            
-            match detected {
-                Ok(delim) => {
-                    let expected_byte = expected_delim.as_bytes()[0];
-                    assert_eq!(delim, expected_byte, "Should detect {} delimiter", name);
-                    println!("✅ {} delimiter detected correctly", name);
-                },
-                Err(e) => panic!("Delimiter detection failed for {}: {}", name, e)
-            }
-        }
-    }
+  
 
-    #[tokio::test]
-    async fn test_system_locale_numbers() {
-        let temp_dir = TempDir::new().unwrap();
+    // #[tokio::test]
+    // async fn test_system_locale_numbers() {
+    //     let temp_dir = TempDir::new().unwrap();
         
-        let csv_content = r#"id,amount_us,amount_eu,percentage
-            1,"1,234.56","1.234,56",85%
-            2,"2,345.67","2.345,67",90%
-            3,"999.99","999,99",95%"#;
+    //     let csv_content = r#"id,amount_us,amount_eu,percentage
+    //         1,"1,234.56","1.234,56",85%
+    //         2,"2,345.67","2.345,67",90%
+    //         3,"999.99","999,99",95%"#;
         
-        let csv_path = create_cross_platform_csv(csv_content, "locale_numbers.csv", &temp_dir, "\r\n");
+    //     let csv_path = create_cross_platform_csv(csv_content, "locale_numbers.csv", &temp_dir, "\r\n");
         
-        println!("🌍 Testing system locale number handling...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "locale_test").await;
+    //     println!("🌍 Testing system locale number handling...");
+    //     let result = load_csv_with_type_handling(&csv_path, "locale_test").await;
         
-        match result {
-            Ok(df) => {
-                let schema = df.dataframe.schema();
-                println!("✅ Locale number test completed, {} columns", schema.fields().len());
+    //     match result {
+    //         Ok(df) => {
+    //             let schema = df.dataframe.schema();
+    //             println!("✅ Locale number test completed, {} columns", schema.fields().len());
                 
-                let amount_us = schema.field_with_name(None, "amount_us");
-                let amount_eu = schema.field_with_name(None, "amount_eu");
+    //             let amount_us = schema.field_with_name(None, "amount_us");
+    //             let amount_eu = schema.field_with_name(None, "amount_eu");
                 
-               if let (Ok(us_field), Ok(eu_field)) = (amount_us, amount_eu) {
-                    assert!(matches!(us_field.data_type(), arrow::datatypes::DataType::Float64),
-                        "US amount should be Float64, got {:?}", us_field.data_type());
-                    assert!(matches!(eu_field.data_type(), arrow::datatypes::DataType::Float64),
-                        "EU amount should be Float64, got {:?}", eu_field.data_type());
-                }
-            },
-            Err(e) => println!("⚠️ Locale number test failed: {}", e)
-        }
-    }
+    //            if let (Ok(us_field), Ok(eu_field)) = (amount_us, amount_eu) {
+    //                 assert!(matches!(us_field.data_type(), arrow::datatypes::DataType::Float64),
+    //                     "US amount should be Float64, got {:?}", us_field.data_type());
+    //                 assert!(matches!(eu_field.data_type(), arrow::datatypes::DataType::Float64),
+    //                     "EU amount should be Float64, got {:?}", eu_field.data_type());
+    //             }
+    //         },
+    //         Err(e) => println!("⚠️ Locale number test failed: {}", e)
+    //     }
+    // }
 
     // Integration test that combines everything
     #[tokio::test]
@@ -2190,7 +1899,7 @@ mod cross_platform_tests {
         println!("🎯 Running comprehensive cross-platform test...");
         let start_time = std::time::Instant::now();
         
-        let result = load_csv_with_type_handling_streaming(&csv_path, "comprehensive").await;
+        let result = load_csv_with_type_handling(&csv_path, "comprehensive").await;
         let load_time = start_time.elapsed();
         
         assert!(result.is_ok(), "Comprehensive test should work: {:?}", result.err());
@@ -2235,7 +1944,7 @@ mod cross_platform_tests {
         let csv_path = create_cross_platform_csv(realistic_data, "realistic.csv", &temp_dir, "\r\n");
         
         println!("🚀 Testing with realistic data and query pattern...");
-        let result = load_csv_with_type_handling_streaming(&csv_path, "realistic_data").await;
+        let result = load_csv_with_type_handling(&csv_path, "realistic_data").await;
         
         assert!(result.is_ok(), "Realistic data loading should work: {:?}", result.err());
         

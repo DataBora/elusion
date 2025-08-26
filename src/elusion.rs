@@ -120,7 +120,6 @@ use crate::sqlbuilder::sqlbuild::SqlBuilder;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
 use crate::features::csv::load_csv_smart;
-use crate::features::excel::load_excel;
 use arrow::util::pretty::pretty_format_batches;
 
 //cache redis
@@ -7043,89 +7042,6 @@ impl CustomDataFrame {
         Ok(())
     }
 
-    // pub async fn elusion_streaming_debug(&self, alias: &str) -> ElusionResult<()> {
-    //     if alias.trim().is_empty() {
-    //         return Err(ElusionError::InvalidOperation {
-    //             operation: "Elusion Streaming Verbose".to_string(),
-    //             reason: "Alias cannot be empty".to_string(),
-    //             suggestion: "💡 Provide a valid table alias".to_string()
-    //         });
-    //     }
-
-    //     println!("🚀 Executing streaming query for '{}'...", alias);
-        
-    //     let mut stream = self.stream().await?;
-        
-    //     let mut chunk_count = 0;
-    //     let mut total_rows = 0;
-    //     let start_time = std::time::Instant::now();
-    //     let mut empty_chunks = 0;
-        
-    //     while let Some(batch_result) = stream.next().await {
-    //         let batch = batch_result.map_err(|e| ElusionError::InvalidOperation {
-    //             operation: "Stream Processing".to_string(),
-    //             reason: format!("Failed to process batch: {}", e),
-    //             suggestion: "💡 Check data integrity and query syntax".to_string()
-    //         })?;
-            
-    //         chunk_count += 1;
-    //         let batch_rows = batch.num_rows();
-    //         total_rows += batch_rows;
-            
-    //         if batch_rows == 0 {
-    //             empty_chunks += 1;
-    //         }
-            
-    //         // Show every chunk for verbose mode
-    //         let elapsed = start_time.elapsed();
-    //         let rows_per_sec = if elapsed.as_secs() > 0 {
-    //             total_rows as f64 / elapsed.as_secs_f64()
-    //         } else {
-    //             0.0
-    //         };
-            
-    //         println!("📦 Chunk {}: {} rows | Running Total: {} | Speed: {:.0} rows/sec | Memory: {:.2} MB", 
-    //             chunk_count, 
-    //             batch_rows, 
-    //             total_rows, 
-    //             rows_per_sec,
-    //             batch.get_array_memory_size() as f64 / 1024.0 / 1024.0
-    //         );
-            
-    //         // Show data from all non-empty chunks
-    //         if batch_rows > 0 {
-    //             if let Err(e) = self.display_sample(&batch) {
-    //                 println!("⚠️ Could not display batch {}: {}", chunk_count, e);
-    //             }
-    //         }
-            
-    //         if chunk_count % 1000 == 0 {
-    //             println!("💤 Brief pause after {} chunks to prevent system overload", chunk_count);
-    //             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    //         }
-    //     }
-        
-    //     let total_time = start_time.elapsed();
-    //     println!("✅ Streaming complete!");
-    //     println!("📊 Summary:");
-    //     println!("   - Total chunks: {}", chunk_count);
-    //     println!("   - Empty chunks: {}", empty_chunks);
-    //     println!("   - Total rows: {}", total_rows);
-    //     println!("   - Duration: {:?}", total_time);
-    //     println!("   - Average speed: {:.0} rows/sec", 
-    //         if total_time.as_secs() > 0 { total_rows as f64 / total_time.as_secs_f64() } else { 0.0 });
-        
-    //     if total_rows == 0 {
-    //         println!("⚠️ ZERO ROWS RETURNED - Possible issues:");
-    //         println!("   1. Filters are too restrictive");
-    //         println!("   2. Source data is empty");
-    //         println!("   3. Query logic has issues");
-    //         println!("   4. Data types don't match filter conditions");
-    //     }
-        
-    //     Ok(())
-    // }
-
     /// Helper to display sample from first chunk
     fn display_sample(&self, batch: &RecordBatch) -> ElusionResult<()> {
         if batch.num_rows() == 0 {
@@ -7218,82 +7134,6 @@ impl CustomDataFrame {
         }
         
         Ok(())
-    }
-
-    /// NEW method with streaming support for large files
-    /// Currently supports CSV files with automatic streaming detection
-    /// Other file types will be added in future versions
-    pub async fn new_with_stream<'a>(
-        file_path: &'a str,
-        alias: &'a str,
-    ) -> ElusionResult<Self> {
-        let ext = file_path
-            .split('.')
-            .last()
-            .unwrap_or_default()
-            .to_lowercase();
-
-        let aliased_df = match ext.as_str() {
-            "csv" => {
-                println!("🚀 Loading CSV...");
-                load_csv_smart(file_path, alias).await?
-            },
-            "json" => {
-                println!("ℹ️  JSON files: streaming support coming soon, using standard loader");
-                Self::load_json(file_path, alias).await?
-            },
-            "parquet" => {
-                println!("ℹ️  Parquet files: streaming support coming soon, using standard loader");
-                Self::load_parquet(file_path, alias).await?
-            },
-            "xlsx" | "xls" => {
-                println!("ℹ️  Excel files: streaming support coming soon, using standard loader");
-                load_excel(file_path, alias).await?
-            },
-            "" => return Err(ElusionError::InvalidOperation {
-                operation: "File Loading".to_string(),
-                reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
-                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls) or a valid Delta table directory".to_string(),
-            }),
-            other => return Err(ElusionError::InvalidOperation {
-                operation: "File Loading".to_string(),
-                reason: format!("Unsupported file extension: {other}"),
-                suggestion: "💡 Currently streaming is supported for CSV files. Use .new() for other file types or wait for future updates".to_string(),
-            }),
-        };
-
-        let df_lower = lowercase_column_names(aliased_df.dataframe).await?;
-
-        Ok(CustomDataFrame {
-            df: df_lower,
-            table_alias: aliased_df.alias.clone(),
-            from_table: alias.to_string(),
-            selected_columns: Vec::new(),
-            alias_map: Vec::new(),
-            aggregations: Vec::new(),
-            group_by_columns: Vec::new(),
-            where_conditions: Vec::new(),
-            having_conditions: Vec::new(),
-            order_by_columns: Vec::new(),
-            limit_count: None,
-            joins: Vec::new(),
-            window_functions: Vec::new(),
-            ctes: Vec::new(),
-            subquery_source: None,
-            set_operations: Vec::new(),
-            query: String::new(),
-            aggregated_df: None,
-            union_tables: None,
-            original_expressions: Vec::new(),
-            needs_normalization: false,
-            raw_selected_columns: Vec::new(),
-            raw_group_by_columns: Vec::new(),
-            raw_where_conditions: Vec::new(),
-            raw_having_conditions: Vec::new(),
-            raw_join_conditions: Vec::new(),
-            raw_aggregations: Vec::new(),
-            uses_group_by_all: false
-        })
     }
 
     //============ STREAMING WRITE ============
@@ -7581,72 +7421,4 @@ impl CustomDataFrame {
     }
 
 
-    // pub async fn debug_stream_basic(&self, alias: &str) -> ElusionResult<()> {
-    //     println!("🔍 DEBUG: Testing basic streaming for '{}'", alias);
-        
-    //     // Test 1: Check table registration
-    //     let ctx = SessionContext::new();
-    //     match self.register_all_tables(&ctx).await {
-    //         Ok(_) => println!("✅ Tables registered successfully"),
-    //         Err(e) => {
-    //             println!("❌ Table registration failed: {}", e);
-    //             return Err(e);
-    //         }
-    //     }
-        
-    //     // Test 2: Check SQL construction
-    //     let sql = self.construct_sql();
-    //     println!("🔍 Generated SQL: {}", sql);
-        
-    //     // Test 3: Try to create DataFrame
-    //     match ctx.sql(&sql).await {
-    //         Ok(df) => {
-    //             println!("✅ SQL executed successfully");
-                
-    //             // Test 4: Try to get schema
-    //             let schema = df.schema();
-    //             println!("📊 Result schema: {} columns", schema.fields().len());
-    //             for (i, field) in schema.fields().iter().enumerate() {
-    //                 println!("   {}: {} ({})", i + 1, field.name(), field.data_type());
-    //             }
-                
-    //             // Test 5: Try streaming
-    //             match df.execute_stream().await {
-    //                 Ok(mut stream) => {
-    //                     println!("✅ Stream created successfully");
-                        
-    //                     let mut batch_count = 0;
-    //                     while let Some(batch_result) = stream.next().await {
-    //                         match batch_result {
-    //                             Ok(batch) => {
-    //                                 batch_count += 1;
-    //                                 println!("📦 Batch {}: {} rows", batch_count, batch.num_rows());
-    //                                 if batch_count >= 3 { // Limit debug output
-    //                                     break;
-    //                                 }
-    //                             },
-    //                             Err(e) => {
-    //                                 println!("❌ Batch error: {}", e);
-    //                                 break;
-    //                             }
-    //                         }
-    //                     }
-    //                 },
-    //                 Err(e) => {
-    //                     println!("❌ Stream creation failed: {}", e);
-    //                     return Err(ElusionError::DataFusion(e));
-    //                 }
-    //             }
-    //         },
-    //         Err(e) => {
-    //             println!("❌ SQL execution failed: {}", e);
-    //             return Err(ElusionError::DataFusion(e));
-    //         }
-    //     }
-        
-    //     println!("✅ DEBUG: Basic streaming test completed");
-    //     Ok(())
-    // }
-
-   
 }

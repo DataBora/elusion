@@ -35,14 +35,12 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 ---
 ## Key Features
 
-### 📩 2 Ways to Load Data into DataFrame:
-- 1. 🔃 **Regular Loading**: `CustomDataFrame::new()` loads all data into memory, ideal for files that fit within your RAM.
-- 2. 🚀 **Optimized Loading**: `CustomDataFrame::new_with_stream()` loads data lazily with less memory usage, sampling a small number of rows for schema detection and processing data in chunks during query execution.
-
-### 🔄 3 Ways to Process Results:
-- 1. 🔃 **Regular Processing**: `.elusion()` loads all results into memory (good for smaller result sets).
-- 2. 🚀 **Streaming Processing**: `.elusion_streaming()` processes results in chunks, minimizing memory accumulation for large datasets.
-- 3. **💾 Cached Processing**: Smart result caching for repeated queries
+### 📩 Load Data into DataFrame:
+- 🔃 **Loading**: `CustomDataFrame::new()`, auto shema recognition, auto file extension recognition. Just make sure that data can fit within your RAM.
+ 
+### 🔄 2 Ways to Process Results:
+- 1. 🔃 **Regular Processing**: `.elusion()` loads all results into memory.
+- 2. **💾 Cached Processing**: Smart result caching for repeated queries
    - `.elusion_with_cache()` - locally saves query results to disk
    - `.elusion_with_redis_cache()` - uses Redis to store query results for distributed access
    - ✅ Perfect for: Repeated queries, dashboard applications, multi-user scenarios
@@ -67,20 +65,12 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 
 | Approach | Source Data | Query Processing | Caching | Memory Usage | Best For |
 |:---------|:-----------:|:----------------:|:-------:|:------------:|:---------|
-| `new()` + `elusion()` | **In Memory** | **In Memory** | ❌ | **High** | Small datasets, interactive analysis |
-| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | ❌ | **Medium** | Medium datasets, large result sets |
+| `new()` + `elusion()` | **In Memory** | **In Memory** | 🕣 | **High** | Small datasets, interactive analysis |
+| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | 🚀 | **Medium** | Medium datasets, large result sets |
 | `new()` + `elusion_with_cache()` | **In Memory** | **In Memory** | **💾 Local** | **Medium** | Repeated queries, development |
 | `new()` + `elusion_with_redis_cache()` | **In Memory** | **In Memory** | **🔄 Redis** | **Medium** | Multi-user dashboards, production |
-| `new_with_stream()` + `elusion()` | **On Disk** | **In Memory** | ❌ | **Medium** | Large files, small result sets |
-| `new_with_stream()` + `elusion_streaming()` | **On Disk** | **Streaming** | ❌ | **Minimal** | Massive datasets, ETL pipelines |
-| `new_with_stream()` + `elusion_with_cache()` | **On Disk** | **In Memory** | **💾 Local** | **Low** | Large files, repeated analysis |
-| `new_with_stream()` + `elusion_with_redis_cache()` | **On Disk** | **In Memory** | **🔄 Redis** | **Low** | Production analytics, team sharing |
 
 </div>
-
-### Reality on Streaming: 
-- While queries process data in chunks, the entire file must be scanned for whole-dataset aggregations. This is I/O-bound, not memory-bound, but if your system has low RAM or other processes running, it could hit OOM. Elusion doesn't yet support fully distributed processing (like Spark), so it's best usage is for files up to sufficient RAM.
-- For Streaming examples scroll down ⬇
 ---
 ### 🔄 Job Scheduling (PipelineScheduler)
 - Flexible Intervals: From 1 minute to 30 days scheduling intervals.
@@ -167,7 +157,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "5.4.1"
+elusion = "6.0.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -220,25 +210,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "5.4.1", features = ["postgres"] }
+elusion = { version = "6.0.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "5.4.1"
+elusion = "6.0.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "5.4.1", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "6.0.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "5.4.1", features = ["all"] }
+elusion = { version = "6.0.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -321,19 +311,13 @@ let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA y
 let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 ```
 ---
-## STREAMING LOADING (optimized for larger files)
-#### currently supports only CSV files (soon will be adding json)
+## STREAMING
 ---
 ### LOADING data from CSV into CustomDataFrame
-#### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
-```rust
-let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
-let df = CustomDataFrame::new_with_stream(csv_path, "csv_data").await?; 
-```
-#### Example for Stream processing (Process and display results without loading into memory)
+#### Example for Stream processing (Process and display results)
 ```rust
 let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
-let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
+let big_file_path_df = CustomDataFrame::new(big_file_path, "raw22").await?;
 
 big_file_path_df
     .select(["first_name", "last_name","company", "city" ,"country"])
@@ -341,7 +325,7 @@ big_file_path_df
     .limit(10)
     .elusion_streaming("logentries1").await?;
 ```
-#### Example for Stream writing (Writes DataFrame result into file extension choosen)
+#### Example for Stream writing (Writes DataFrame result into file extension choosen withing file path)
 ```rust
 let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
 let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
