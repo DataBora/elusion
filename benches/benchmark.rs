@@ -814,7 +814,7 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
 
     group.bench_function("streaming_new_complex_query", |b| b.iter(|| {
         rt.block_on(async {
-            let df_arhiva = CustomDataFrame::new_with_stream(archive_path, "arch_streaming").await.unwrap();
+            let df_arhiva = CustomDataFrame::new(archive_path, "arch_streaming").await.unwrap();
             
             let complex_result = df_arhiva
                 .filter_many([("mesec = 'Januar'"), ("neto_vrednost > 1000")])
@@ -850,7 +850,7 @@ fn benchmark_streaming_vs_regular_900k(c: &mut Criterion) {
 
     group.bench_function("streaming_new_load_only", |b| b.iter(|| {
         rt.block_on(async {
-            let _df_arhiva = CustomDataFrame::new_with_stream(archive_path, "arch_load_streaming").await.unwrap();
+            let _df_arhiva = CustomDataFrame::new(archive_path, "arch_load_streaming").await.unwrap();
         })
     }));
     
@@ -1090,7 +1090,7 @@ fn benchmark_csv_type_inference_cross_platform(c: &mut Criterion) {
     
     group.bench_function("empty_string_handling_performance", |b| b.iter(|| {
         rt.block_on(async {
-            let df = CustomDataFrame::new_with_stream("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "empty_string_test").await.unwrap();
+            let df = CustomDataFrame::new("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "empty_string_test").await.unwrap();
             
             // Query that specifically tests empty string columns (like mesto)
             df.select([
@@ -1114,7 +1114,7 @@ fn benchmark_csv_type_inference_cross_platform(c: &mut Criterion) {
     // Test number format parsing across different locales/systems
     group.bench_function("number_format_parsing", |b| b.iter(|| {
         rt.block_on(async {
-            let df = CustomDataFrame::new_with_stream("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "number_format_test").await.unwrap();
+            let df = CustomDataFrame::new("C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv", "number_format_test").await.unwrap();
             
             df.select([
                     "neto_vrednost",
