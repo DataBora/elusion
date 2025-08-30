@@ -71,21 +71,21 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 | `new()` + `elusion_with_redis_cache()` | **In Memory** | **In Memory** | **🔄 Redis** | **Medium** | Multi-user dashboards, production |
 
 </div>
----
+
 ### 🔄 Job Scheduling (PipelineScheduler)
 - Flexible Intervals: From 1 minute to 30 days scheduling intervals.
 - Graceful Shutdown: Built-in Ctrl+C signal handling for clean termination.
 - Async Support: Built on tokio for non-blocking operations.
----
+
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 - SharePoint: Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
----
+
 ### 🚀 High-Performance DataFrame Query Operations
 - Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
 - SQL-Like Transformations: Execute transformations such as SELECT, AGG, STRING FUNCTIONS, JOIN, FILTER, HAVING, GROUP BY, ORDER BY, DATETIME and WINDOW with ease.
----
+
 ### 🏪 Caching and Views (Native)
 - The caching and views functionality offer several significant advantages over regular querying:
 #### Reduced Computation Time, Memory Management, Query Optimization, Interactive Analysis, Multiple visualizations for Dashboards and Reports, Resource Utilization, Concurrency
@@ -101,7 +101,6 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 ### When to Use Redis vs Native Cache:
 - **Native Cache**: Development, single-instance apps, temporary caching
 - **Redis Cache**: Production, distributed systems, persistent caching, large datasets
----
 
 ### 📉 Aggregations and Analytics
 - Comprehensive Aggregations: Utilize built-in functions like SUM, AVG, MEAN, MEDIAN, MIN, COUNT, MAX, and more.
@@ -126,7 +125,6 @@ Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it 
 ### 🧹 Clean Query Construction
 - Readable Queries: Construct SQL queries that are both readable and reusable.
 - Advanced Query Support: Utilize operations such as APPEND, UNION, UNION ALL, INTERSECT, and EXCEPT. For multiple Dataframea operations: APPEND_MANY, UNION_MANY, UNION_ALL_MANY.
----
 
 ## 🎨 **Developer Experience That Delights**
 
