@@ -132,6 +132,9 @@ use crate::features::redis::elusion_with_redis_cache_impl;
 use crate::features::redis::get_redis_cache_stats_impl;
 use crate::features::redis::invalidate_redis_cache_impl;
 
+// ==== xml
+use crate::features::xml::load_xml_intelligent;
+use crate::features::xml::XmlParseConfig;
 
 // ===== struct to manage ODBC DB connections
 #[derive(Debug, PartialEq, Clone)]
@@ -5414,7 +5417,13 @@ impl CustomDataFrame {
     }
 
     //=================== LOCAL LOADERS ============================= //
-
+    /// LOAD function for XML files
+    pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
+        Box::pin(async move {
+            let config = XmlParseConfig::default();
+            load_xml_intelligent(file_path, alias, Some(config)).await
+        })
+    }
     /// LOAD function for CSV file type
     pub async fn load_csv(file_path: &str, alias: &str) -> ElusionResult<AliasedDataFrame> {
         load_csv_with_type_handling(file_path, alias).await
@@ -5805,16 +5814,17 @@ impl CustomDataFrame {
             "csv" => Self::load_csv(file_path, alias).await?,
             "json" => Self::load_json(file_path, alias).await?,
             "parquet" => Self::load_parquet(file_path, alias).await?,
+            "xml" => Self::load_xml(file_path, alias).await?,
             "xlsx" | "xls" => crate::features::excel::load_excel(file_path, alias).await?,
             "" => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
-                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls) or a valid Delta table directory".to_string(),
+                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls, .xml) or a valid Delta table directory".to_string(),
             }),
             other => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Unsupported file extension: {other}"),
-                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, .xlsx, .xls or Delta table".to_string(),
+                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, .xlsx, .xls, .xml or Delta table".to_string(),
             }),
         };
 
@@ -6145,6 +6155,51 @@ impl CustomDataFrame {
                         }
                     }
                 },
+                "xml" => {
+                    match Self::load_xml(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded XML: {}", file_name);
+                            
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_xml".to_string(),
+                                from_table: "local_xml".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load XML file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
                 _ => {
                     println!("⏭️ Skipping unsupported file type: {}", file_name);
                 }
@@ -6429,7 +6484,6 @@ impl CustomDataFrame {
                     Ok(aliased_df) => {
                         println!("✅ Loaded CSV: {}", file_name);
                         
-                        // Normalize column names to lowercase and create CustomDataFrame
                         let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
                         
                         let df = CustomDataFrame {
@@ -6605,6 +6659,52 @@ impl CustomDataFrame {
                         },
                         Err(e) => {
                             eprintln!("⚠️ Failed to load Parquet file {}: {}", file_name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xml" => {
+                    match Self::load_xml(file_path_str, "local_data").await {
+                        Ok(aliased_df) => {
+                            println!("✅ Loaded XML: {}", file_name);
+                            
+                            // Normalize column names to lowercase and create CustomDataFrame
+                            let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+                            
+                            let df = CustomDataFrame {
+                                df: normalized_df,
+                                table_alias: "local_xml".to_string(),
+                                from_table: "local_xml".to_string(),
+                                selected_columns: Vec::new(),
+                                alias_map: Vec::new(),
+                                aggregations: Vec::new(),
+                                group_by_columns: Vec::new(),
+                                where_conditions: Vec::new(),
+                                having_conditions: Vec::new(),
+                                order_by_columns: Vec::new(),
+                                limit_count: None,
+                                joins: Vec::new(),
+                                window_functions: Vec::new(),
+                                ctes: Vec::new(),
+                                subquery_source: None,
+                                set_operations: Vec::new(),
+                                query: String::new(),
+                                aggregated_df: None,
+                                union_tables: None,
+                                original_expressions: Vec::new(),
+                                needs_normalization: false,
+                                raw_selected_columns: Vec::new(),
+                                raw_group_by_columns: Vec::new(),
+                                raw_where_conditions: Vec::new(),
+                                raw_having_conditions: Vec::new(),
+                                raw_join_conditions: Vec::new(),
+                                raw_aggregations: Vec::new(),
+                                uses_group_by_all: false
+                            };
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load XML file {}: {}", file_name, e);
                             continue;
                         }
                     }
@@ -7422,3 +7522,4 @@ impl CustomDataFrame {
 
 
 }
+
