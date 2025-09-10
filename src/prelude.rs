@@ -225,3 +225,7 @@ pub use crate::features::redis::{
 
 pub use redis::{Client as RedisClient, Connection as RedisConnection, TypedCommands};
 pub use serde_json;
+
+
+// === XML
+pub use xml::reader::{EventReader, XmlEvent};

@@ -13,7 +13,7 @@
 ![Elusion Logo](images/elusion.png)
 ---
 
-Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
+Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, XML, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
 
 This Library is designed to be used for Business Data Engineering with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage (which is very CPU intensive). Elusion is not made for Data Science nor Machine Learning 1TB and 500 columns datasets. 
 
@@ -155,7 +155,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "6.0.0"
+elusion = "6.1.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -208,25 +208,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "6.0.0", features = ["postgres"] }
+elusion = { version = "6.1.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "6.0.0"
+elusion = "6.1.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "6.0.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "6.1.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "6.0.0", features = ["all"] }
+elusion = { version = "6.1.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -262,7 +262,7 @@ async fn main() -> ElusionResult<()> {
 ---
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
-#### - In-Memory data formats: CSV, EXCEL, JSON, PARQUET, DELTA 
+#### - In-Memory data formats: CSV, EXCEL, JSON, XML, PARQUET, DELTA 
 #### - SharePoint
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - Postgres Database SQL Queries
@@ -302,6 +302,11 @@ let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
 ```rust
 let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
 let df = CustomDataFrame::new(json_path, "json_data").await?;
+```
+### LOADING data from XML into CustomDataFrame
+```rust
+let xml_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales.xml";
+let df = CustomDataFrame::new(xml_path, "xml_data").await?;
 ```
 ### LOADING data from DELTA table into CustomDataFrame
 ```rust

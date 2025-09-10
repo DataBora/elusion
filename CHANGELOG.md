@@ -1,3 +1,7 @@
+## [6.1.0] - 2025-09-06
+## Added
+- Support for .xml files
+
 ## [6.0.0] - 2025-08-26
 ## BREAKING CHANGE
 - Removed new_with_stream() function for "streaming loading" which was not actual streaming, because I couldnt overcome DataFusion file read for query planning for aggregations. Will se what i can do in the future..for now Elusion will work in-memory constraints.
