@@ -1,6 +1,6 @@
-## [6.1.0] - 2025-09-06
+## [6.1.0] - 2025-09-11
 ## Added
-- Support for .xml files
+- Support for .xml files. CustomDataFrame automatically analyzes XML file structure and chooses the optimal processing strategy for your data. No manual configuration required.
 
 ## [6.0.0] - 2025-08-26
 ## BREAKING CHANGE

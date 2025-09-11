@@ -304,6 +304,7 @@ let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
 let df = CustomDataFrame::new(json_path, "json_data").await?;
 ```
 ### LOADING data from XML into CustomDataFrame
+#### Automatically analyzes XML file structure and chooses the optimal processing strategy for your data. No manual configuration required.
 ```rust
 let xml_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales.xml";
 let df = CustomDataFrame::new(xml_path, "xml_data").await?;
@@ -346,7 +347,7 @@ SAME USAGE IS FOR .json and .parquet
 ---
 ### LOADING data from LOCAL FOLDER into CustomDataFrame
 #### - Automatically loads and combines multiple files from a folder
-#### - Supports CSV, EXCEL, JSON, and PARQUET files
+#### - Supports CSV, EXCEL, JSON, XML and PARQUET files
 #### - Handles schema compatibility and column reordering automatically
 #### - Uses UNION ALL to combine all files
 
@@ -373,7 +374,7 @@ let csv_excel_data = CustomDataFrame::load_folder(
 #### - Same as load_folder but adds "filename_added" column to track source files
 #### - Perfect for time-series data where filename contains date information
 #### - Automatically loads and combines multiple files from a folder
-#### - Supports CSV, EXCEL, JSON, and PARQUET files
+#### - Supports CSV, EXCEL, JSON, XML and PARQUET files
 
 ## Loading Files from Folder with Filename Column
 #### 3 arguments needed: **Folder Path**, **File Extensions Filter (Optional)**, **Result Alias**
