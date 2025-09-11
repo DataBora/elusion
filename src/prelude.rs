@@ -229,3 +229,5 @@ pub use serde_json;
 
 // === XML
 pub use xml::reader::{EventReader, XmlEvent};
+pub use crate::features::xml::XmlProcessingMode;
+pub use crate::features::xml::load_xml_with_mode;

@@ -133,8 +133,8 @@ use crate::features::redis::get_redis_cache_stats_impl;
 use crate::features::redis::invalidate_redis_cache_impl;
 
 // ==== xml
-use crate::features::xml::load_xml_intelligent;
-use crate::features::xml::XmlParseConfig;
+use crate::features::xml::XmlProcessingMode;
+use crate::features::xml::load_xml_with_mode;
 
 // ===== struct to manage ODBC DB connections
 #[derive(Debug, PartialEq, Clone)]
@@ -5417,11 +5417,26 @@ impl CustomDataFrame {
     }
 
     //=================== LOCAL LOADERS ============================= //
-    /// LOAD function for XML files
+
+   
+    // /// LOAD function for XML files
+    // pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
+    //     Box::pin(async move {
+    //         let config = XmlParseConfig::default();
+    //         load_xml_intelligent(file_path, alias, Some(config)).await
+    //     })
+    // }
+
+    // pub fn load_xml_cartesian<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
+    //     Box::pin(async move {
+    //         let config = XmlParseConfig::default();
+    //         load_xml_intelligent_cartesian(file_path, alias, Some(config)).await
+    //     })
+    // }
+
     pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
         Box::pin(async move {
-            let config = XmlParseConfig::default();
-            load_xml_intelligent(file_path, alias, Some(config)).await
+            load_xml_with_mode(file_path, alias, XmlProcessingMode::Auto).await
         })
     }
     /// LOAD function for CSV file type
@@ -5837,7 +5852,7 @@ impl CustomDataFrame {
 
     // ==================== LOADING LOCAL FILES FROM FOLDERS ===============================
     /// Load all files from a local folder and union them if they have compatible schemas
-    /// Supports CSV, Excel, JSON, and Parquet files
+    /// Supports CSV, Excel, JSON, XML and Parquet files
     pub async fn load_folder(
         folder_path: &str,
         file_extensions: Option<Vec<&str>>, 
