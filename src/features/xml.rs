@@ -161,6 +161,13 @@ pub struct MultiElementGroup {
     pub fields: Vec<FieldMapping>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum InferredType {
+    Integer,
+    Float,
+    String,
+}
+
 /// Main XML analyzer for structure analysis
 pub struct XmlAnalyzer {
     config: AnalyzerConfig,
@@ -934,7 +941,7 @@ impl SchemaExtractor {
         
         println!("Extracted {} records", records.len());
         if !records.is_empty() {
-            println!("Sample record keys: {:?}", records[0].keys().collect::<Vec<_>>());
+            println!("📑 Sample record keys: {:?}", records[0].keys().collect::<Vec<_>>());
         }
         
         Ok(records)
@@ -1051,7 +1058,7 @@ pub async fn load_xml_intelligent(
 ) -> ElusionResult<AliasedDataFrame> {
     let config = config.unwrap_or_default();
     
-    println!("Starting intelligent XML processing...");
+    println!("🔁 Starting intelligent XML processing...");
     
     load_xml_with_analysis(file_path, alias, config).await
 }
@@ -1062,7 +1069,7 @@ pub async fn load_xml_with_analysis(
     alias: &str,
     config: XmlParseConfig
 ) -> ElusionResult<AliasedDataFrame> {
-    println!("Analyzing XML structure...");
+    println!("🕣 Analyzing XML structure...");
     
     let analyzer_config = AnalyzerConfig {
         max_sample_text: AnalyzerConfig::default().max_sample_text,
@@ -1074,7 +1081,7 @@ pub async fn load_xml_with_analysis(
     let root = analyzer.parse_xml(file_path)?;
     let analysis = analyzer.analyze_structure(&root);
     
-    println!("Analysis complete:");
+    println!("✅ Analysis complete:");
     println!("  Elements: {}", analysis.total_elements);
     println!("  Element types: {}", analysis.unique_element_types);
     println!("  Max depth: {}", analysis.max_depth);
@@ -1110,7 +1117,7 @@ pub async fn load_xml_with_enhanced_analysis(
     alias: &str,
     config: XmlParseConfig
 ) -> ElusionResult<AliasedDataFrame> {
-    println!("Analyzing XML structure for multi-element patterns...");
+    println!("🕣 Analyzing XML structure for multi-element patterns...");
     
     let analyzer_config = AnalyzerConfig {
         max_sample_text: AnalyzerConfig::default().max_sample_text,
@@ -1122,7 +1129,7 @@ pub async fn load_xml_with_enhanced_analysis(
     let root = analyzer.parse_xml(file_path)?;
     let analysis = analyzer.analyze_structure(&root);
     
-    println!("Analysis complete:");
+    println!("✅ Analysis complete:");
     println!("  Elements: {}", analysis.total_elements);
     println!("  Element types: {}", analysis.unique_element_types);
     println!("  Max depth: {}", analysis.max_depth);
@@ -1176,7 +1183,7 @@ pub async fn load_xml_with_enhanced_analysis(
     
     let normalized_df = lowercase_column_names(df).await?;
     
-    println!("Enhanced DataFrame created for table: '{}'", alias);
+    println!("🎉 Enhanced DataFrame created for table: '{}'", alias);
     
     Ok(AliasedDataFrame {
         dataframe: normalized_df,
@@ -1189,7 +1196,7 @@ pub async fn load_xml_with_schema(
     alias: &str,
     schema: ExtractionSchema
 ) -> ElusionResult<AliasedDataFrame> {
-    println!("Extracting XML with schema: {}", schema.name);
+    println!("🔁 Extracting XML with schema: {}", schema.name);
     
     let analyzer = XmlAnalyzer::new(AnalyzerConfig::default());
     let root = analyzer.parse_xml(file_path)?;
@@ -1234,7 +1241,7 @@ pub async fn load_xml_with_schema(
     
     let normalized_df = lowercase_column_names(df).await?;
     
-    println!("DataFrame created for table: '{}'", alias);
+    println!("🎉 DataFrame created for table: '{}'", alias);
     
     Ok(AliasedDataFrame {
         dataframe: normalized_df,
@@ -1314,14 +1321,14 @@ fn create_fallback_schema() -> ExtractionSchema {
 }
 
 fn create_dynamic_schema(analysis: &DetailedAnalysis) -> ExtractionSchema {
-    println!("Creating dynamic schema from analysis...");
+    println!("🔁 Creating dynamic schema from analysis...");
     
     if let Some(mv) = analysis.multiple_value_elements.first() {
         let header_fields = generate_header_fields(&mv.parent, analysis);
         let detail_fields = generate_detail_fields(&mv.child, analysis);
         
-        println!("Header fields generated: {}", header_fields.len());
-        println!("Detail fields generated: {}", detail_fields.len());
+        println!("➡ Header fields generated: {}", header_fields.len());
+        println!("➡ Detail fields generated: {}", detail_fields.len());
         
         ExtractionSchema {
             name: "DynamicSchema".to_string(),
@@ -1449,7 +1456,7 @@ fn generate_header_fields(element_name: &str, analysis: &DetailedAnalysis) -> Ve
     fields.sort_by(|a, b| a.output_name.cmp(&b.output_name));
     fields.dedup_by(|a, b| a.output_name == b.output_name);
     
-    println!("Header fields for {}: {:?}", element_name, fields.iter().map(|f| &f.output_name).collect::<Vec<_>>());
+    println!("📑 Header fields for {}: {:?}", element_name, fields.iter().map(|f| &f.output_name).collect::<Vec<_>>());
     fields
 }
 
@@ -1533,7 +1540,7 @@ fn generate_detail_fields(element_name: &str, analysis: &DetailedAnalysis) -> Ve
     fields.sort_by(|a, b| a.output_name.cmp(&b.output_name));
     fields.dedup_by(|a, b| a.output_name == b.output_name);
     
-    println!("Detail fields for {}: {:?}", element_name, fields.iter().map(|f| &f.output_name).collect::<Vec<_>>());
+    println!("📑 Detail fields for {}: {:?}", element_name, fields.iter().map(|f| &f.output_name).collect::<Vec<_>>());
     fields
 }
 
@@ -1557,10 +1564,58 @@ fn to_snake_case(s: &str) -> String {
     result.to_lowercase()
 }
 
+// ======= SCHEMA and TYPES
+
+fn infer_column_type(values: &[&str]) -> InferredType {
+    let mut has_integers = false;
+    let mut has_floats = false;
+    let mut non_empty_count = 0;
+    
+    for value in values {
+        let trimmed = value.trim();
+        
+        // Skip empty values in type detection
+        if trimmed.is_empty() {
+            continue;
+        }
+        
+        non_empty_count += 1;
+        
+        // Try to parse as integer first
+        if trimmed.parse::<i64>().is_ok() {
+            has_integers = true;
+            continue;
+        }
+        
+        // Try to parse as float
+        if trimmed.parse::<f64>().is_ok() {
+            has_floats = true;
+            continue;
+        }
+        
+        // If we find any non-numeric value, it's a string column
+        return InferredType::String;
+    }
+    
+    // If all values are empty, default to string
+    if non_empty_count == 0 {
+        return InferredType::String;
+    }
+    
+    // Determine type based on what we found
+    if has_floats || (has_integers && has_floats) {
+        InferredType::Float
+    } else if has_integers {
+        InferredType::Integer
+    } else {
+        InferredType::String
+    }
+}
 
 fn infer_schema_from_records(records: &[HashMap<String, String>], _unique_paths: &HashSet<String>) -> Schema {
     let mut all_columns = HashSet::new();
     
+    // Collect all column names
     for record in records {
         for key in record.keys() {
             all_columns.insert(key.clone());
@@ -1573,10 +1628,24 @@ fn infer_schema_from_records(records: &[HashMap<String, String>], _unique_paths:
     }
     
     let mut fields = Vec::new();
-    for column in all_columns {
-        fields.push(Field::new(column, ArrowDataType::Utf8, true));
-    }
     
+    for column in &all_columns {
+        let values: Vec<&str> = records
+            .iter()
+            .map(|record| record.get(column).map(|v| v.as_str()).unwrap_or(""))
+            .collect();
+        
+        let inferred_type = infer_column_type(&values);
+        
+        let arrow_type = match inferred_type {
+            InferredType::Integer => ArrowDataType::Int64,
+            InferredType::Float => ArrowDataType::Float64,
+            InferredType::String => ArrowDataType::Utf8,
+        };
+        
+        fields.push(Field::new(column.clone(), arrow_type, true)); // nullable = true
+    }
+  
     fields.sort_by(|a, b| a.name().cmp(b.name()));
     Schema::new(fields)
 }
@@ -1585,21 +1654,85 @@ fn build_record_batch_from_records(
     records: &[HashMap<String, String>], 
     schema: &Schema
 ) -> ElusionResult<RecordBatch> {
-    let mut columns: Vec<ArrayRef> = Vec::new();
+     let mut columns: Vec<ArrayRef> = Vec::new();
     
     for field in schema.fields() {
         let column_name = field.name();
-        let mut values = Vec::new();
         
-        for record in records {
-            let value = record.get(column_name)
-                .map(|v| v.as_str())
-                .unwrap_or("");
-            values.push(value);
+        match field.data_type() {
+            ArrowDataType::Int64 => {
+                let mut values = Vec::new();
+                
+                for record in records {
+                    let value = record.get(column_name).map(|v| v.as_str()).unwrap_or("");
+                    let trimmed = value.trim();
+                    
+                    if trimmed.is_empty() {
+                        values.push(None);
+                    } else {
+                        match trimmed.parse::<i64>() {
+                            Ok(parsed) => values.push(Some(parsed)),
+                            Err(_) => values.push(None), // Invalid integers become null
+                        }
+                    }
+                }
+                
+                let array = Int64Array::from(values);
+                columns.push(Arc::new(array) as ArrayRef);
+            },
+            ArrowDataType::Float64 => {
+                let mut values = Vec::new();
+                
+                for record in records {
+                    let value = record.get(column_name).map(|v| v.as_str()).unwrap_or("");
+                    let trimmed = value.trim();
+                    
+                    if trimmed.is_empty() {
+                        values.push(None);
+                    } else {
+                        // Try parsing as float first
+                        match trimmed.parse::<f64>() {
+                            Ok(parsed) => values.push(Some(parsed)),
+                            Err(_) => {
+                                // If float parsing fails, try integer and convert to float
+                                match trimmed.parse::<i64>() {
+                                    Ok(int_val) => values.push(Some(int_val as f64)),
+                                    Err(_) => values.push(None), // Invalid numbers become null
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                let array = Float64Array::from(values);
+                columns.push(Arc::new(array) as ArrayRef);
+            },
+            ArrowDataType::Utf8 => {
+                let mut values = Vec::new();
+                
+                for record in records {
+                    let value = record.get(column_name)
+                        .map(|v| v.as_str())
+                        .unwrap_or("");
+                    values.push(value);
+                }
+                
+                let array = StringArray::from(values);
+                columns.push(Arc::new(array) as ArrayRef);
+            },
+            _ => {
+                let mut values = Vec::new();
+                for record in records {
+                    let value = record.get(column_name)
+                        .map(|v| v.as_str())
+                        .unwrap_or("");
+                    values.push(value);
+                }
+                
+                let array = StringArray::from(values);
+                columns.push(Arc::new(array) as ArrayRef);
+            }
         }
-        
-        let array = StringArray::from(values);
-        columns.push(Arc::new(array) as ArrayRef);
     }
     
     RecordBatch::try_new(Arc::new(schema.clone()), columns)
@@ -1656,7 +1789,7 @@ impl Default for XmlProcessingMode {
             mode => mode,
         };
         
-        println!("Using XML processing mode: {:?}", processing_mode);
+        println!("🚀 Using XML processing mode: {:?}", processing_mode);
         
         match processing_mode {
             XmlProcessingMode::Standard => {
@@ -1675,7 +1808,7 @@ async fn determine_optimal_processing_mode(
     file_path: &str,
     config: &XmlParseConfig
 ) -> ElusionResult<XmlProcessingMode> {
-    println!("Analyzing XML structure to determine optimal processing mode...");
+    println!("🕣 Analyzing XML structure to determine optimal processing mode...");
     
     let analyzer_config = AnalyzerConfig {
         max_sample_text: 3,
@@ -1700,7 +1833,7 @@ async fn determine_optimal_processing_mode(
             mv.parent, mv.child, mv.max_count, mv.avg_count);
         
         if mv.max_count > 1 {
-            println!("Detected simple header-detail structure, using Standard processing");
+            println!("  Detected simple header-detail structure, using Standard processing...");
             return Ok(XmlProcessingMode::Standard);
         }
     }
@@ -1722,14 +1855,14 @@ async fn determine_optimal_processing_mode(
                 .all(|mv| mv.max_count > 1);
             
             if all_have_multiples {
-                println!("Detected multiple relationship types with same parent, using Cartesian processing");
+                println!("  Detected multiple relationship types with same parent, using Cartesian processing...");
                 return Ok(XmlProcessingMode::Cartesian);
             }
         }
     }
     
     // Default to Standard for everything else
-    println!("Using Standard processing as default");
+    println!("  Using Standard processing...");
     Ok(XmlProcessingMode::Standard)
 }
 
@@ -2143,5 +2276,77 @@ mod tests {
         println!("Detected mode: {:?}", mode);
         
         assert!(duration.as_secs() < 5, "Analysis took too long: {:?}", duration);
+    }
+
+    #[test]
+    fn test_integer_detection() {
+        let values = vec!["1", "2", "3", "100", "-50"];
+        assert_eq!(infer_column_type(&values), InferredType::Integer);
+    }
+    
+    #[test]
+    fn test_float_detection() {
+        let values = vec!["1.5", "2.0", "3.14", "-1.23"];
+        assert_eq!(infer_column_type(&values), InferredType::Float);
+    }
+    
+    #[test]
+    fn test_mixed_numeric() {
+        let values = vec!["1", "2.5", "3", "4.0"];
+        assert_eq!(infer_column_type(&values), InferredType::Float);
+    }
+    
+    #[test]
+    fn test_string_detection() {
+        let values = vec!["hello", "world", "123abc"];
+        assert_eq!(infer_column_type(&values), InferredType::String);
+    }
+    
+    #[test]
+    fn test_mixed_with_strings() {
+        let values = vec!["1", "2.5", "hello"];
+        assert_eq!(infer_column_type(&values), InferredType::String);
+    }
+    
+    #[test]
+    fn test_empty_values() {
+        let values = vec!["", "  ", ""];
+        assert_eq!(infer_column_type(&values), InferredType::String);
+        
+        let values_with_numbers = vec!["", "123", ""];
+        assert_eq!(infer_column_type(&values_with_numbers), InferredType::Integer);
+    }
+    
+    #[test]
+    fn test_schema_inference() {
+        let mut records = Vec::new();
+        
+        let mut record1 = HashMap::new();
+        record1.insert("id".to_string(), "1".to_string());
+        record1.insert("price".to_string(), "19.99".to_string());
+        record1.insert("name".to_string(), "Product A".to_string());
+        record1.insert("quantity".to_string(), "100".to_string());
+        records.push(record1);
+        
+        let mut record2 = HashMap::new();
+        record2.insert("id".to_string(), "2".to_string());
+        record2.insert("price".to_string(), "25.50".to_string());
+        record2.insert("name".to_string(), "Product B".to_string());
+        record2.insert("quantity".to_string(), "50".to_string());
+        records.push(record2);
+        
+        let schema = infer_schema_from_records(&records, &HashSet::new());
+        
+        assert_eq!(schema.fields().len(), 4);
+        
+        let field_types: HashMap<String, &ArrowDataType> = schema.fields()
+            .iter()
+            .map(|f| (f.name().clone(), f.data_type()))
+            .collect();
+        
+        assert_eq!(field_types.get("id"), Some(&&ArrowDataType::Int64));
+        assert_eq!(field_types.get("price"), Some(&&ArrowDataType::Float64));
+        assert_eq!(field_types.get("name"), Some(&&ArrowDataType::Utf8));
+        assert_eq!(field_types.get("quantity"), Some(&&ArrowDataType::Int64));
     }
 }

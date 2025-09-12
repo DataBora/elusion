@@ -155,7 +155,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "6.1.0"
+elusion = "6.2.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -208,25 +208,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "6.1.0", features = ["postgres"] }
+elusion = { version = "6.2.0", features = ["postgres"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "6.1.0"
+elusion = "6.2.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "6.1.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "6.2.0", features = ["dashboard", "api", "mysql"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "6.1.0", features = ["all"] }
+elusion = { version = "6.2.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -304,7 +304,7 @@ let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
 let df = CustomDataFrame::new(json_path, "json_data").await?;
 ```
 ### LOADING data from XML into CustomDataFrame
-#### Automatically analyzes XML file structure and chooses the optimal processing strategy for your data. No manual configuration required.
+#### Automatically analyzes XML file structure and chooses the optimal processing strategy and data types for your data
 ```rust
 let xml_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales.xml";
 let df = CustomDataFrame::new(xml_path, "xml_data").await?;

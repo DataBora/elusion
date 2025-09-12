@@ -1,3 +1,7 @@
+## [6.2.0] - 2025-09-12
+## Added
+- Infering Int and Float Schema types for XML file loader
+
 ## [6.1.0] - 2025-09-11
 ## Added
 - Support for .xml files. CustomDataFrame automatically analyzes XML file structure and chooses the optimal processing strategy for your data. No manual configuration required.
