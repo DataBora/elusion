@@ -30,8 +30,8 @@ Elusion offers flexibility in constructing queries without enforcing specific pa
 Tested for MacOS, Linux and Windows
 ![Platform comp](images/platformcom.png)
 
-## Security
-Codebase has Undergone Rigorous Auditing and Security Testing, ensuring that it is fully prepared for Production.
+## Fastest way to learn ELUSION
+[Elusion UDEMY Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 ---
 ## Key Features
 
