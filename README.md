@@ -13,7 +13,7 @@
 ![Elusion Logo](images/elusion.png)
 ---
 
-Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, XML, PARQUET, DELTA, as well as for Microsoft Fabric - OneLake connection, Microsoft SharePoint connection, Microsoft Azure Blob Storage connections, Postgres Database connection, MySql Database connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
+Elusion is a high-performance **DataFrame** / **Data Engineering** library designed for in-memory data formats such as **CSV**, **EXCEL**, **JSON**, **XML**, **PARQUET**, **DELTA**, as well as for **Microsoft Fabric - OneLake** connection, **Microsoft SharePoint** connection, **Microsoft Azure Blob Storage** connections, **Postgres Database** connection, **MySql Database** connection, and **REST API**'s for creating **JSON files** which can be forwarded to DataFrame, with advanced query results caching abilities with **Redis** and **Native cashing**.
 
 This Library is mostly focused on Microsoft Stack, designed to be used for Business Data Engineering with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage (which is very CPU intensive). Elusion is not made for Data Science nor Machine Learning 1TB and 500 columns datasets. 
 
@@ -88,14 +88,16 @@ You can enable only the features you need, which helps reduce dependencies and c
 - 1. **🔃 In-Memory Export**: 
    - `.write_to_csv()`, `.write_to_json()`, `.write_to_parquet()`, `.write_to_delta_table()`, `.write_to_excel()`
    - Loads results into memory first
+
+- 2. **🏭 Fabric Export**: `write_parquet_to_fabric()`, `write_json_to_fabric()`
    
-- 2. **☁️ Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
+- 3. **☁️ Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
    
-- 3. **🚀 Streaming Export**: 
+- 4. **🚀 Streaming Export**: 
    - `.elusion_streaming_write()` streams results directly to files 
    - Formats: `.json`, `.csv`, `.parquet`
    
-- 4. **📊 Console Display**: 
+- 5. **📊 Console Display**: 
    - `.elusion()` needs `.display()` to display dataframe result
    - `.elusion_streaming()` displays results automatically (`.display()` not allowed)
 
