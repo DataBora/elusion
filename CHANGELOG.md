@@ -1,3 +1,7 @@
+## [6.3.0] - 2025-09-19
+## Added New Feature
+- FABRIC - ONELAKE Feature for reading and writing files to Fabric - OneLake
+
 ## [6.2.0] - 2025-09-12
 ## Added
 - Infering Int and Float Schema types for XML file loader

@@ -112,6 +112,7 @@ pub enum ElusionError {
     },
     DataFusion(DataFusionError),
     Io(std::io::Error),
+    OneLakeError(String),
     Custom(String),
 }
 
@@ -277,6 +278,11 @@ impl fmt::Display for ElusionError {
                 f,
                 "🔄 Set Operation Error in '{}' ❌ Problem: {} 💡 Suggestion: {}",
                 operation, reason, suggestion
+            ),
+            ElusionError::OneLakeError(msg) => write!(
+                f,
+                "🏢 OneLake Error: {} 💡 Check your OneLake URL format, authentication, and permissions",
+                msg
             ),
             ElusionError::Custom(err) => write!(f, "💫 {}", err),
         }

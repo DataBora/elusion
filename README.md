@@ -13,9 +13,9 @@
 ![Elusion Logo](images/elusion.png)
 ---
 
-Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, XML, PARQUET, DELTA, as well as for SharePoint Connection, Azure Blob Storage Connections, Postgres Database Connection, MySql Database Connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
+Elusion is a high-performance DataFrame / Data Engineering library designed for in-memory data formats such as CSV, EXCEL, JSON, XML, PARQUET, DELTA, as well as for Microsoft Fabric - OneLake connection, Microsoft SharePoint connection, Microsoft Azure Blob Storage connections, Postgres Database connection, MySql Database connection, and REST API's for creating JSON files which can be forwarded to DataFrame, with advanced query results caching abilities with Redis and Native cashing.
 
-This Library is designed to be used for Business Data Engineering with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage (which is very CPU intensive). Elusion is not made for Data Science nor Machine Learning 1TB and 500 columns datasets. 
+This Library is mostly focused on Microsoft Stack, designed to be used for Business Data Engineering with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage (which is very CPU intensive). Elusion is not made for Data Science nor Machine Learning 1TB and 500 columns datasets. 
 
 All of the DataFrame operations can be placed in PipelineScheduler for automated Data Engineering Pipelines.
 
@@ -35,6 +35,25 @@ Tested for MacOS, Linux and Windows
 ---
 ## Key Features
 
+---
+## Feature Flags
+Elusion uses Cargo feature flags to keep the library lightweight and modular. 
+You can enable only the features you need, which helps reduce dependencies and compile time.
+
+## 🚀 Available Features
+
+| Feature | Icon | Description | Usage |
+|---------|------|-------------|-------|
+| **Fabric** | 🏭 | Microsoft Fabric - OneLake connectivity | `features = ["fabric"]` |
+| **Azure** | ☁️ | Azure BLOB storage connectivity | `features = ["azure"]` |
+| **SharePoint** | 📁 | SharePoint connectivity | `features = ["sharepoint"]` |
+| **PostgreSQL** | 🐘 | PostgreSQL Database connectivity | `features = ["postgres"]` |
+| **MySQL** | 🐬 | MySQL Database connectivity | `features = ["mysql"]` |
+| **API** | 🔌 | HTTP API integration | `features = ["api"]` |
+| **Dashboard** | 📊 | Data visualization and dashboards | `features = ["dashboard"]` |
+| **Excel** | 📗 | Excel file operations | `features = ["excel"]` |
+
+---
 ### 📩 Load Data into DataFrame:
 - 🔃 **Loading**: `CustomDataFrame::new()`, auto shema recognition, auto file extension recognition. Just make sure that data can fit within your RAM.
  
@@ -155,52 +174,13 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "6.2.0"
+elusion = "6.3.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
 ```toml
 >= 1.89.0
 ```
----
-## Feature Flags
-Elusion uses Cargo feature flags to keep the library lightweight and modular. 
-You can enable only the features you need, which helps reduce dependencies and compile time.
-
-## Available Features
-```rust 
-["postgres"]
-```
-Enables Postgres Database connectivity.
-```rust 
-["mysql"]
-```
-Enables MySql Database connectivity
-```rust 
-["azure"]
-``` 
-Enables Azure BLOB storage connectivity.
-```rust
-["sharepoint"]
-```
-Enables SharePoint connectivity.
-```rust 
-["api"]
-```
-Enables HTTP API integration for fetching data from web services.
-```rust 
-["dashboard"]
-```
-Enables data visualization and dashboard creation capabilities.
-```rust 
-["excel"]
-```
-Enables writing DataFrame to Excel file.
-#### You only need this enabled if writing to excel
-```rust 
-["all"]
-```
-Enables all available features.
 
 Usage:
 - In your Cargo.toml, specify which features you want to enable:
@@ -208,25 +188,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "6.2.0", features = ["postgres"] }
+elusion = { version = "6.3.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "6.2.0"
+elusion = "6.3.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "6.2.0", features = ["dashboard", "api", "mysql"] }
+elusion = { version = "6.3.0", features = ["dashboard", "api", "fabric"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "6.2.0", features = ["all"] }
+elusion = { version = "6.3.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -477,6 +457,31 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_colu
 dataframes.display().await?;
 ```
 ---
+# Fabric Connector
+### Also require Azure CLI login as SharePoint
+#### For reading you need abfss path, folder/file name and alias. Currectly supported file extensions: csv, json, excel, xml, parquet
+```rust
+let df = CustomDataFrame::from_fabric(
+        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+        "artikli/mapping.csv", //folder/file name
+        "map_data"
+    ).await?;
+```
+#### Writing to Fabric requires only abfss path and folder/file name. Currectly supported file extensions: json, parquet
+```rust
+   df.write_parquet_to_fabric(
+        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+        "artikli/mapping_results.parquet"
+    ).await?;
+
+   df.write_json_to_fabric(
+        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+        "artikli/mapping_results.json"
+    ).await?;
+
+```
+---
+
 ### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
 let df = CustomDataFrame::from_azure_with_sas_token(
