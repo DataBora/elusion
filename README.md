@@ -447,22 +447,16 @@ dataframes.display().await?;
 ```rust
 let df = CustomDataFrame::from_fabric(
         "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
-        "artikli/mapping.csv", //folder/file name
-        "map_data"
+        "artikli/mapping.csv", // folder/file name
+        "map_data" // alias
     ).await?;
 ```
-#### Writing to Fabric requires only abfss path and folder/file name. Currectly supported file extensions: json, parquet
+#### Writing to Fabric requires only abfss path and folder/file name. Currectly supported file extension: parquet
 ```rust
    df.write_parquet_to_fabric(
         "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
-        "artikli/mapping_results.parquet"
+        "artikli/mapping_results.parquet" // folder/file name
     ).await?;
-
-   df.write_json_to_fabric(
-        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
-        "artikli/mapping_results.json"
-    ).await?;
-
 ```
 ---
 
