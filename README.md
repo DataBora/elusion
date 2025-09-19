@@ -62,7 +62,6 @@ You can enable only the features you need, which helps reduce dependencies and c
   Fabric &nbsp; &nbsp; Azure &nbsp; &nbsp; SharePoint &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard &nbsp; &nbsp; Excel
 </p>
 
-|---------|-------------|-------|
 | **Fabric** | Microsoft Fabric - OneLake connectivity | `features = ["fabric"]` |
 | **Azure** | Azure BLOB storage connectivity | `features = ["azure"]` |
 | **SharePoint** | SharePoint connectivity | `features = ["sharepoint"]` |
