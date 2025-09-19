@@ -40,17 +40,6 @@ You can enable only the features you need, which helps reduce dependencies and c
 
 ## 🚀 Available Features
 
-| Feature | Icon | Description | Usage |
-|---------|------|-------------|-------|
-| **Fabric** | 🏭 | Microsoft Fabric - OneLake connectivity | `features = ["fabric"]` |
-| **Azure** | ☁️ | Azure BLOB storage connectivity | `features = ["azure"]` |
-| **SharePoint** | 📁 | SharePoint connectivity | `features = ["sharepoint"]` |
-| **PostgreSQL** | 🐘 | PostgreSQL Database connectivity | `features = ["postgres"]` |
-| **MySQL** | 🐬 | MySQL Database connectivity | `features = ["mysql"]` |
-| **API** | 🔌 | HTTP API integration | `features = ["api"]` |
-| **Dashboard** | 📊 | Data visualization and dashboards | `features = ["dashboard"]` |
-| **Excel** | 📗 | Excel file operations | `features = ["excel"]` |
-
 <p align="center">
   <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Fabric" height="32"/>
   &nbsp;&nbsp;&nbsp;
@@ -72,6 +61,16 @@ You can enable only the features you need, which helps reduce dependencies and c
 <p align="center">
   Fabric &nbsp; &nbsp; Azure &nbsp; &nbsp; SharePoint &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard &nbsp; &nbsp; Excel
 </p>
+
+|---------|-------------|-------|
+| **Fabric** | Microsoft Fabric - OneLake connectivity | `features = ["fabric"]` |
+| **Azure** | Azure BLOB storage connectivity | `features = ["azure"]` |
+| **SharePoint** | SharePoint connectivity | `features = ["sharepoint"]` |
+| **PostgreSQL** | PostgreSQL Database connectivity | `features = ["postgres"]` |
+| **MySQL** | MySQL Database connectivity | `features = ["mysql"]` |
+| **API** | HTTP API integration | `features = ["api"]` |
+| **Dashboard** | Data visualization and dashboards | `features = ["dashboard"]` |
+| **Excel** | Excel file operations | `features = ["excel"]` |
 
 ---
 ### 📩 Load Data into DataFrame:
