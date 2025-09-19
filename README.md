@@ -53,12 +53,19 @@ You can enable only the features you need, which helps reduce dependencies and c
 
 <p align="center">
   <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Fabric" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://static.cdnlogo.com/logos/m/58/microsoft-azure.svg" alt="Azure" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://static.cdnlogo.com/logos/s/57/sharepoint.svg" alt="SharePoint" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mysql/mysql-original.svg" alt="MySQL" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://cdn-icons-png.flaticon.com/512/2659/2659360.png" alt="API" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/plotly.svg" alt="Dashboard" height="32"/>
+  &nbsp;&nbsp;&nbsp;
   <img src="https://upload.wikimedia.org/wikipedia/commons/7/73/Microsoft_Excel_2013-2019_logo.svg" alt="Excel" height="32"/>
 </p>
 
