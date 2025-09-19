@@ -74,44 +74,6 @@ You can enable only the features you need, which helps reduce dependencies and c
 | **Excel** | Excel file operations | `features = ["excel"]` |
 
 ---
-### 📩 Load Data into DataFrame:
-- 🔃 **Loading**: `CustomDataFrame::new()`, auto shema recognition, auto file extension recognition. Just make sure that data can fit within your RAM.
- 
-### 🔄 2 Ways to Process Results:
-- 1. 🔃 **Regular Processing**: `.elusion()` loads all results into memory.
-- 2. **💾 Cached Processing**: Smart result caching for repeated queries
-   - `.elusion_with_cache()` - locally saves query results to disk
-   - `.elusion_with_redis_cache()` - uses Redis to store query results for distributed access
-   - ✅ Perfect for: Repeated queries, dashboard applications, multi-user scenarios
-
-### 📤 **4 Ways to Export Results**
-- 1. **🔃 In-Memory Export**: 
-   - `.write_to_csv()`, `.write_to_json()`, `.write_to_parquet()`, `.write_to_delta_table()`, `.write_to_excel()`
-   - Loads results into memory first
-
-- 2. **🏭 Fabric Export**: `write_parquet_to_fabric()`, `write_json_to_fabric()`
-   
-- 3. **☁️ Cloud Export**: `write_parquet_to_azure_with_sas()`, `write_json_to_azure_with_sas()`
-   
-- 4. **🚀 Streaming Export**: 
-   - `.elusion_streaming_write()` streams results directly to files 
-   - Formats: `.json`, `.csv`, `.parquet`
-   
-- 5. **📊 Console Display**: 
-   - `.elusion()` needs `.display()` to display dataframe result
-   - `.elusion_streaming()` displays results automatically (`.display()` not allowed)
-
-### POSSIBLE Combinations and Benefits:
-<div align="center">
-
-| Approach | Source Data | Query Processing | Caching | Memory Usage | Best For |
-|:---------|:-----------:|:----------------:|:-------:|:------------:|:---------|
-| `new()` + `elusion()` | **In Memory** | **In Memory** | 🕣 | **High** | Small datasets, interactive analysis |
-| `new()` + `elusion_streaming()` | **In Memory** | **Streaming** | 🚀 | **Medium** | Medium datasets, large result sets |
-| `new()` + `elusion_with_cache()` | **In Memory** | **In Memory** | **💾 Local** | **Medium** | Repeated queries, development |
-| `new()` + `elusion_with_redis_cache()` | **In Memory** | **In Memory** | **🔄 Redis** | **Medium** | Multi-user dashboards, production |
-
-</div>
 
 ### 🔄 Job Scheduling (PipelineScheduler)
 - Flexible Intervals: From 1 minute to 30 days scheduling intervals.
