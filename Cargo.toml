@@ -58,7 +58,7 @@ mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
 sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding"] 
 fabric = ["dep:reqwest", "dep:url", "dep:urlencoding", "dep:parquet"]
-all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint"]
+all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint", "fabric"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

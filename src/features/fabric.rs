@@ -7,11 +7,7 @@ use crate::ElusionResult;
 #[cfg(feature = "fabric")]
 use crate::CustomDataFrame;
 #[cfg(feature = "fabric")]
-use crate::array_value_to_json;
-#[cfg(feature = "fabric")]
 use reqwest;
-#[cfg(feature = "fabric")]
-use std::io::{BufWriter, Write};
 #[cfg(feature = "fabric")]
 use arrow::record_batch::RecordBatch;
 #[cfg(feature = "fabric")]
@@ -56,11 +52,9 @@ impl OneLakeClient {
         }
     }
 
-    // Authentication using Azure CLI
     pub async fn authenticate(&mut self) -> ElusionResult<()> {
         println!("🔍 Authenticating with Azure CLI for Fabric - OneLake access...");
         
-        // Try direct Python approach first
         match self.execute_az_via_python(&["--version"]).await {
             Ok(version_output) => {
                 if version_output.status.success() {
@@ -76,7 +70,6 @@ impl OneLakeClient {
             Err(_) => {}
         }
 
-        // Fallback to standard Azure CLI paths
         let az_paths = self.get_azure_cli_paths();
         
         for az_path in az_paths.iter() {
@@ -103,7 +96,7 @@ impl OneLakeClient {
         match self.execute_az_via_python(&["account", "show"]).await {
             Ok(account_output) => {
                 if account_output.status.success() {
-                    // Get Azure Storage token (required for OneLake data access)
+                    //  Azure Storage token 
                     if let Ok(token_output) = self.execute_az_via_python(&["account", "get-access-token", "--resource", "https://storage.azure.com/", "--output", "json"]).await {
                         if token_output.status.success() {
                             let token_json = String::from_utf8_lossy(&token_output.stdout);
@@ -127,7 +120,6 @@ impl OneLakeClient {
                         }
                     }
 
-                    // Only require storage token for basic file operations
                     if self.access_token.is_some() {
                         return Ok(());
                     }
@@ -147,7 +139,7 @@ impl OneLakeClient {
             .output() 
         {
             if account_output.status.success() {
-                // Get Azure Storage token (required for OneLake data access)
+                //  Azure Storage token
                 if let Ok(storage_token_output) = std::process::Command::new(az_path)
                     .args(["account", "get-access-token", "--resource", "https://storage.azure.com/", "--output", "json"])
                     .env("PYTHONIOENCODING", "utf-8")
@@ -164,7 +156,7 @@ impl OneLakeClient {
                     }
                 }
 
-                // Get Fabric token (optional for basic file operations)
+                //  Fabric token 
                 if let Ok(fabric_token_output) = std::process::Command::new(az_path)
                     .args(["account", "get-access-token", "--resource", "https://api.fabric.microsoft.com/", "--output", "json"])
                     .env("PYTHONIOENCODING", "utf-8")
@@ -181,7 +173,6 @@ impl OneLakeClient {
                     }
                 }
 
-                // Only require storage token for basic file operations
                 if self.access_token.is_some() {
                     return Ok(());
                 }
@@ -348,7 +339,7 @@ impl OneLakeClient {
 
         println!("📤 Uploading file to OneLake: {}", file_path);
 
-        // First, create the file
+        //  create the file
         let create_response = reqwest::Client::new()
             .put(&create_url)
             .bearer_auth(&token)
@@ -369,7 +360,7 @@ impl OneLakeClient {
             )));
         }
 
-        // Then, append the data
+        // append data
         let append_url = format!("{}?action=append&position=0", onelake_url);
         
         let append_response = reqwest::Client::new()
@@ -393,7 +384,7 @@ impl OneLakeClient {
             )));
         }
 
-        // Finally, flush the file
+        // flush the file
         let flush_url = format!("{}?action=flush&position={}", onelake_url, content.len());
         
         let flush_response = reqwest::Client::new()
@@ -470,7 +461,7 @@ impl OneLakeClient {
         let lakehouse_warehouse_part = remaining_parts[1];
         let base_path = remaining_parts[2..].join("/");
 
-        // Check if it's a GUID (36 characters with hyphens)
+        // Check if its a GUID (36 characters with hyphens)
         let is_guid = lakehouse_warehouse_part.len() == 36 && 
                      lakehouse_warehouse_part.chars().filter(|&c| c == '-').count() == 4;
 
@@ -649,150 +640,5 @@ pub async fn write_parquet_to_fabric_abfss_impl(
     client.upload_file(&full_file_path, buffer).await?;
     println!("Successfully wrote Parquet data to OneLake: {}", file_path);
 
-    Ok(())
-}
-
-// Write JSON to OneLake using ABFSS path
-#[cfg(feature = "fabric")]
-pub async fn write_json_to_fabric_abfss_impl(
-    df: &CustomDataFrame,
-    abfss_path: &str,
-    file_path: &str,
-    pretty: bool,
-) -> ElusionResult<()> {
-    if !file_path.ends_with(".json") {
-        return Err(ElusionError::Custom(
-            "Invalid file extension. JSON files must end with '.json'".to_string()
-        ));
-    }
-
-    // Parse the ABFSS path
-    let parsed = OneLakeClient::parse_abfss_path(abfss_path)?;
-
-    // Create client with auto-detected credentials
-    let mut client = OneLakeClient::new_with_cli_auth(
-        parsed.workspace_id,
-        parsed.lakehouse_id,
-        parsed.warehouse_id,
-    ).await?;
-
-    let batches = df.df.clone().collect().await.map_err(|e| 
-        ElusionError::InvalidOperation {
-            operation: "Data Collection".to_string(),
-            reason: format!("Failed to collect DataFrame: {}", e),
-            suggestion: "Verify DataFrame is not empty and contains valid data".to_string(),
-        }
-    )?;
-
-    if batches.is_empty() {
-        return Err(ElusionError::InvalidOperation {
-            operation: "JSON Writing".to_string(),
-            reason: "No data to write".to_string(),
-            suggestion: "Ensure DataFrame contains data before writing".to_string(),
-        });
-    }
-
-    let mut buffer = Vec::new();
-    let mut rows_written = 0;
-    {
-        let mut writer = BufWriter::new(&mut buffer);
-        
-        writeln!(writer, "[").map_err(|e| ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "begin_json".to_string(),
-            reason: e.to_string(),
-            suggestion: "Check memory allocation".to_string(),
-        })?;
-    
-        let mut first_row = true;
-        
-        for batch in batches.iter() {
-            let row_count = batch.num_rows();
-            let column_count = batch.num_columns();
-            
-            if row_count == 0 || column_count == 0 {
-                continue;
-            }
-    
-            let column_names: Vec<String> = batch.schema().fields().iter()
-                .map(|f| f.name().to_string())
-                .collect();
-    
-            for row_idx in 0..row_count {
-                if !first_row {
-                    writeln!(writer, ",").map_err(|e| ElusionError::WriteError {
-                        path: file_path.to_string(),
-                        operation: "write_separator".to_string(),
-                        reason: e.to_string(),
-                        suggestion: "Check memory allocation".to_string(),
-                    })?;
-                }
-                first_row = false;
-                rows_written += 1;
-                
-                let mut row_obj = serde_json::Map::new();
-                
-                for col_idx in 0..column_count {
-                    let col_name = &column_names[col_idx];
-                    let array = batch.column(col_idx);
-                    
-                    let json_value = array_value_to_json(array, row_idx)?;
-                    row_obj.insert(col_name.to_string(), json_value);
-                }
-                
-                let json_value = serde_json::Value::Object(row_obj);
-                
-                if pretty {
-                    serde_json::to_writer_pretty(&mut writer, &json_value)
-                        .map_err(|e| ElusionError::WriteError {
-                            path: file_path.to_string(),
-                            operation: format!("write_row_{}", rows_written),
-                            reason: format!("JSON serialization error: {}", e),
-                            suggestion: "Check if row contains valid JSON data".to_string(),
-                        })?;
-                } else {
-                    serde_json::to_writer(&mut writer, &json_value)
-                        .map_err(|e| ElusionError::WriteError {
-                            path: file_path.to_string(),
-                            operation: format!("write_row_{}", rows_written),
-                            reason: format!("JSON serialization error: {}", e),
-                            suggestion: "Check if row contains valid JSON data".to_string(),
-                        })?;
-                }
-            }
-        }
-
-        writeln!(writer, "\n]").map_err(|e| ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "end_json".to_string(),
-            reason: e.to_string(),
-            suggestion: "Check memory allocation".to_string(),
-        })?;
-    
-        writer.flush().map_err(|e| ElusionError::WriteError {
-            path: file_path.to_string(),
-            operation: "flush".to_string(),
-            reason: e.to_string(),
-            suggestion: "Failed to flush data to buffer".to_string(),
-        })?;
-    } 
-
-    // Build full file path
-    let full_file_path = if parsed.base_path == "Files" || parsed.base_path.is_empty() {
-        file_path.to_string()
-    } else {
-        format!("{}/{}", parsed.base_path.trim_start_matches("Files/"), file_path)
-    };
-
-    client.upload_file(&full_file_path, buffer).await?;
-    
-    println!("Successfully wrote JSON data to Fabric - OneLake: {}", file_path);
-    
-    if rows_written == 0 {
-        println!("Warning: No rows were written to the file. Check if this is expected.");
-    } else {
-        println!("Wrote {} rows to JSON file", rows_written);
-    }
-    
     Ok(())
 }

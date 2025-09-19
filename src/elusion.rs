@@ -5416,7 +5416,7 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
-    // ========= ONE LAKE ================
+    // ========= FABRIC - ONE LAKE ================
 
     #[cfg(feature = "fabric")]
     pub async fn from_fabric(
@@ -5459,32 +5459,6 @@ impl CustomDataFrame {
         &self,
         _abfss_path: &str,
         _file_path: &str,
-    ) -> ElusionResult<()> {
-        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
-    }
-
-    // Write JSON to fabric using ABFSS path
-    #[cfg(feature = "fabric")]
-    pub async fn write_json_to_fabric(
-        &self,
-        abfss_path: &str,
-        file_path: &str,
-        pretty: bool,
-    ) -> ElusionResult<()> {
-        crate::features::fabric::write_json_to_fabric_abfss_impl(
-            self,
-            abfss_path,
-            file_path,
-            pretty,
-        ).await
-    }
-
-    #[cfg(not(feature = "fabric"))]
-    pub async fn write_json_to_fabric(
-        &self,
-        _abfss_path: &str,
-        _file_path: &str,
-        _pretty: bool,
     ) -> ElusionResult<()> {
         Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
     }
