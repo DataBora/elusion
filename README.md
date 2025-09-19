@@ -51,6 +51,27 @@ You can enable only the features you need, which helps reduce dependencies and c
 | **Dashboard** | 📊 | Data visualization and dashboards | `features = ["dashboard"]` |
 | **Excel** | 📗 | Excel file operations | `features = ["excel"]` |
 
+<div align="center">
+
+<!-- Fabric -->
+<img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Fabric" height="32" style="margin-right:20px"/>
+<!-- Azure -->
+<img src="https://static.cdnlogo.com/logos/m/58/microsoft-azure.svg" alt="Azure" height="32" style="margin-right:20px"/>
+<!-- SharePoint -->
+<img src="https://static.cdnlogo.com/logos/s/57/sharepoint.svg" alt="SharePoint" height="32" style="margin-right:20px"/>
+<!-- PostgreSQL -->
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" height="32" style="margin-right:20px"/>
+<!-- MySQL -->
+<img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mysql/mysql-original.svg" alt="MySQL" height="32" style="margin-right:20px"/>
+<!-- API -->
+<img src="https://cdn-icons-png.flaticon.com/512/2659/2659360.png" alt="API" height="32" style="margin-right:20px"/>
+<!-- Dashboard (Plotly) -->
+<img src="https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/plotly.svg" alt="Dashboard" height="32" style="margin-right:20px"/>
+<!-- Excel -->
+<img src="https://upload.wikimedia.org/wikipedia/commons/7/73/Microsoft_Excel_2013-2019_logo.svg" alt="Excel" height="32" style="margin-right:20px"/>
+
+</div>
+
 ---
 ### 📩 Load Data into DataFrame:
 - 🔃 **Loading**: `CustomDataFrame::new()`, auto shema recognition, auto file extension recognition. Just make sure that data can fit within your RAM.
