@@ -32,11 +32,9 @@ Tested for MacOS, Linux and Windows
 
 ## Fastest way to learn ELUSION
 [Elusion UDEMY Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
----
-## Key Features
 
 ---
-## Feature Flags
+## Key Features and Feature Flags
 Elusion uses Cargo feature flags to keep the library lightweight and modular. 
 You can enable only the features you need, which helps reduce dependencies and compile time.
 
