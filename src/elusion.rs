@@ -5416,6 +5416,79 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Azure feature not enabled. Add feature under [dependencies]".to_string()))
     }
 
+    // ========= ONE LAKE ================
+
+    #[cfg(feature = "fabric")]
+    pub async fn from_fabric(
+        abfss_path: &str,
+        file_path: &str,
+        alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        crate::features::fabric::load_from_fabric_abfss_impl(
+            abfss_path,
+            file_path,
+            alias,
+        ).await
+    }
+
+    #[cfg(not(feature = "fabric"))]
+    pub async fn from_fabric(
+        _abfss_path: &str,
+        _file_path: &str,
+        _alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
+    }
+
+    // Write Parquet to fabric using ABFSS path
+    #[cfg(feature = "fabric")]
+    pub async fn write_parquet_to_fabric(
+        &self,
+        abfss_path: &str,
+        file_path: &str,
+    ) -> ElusionResult<()> {
+        crate::features::fabric::write_parquet_to_fabric_abfss_impl(
+            self,
+            abfss_path,
+            file_path,
+        ).await
+    }
+
+    #[cfg(not(feature = "fabric"))]
+    pub async fn write_parquet_to_fabric(
+        &self,
+        _abfss_path: &str,
+        _file_path: &str,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
+    }
+
+    // Write JSON to fabric using ABFSS path
+    #[cfg(feature = "fabric")]
+    pub async fn write_json_to_fabric(
+        &self,
+        abfss_path: &str,
+        file_path: &str,
+        pretty: bool,
+    ) -> ElusionResult<()> {
+        crate::features::fabric::write_json_to_fabric_abfss_impl(
+            self,
+            abfss_path,
+            file_path,
+            pretty,
+        ).await
+    }
+
+    #[cfg(not(feature = "fabric"))]
+    pub async fn write_json_to_fabric(
+        &self,
+        _abfss_path: &str,
+        _file_path: &str,
+        _pretty: bool,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
+    }
+
     //=================== LOCAL LOADERS ============================= //
 
    

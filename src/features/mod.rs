@@ -12,3 +12,4 @@ pub mod calendar;
 pub mod csv;
 pub mod redis;
 pub mod xml;
+pub mod fabric;
