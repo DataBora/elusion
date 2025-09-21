@@ -10,7 +10,7 @@
 </div>
 
 
-![Elusion Logo](images/elusion.png)
+![Elusion Logo](images/elusiongithub.png)
 ---
 
 Elusion is a high-performance **DataFrame** / **Data Engineering** library designed for in-memory data formats such as **CSV**, **EXCEL**, **JSON**, **XML**, **PARQUET**, **DELTA**, as well as for **Microsoft Fabric - OneLake** connection, **Microsoft SharePoint** connection, **Microsoft Azure Blob Storage** connections, **Postgres Database** connection, **MySql Database** connection, and **REST API**'s for creating **JSON files** which can be forwarded to DataFrame, with advanced query results caching abilities with **Redis** and **Native cashing**.
