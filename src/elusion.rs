@@ -626,21 +626,17 @@ impl CustomDataFrame {
     //=========== SHARE POINT
     #[cfg(feature = "sharepoint")]
     pub async fn load_from_sharepoint(
-        tenant_id: &str,
-        client_id: &str,
         site_url: &str,
         file_path: &str,
         alias: &str,
     ) -> ElusionResult<Self> {
         crate::features::sharepoint::load_from_sharepoint_impl(
-            tenant_id, client_id, site_url, file_path, alias
+            site_url, file_path, alias
         ).await
     }
 
     #[cfg(not(feature = "sharepoint"))]
     pub async fn load_from_sharepoint(
-        _tenant_id: &str,
-        _client_id: &str,
         _site_url: &str,
         _file_path: &str,
         _alias: &str,
@@ -654,23 +650,19 @@ impl CustomDataFrame {
 
     #[cfg(feature = "sharepoint")]
     pub async fn load_folder_from_sharepoint(
-        tenant_id: &str,
-        client_id: &str,
         site_url: &str,
         folder_path: &str,
         file_extensions: Option<Vec<&str>>,
         result_alias: &str,
     ) -> ElusionResult<Self> {
         crate::features::sharepoint::load_folder_from_sharepoint_impl(
-            tenant_id, client_id, site_url, folder_path, file_extensions, result_alias
+            site_url, folder_path, file_extensions, result_alias
         ).await
     }
 
     #[cfg(not(feature = "sharepoint"))]
     pub async fn load_folder_from_sharepoint(
-        _tenant_id: &str, 
-        _client_id: &str, 
-        _site_url: &str, 
+        _site_url: &str,
         _folder_path: &str,
         _file_extensions: Option<Vec<&str>>,
         _result_alias: &str,
@@ -684,23 +676,19 @@ impl CustomDataFrame {
 
     #[cfg(feature = "sharepoint")]
     pub async fn load_folder_from_sharepoint_with_filename_column(
-        tenant_id: &str,
-        client_id: &str,
         site_url: &str,
         folder_path: &str,
         file_extensions: Option<Vec<&str>>,
         result_alias: &str,
     ) -> ElusionResult<Self> {
         crate::features::sharepoint::load_folder_from_sharepoint_with_filename_column_impl(
-            tenant_id, client_id, site_url, folder_path, file_extensions, result_alias
+            site_url, folder_path, file_extensions, result_alias
         ).await
     }
 
     #[cfg(not(feature = "sharepoint"))]
     pub async fn load_folder_from_sharepoint_with_filename_column(
-        _tenant_id: &str, 
-        _client_id: &str, 
-        _site_url: &str, 
+        _site_url: &str,
         _folder_path: &str,
         _file_extensions: Option<Vec<&str>>,
         _result_alias: &str,

@@ -158,7 +158,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "6.3.0"
+elusion = "7.0.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -172,25 +172,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "6.3.0", features = ["fabric"] }
+elusion = { version = "7.0.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "6.3.0"
+elusion = "7.0.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "6.3.0", features = ["dashboard", "api", "fabric"] }
+elusion = { version = "7.0.0", features = ["dashboard", "api", "fabric"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "6.3.0", features = ["all"] }
+elusion = { version = "7.0.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -361,7 +361,7 @@ let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
 ```
 ---
 # SharePoint connector
-### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame
+### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame (make sure all files have same column schema)
 ### To connect to SharePoint you need AzureCLI installed and to be logged in 
 ### 1. Install Azure CLI
 - Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
@@ -401,8 +401,6 @@ This should display your account information and confirm you're logged in.
 ```rust
 //Example:
 let df = CustomDataFrame::load_from_sharepoint(
-    "your-tenant-id", //tenant id
-    "your-client-id", //clientid
     "https://contoso.sharepoint.com/sites/MySite", //siteid
     "Shared Documents/Data/customer_data.csv", //file path
     "combined_data" //dataframe alias
@@ -417,8 +415,6 @@ sales_data.display().await?;
 #### Reading ALL Files from a folder into single DataFrame example:
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint(
-    "your-tenant-id",//tenant id
-    "your-client-id", //client id
     "http://companyname.sharepoint.com/sites/SiteName", //site id
     "Shared Documents/MainFolder/SubFolder",//folder path
     None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
@@ -427,11 +423,9 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint(
 
 dataframes.display().await?;
 ```
-#### Reading ALL Files from a folder into single DataFrame with Adding filename column automatically:
+#### Reading ALL Files from a folder into single DataFrame with Adding filename column automatically ("filename_added"):
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
-    "your-tenant-id",
-    "your-client-id", 
     "http://companyname.sharepoint.com/sites/SiteName", 
     "Shared Documents/MainFolder/SubFolder",
     None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
@@ -442,8 +436,8 @@ dataframes.display().await?;
 ```
 ---
 # Fabric Connector
-### Also require Azure CLI login as SharePoint
-#### For reading you need abfss path, folder/file name and alias. Currectly supported file extensions: csv, json, excel, xml, parquet
+### Also require Azure CLI login as SharePoint. Please check how to install and login to Azure CLI in SharePoint section.
+#### For reading you need abfss path, folder/file name and alias. Currently supported file extensions: csv, json, excel, xml, parquet
 ```rust
 let df = CustomDataFrame::from_fabric(
         "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
@@ -451,7 +445,7 @@ let df = CustomDataFrame::from_fabric(
         "map_data" // alias
     ).await?;
 ```
-#### Writing to Fabric requires only abfss path and folder/file name. Currectly supported file extension: parquet
+#### Writing to Fabric requires only abfss path and folder/file name. Currently supported file extension: parquet
 ```rust
    df.write_parquet_to_fabric(
         "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
