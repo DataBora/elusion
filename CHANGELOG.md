@@ -1,3 +1,7 @@
+## [7.0.1] - 2025-09-21
+## FIXED
+- Colission between string_functions() , fill_down() and fill_null() functions.
+
 ## [7.0.0] - 2025-09-21
 ## BREAKING CHANGE
 - Removed clientid and tenantid for SharePoint connector by auto discover. Now usage is simplified for users as they dont need to provide clientid and tenantid.
