@@ -1,3 +1,7 @@
+## [7.0.0] - 2025-09-21
+## BREAKING CHANGE
+- Removed clientid and tenantid for SharePoint connector by auto discover. Now usage is simplified for users as they dont need to provide clientid and tenantid.
+
 ## [6.3.0] - 2025-09-19
 ## Added New Feature
 - FABRIC - ONELAKE Feature for reading and writing files to Fabric - OneLake
