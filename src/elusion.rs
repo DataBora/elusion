@@ -2229,44 +2229,71 @@ impl CustomDataFrame {
         let columns: Vec<&str> = columns_str.split(',').collect();
       //  println!("Debug: handle_fill_down_operation called with columns: {:?}", columns);
         
-        let selected_cols = if self.selected_columns.is_empty() {
-            self.df.schema()
-                .fields()
-                .iter()
-                .map(|f| f.name().clone())
-                .collect::<Vec<_>>()
-        } else {
-            self.selected_columns
-                .iter()
-                .map(|col| {
-                    if col.contains(" AS ") {
-                        col.split(" AS ")
-                            .nth(1)
-                            .unwrap_or(col)
-                            .trim_matches('"')
-                            .trim()
-                            .to_string()
-                    } else {
-                        col.trim_matches('"')
-                            .split('.')
-                            .last()
-                            .unwrap_or(col)
-                            .trim_matches('"')
-                            .to_string()
+            let selected_cols = if self.selected_columns.is_empty() {
+        self.df.schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect::<Vec<_>>()
+    } else {
+        self.selected_columns
+            .iter()
+            .map(|col| {
+                // Need to find the LAST occurrence of " as " to get the alias
+                // because there might be " as " inside CAST functions
+                
+                let col_lower = col.to_lowercase();
+                
+                // Find all " as " positions
+                let mut as_positions = Vec::new();
+                let mut search_from = 0;
+                while let Some(pos) = col_lower[search_from..].find(" as ") {
+                    as_positions.push(search_from + pos);
+                    search_from = search_from + pos + 4;
+                }
+                
+                // Find which " as " is the actual alias separator
+                // by checking parentheses depth
+                for &as_pos in as_positions.iter().rev() {
+                    let before_as = &col[..as_pos];
+                    
+                    // Count parentheses depth
+                    let mut paren_depth = 0;
+                    for ch in before_as.chars() {
+                        match ch {
+                            '(' => paren_depth += 1,
+                            ')' => paren_depth -= 1,
+                            _ => {}
+                        }
                     }
-                })
-                .collect()
-        };
+                    
+                    // If parentheses are balanced, this is the alias separator
+                    if paren_depth == 0 {
+                        let alias = &col[as_pos + 4..]; // Skip " as "
+                        return alias.trim().trim_matches('"').to_string();
+                    }
+                }
+                
+                // No valid " as " found, extract column name normally
+                col.trim_matches('"')
+                    .split('.')
+                    .last()
+                    .unwrap_or(col)
+                    .trim_matches('"')
+                    .to_string()
+            })
+            .collect()
+    };
         
-      //  println!("Debug: selected_cols after processing: {:?}", selected_cols);
-      //  println!("Debug: columns to fill: {:?}", columns);
+       // println!("Debug: selected_cols after processing: {:?}", selected_cols);
+       // println!("Debug: columns to fill: {:?}", columns);
         
         // Handle both NULL and string "null" values by converting them to actual NULLs first
         let fill_expressions: Vec<String> = selected_cols
             .iter()
             .map(|col_name| {
                 if columns.contains(&col_name.as_str()) {
-                   // println!("Debug: Processing fill_down for column: {}", col_name);
+                    //println!("Debug: Processing fill_down for column: {}", col_name);
                     // First convert "null" strings and empty strings to actual NULLs,
                     // then use LAST_VALUE with IGNORE NULLS
                     format!(
@@ -2281,7 +2308,7 @@ impl CustomDataFrame {
                         col_name
                     )
                 } else {
-                    //println!("Debug: NOT processing fill_down for column: {} (not in fill list)", col_name);
+                  //  println!("Debug: NOT processing fill_down for column: {} (not in fill list)", col_name);
                     format!(r#""{0}""#, col_name)
                 }
             })
@@ -2297,7 +2324,7 @@ impl CustomDataFrame {
             fill_expressions.join(", ")
         );
         
-      //  println!("Debug: Final SQL: {}", result_sql);
+     //  println!("Debug: Final SQL: {}", result_sql);
         result_sql
     }
 
@@ -2371,77 +2398,94 @@ impl CustomDataFrame {
     fn handle_fill_null_operation(&self, columns_and_value: &str, base_sql: String) -> String {
         let parts: Vec<&str> = columns_and_value.split(':').collect();
         if parts.len() != 2 {
-            return base_sql; // Invalid format, return unchanged
+            return base_sql;
         }
         
         let columns_str = parts[0];
         let fill_value = parts[1];
-        let columns: Vec<&str> = columns_str.split(',').collect();
+        let fill_columns: Vec<&str> = columns_str.split(',').collect();
         
-        let all_columns = if self.selected_columns.is_empty() {
+        // Build the select expressions for the fill_null operation
+        let select_expressions: Vec<String> = if self.selected_columns.is_empty() {
             self.df.schema()
                 .fields()
                 .iter()
-                .map(|f| f.name().clone())
-                .collect::<Vec<_>>()
-        } else {
-            self.selected_columns
-                .iter()
-                .map(|col| {
-                    if col.contains(" AS ") {
-                        col.split(" AS ")
-                            .nth(1)
-                            .unwrap_or(col)
-                            .trim_matches('"')
-                            .trim()
-                            .to_string()
+                .map(|f| {
+                    let col_name = f.name();
+                    if fill_columns.iter().any(|&c| c.eq_ignore_ascii_case(col_name)) {
+                        format!(
+                            r#"CASE
+                                WHEN "{0}" IS NULL OR
+                                    TRIM("{0}") = '' OR
+                                    UPPER(TRIM("{0}")) = 'NULL' OR
+                                    UPPER(TRIM("{0}")) = 'NA' OR
+                                    UPPER(TRIM("{0}")) = 'N/A' OR
+                                    UPPER(TRIM("{0}")) = 'NONE' OR
+                                    TRIM("{0}") = '-' OR
+                                    TRIM("{0}") = '?' OR
+                                    TRIM("{0}") = 'NaN' OR
+                                    UPPER(TRIM("{0}")) = 'NAN'
+                                THEN '{1}'
+                                ELSE "{0}"
+                            END AS "{0}""#,
+                            col_name, fill_value
+                        )
                     } else {
-                        col.trim_matches('"')
+                        format!("\"{}\"", col_name)
+                    }
+                })
+                .collect()
+        } else {
+            let column_names_and_aliases = self.selected_columns
+                .iter()
+                .map(|expr| {
+                    // Find the alias if it exists, otherwise use the column name
+                    if let Some(as_pos) = Self::find_alias_position(expr) {
+                        let alias = expr[as_pos + 4..].trim().trim_matches('"').to_string();
+                        (alias.clone(), Some(alias))
+                    } else {
+                        // Extract the column name
+                        let col_name = expr.trim_matches('"')
                             .split('.')
                             .last()
-                            .unwrap_or(col)
-                            .trim_matches('"')
-                            .to_string()
+                            .unwrap_or(expr)
+                            .to_string();
+                        (col_name, None)
+                    }
+                })
+                .collect::<Vec<_>>();
+            
+            column_names_and_aliases
+                .iter()
+                .map(|(col_name, alias_opt)| {
+                    let target_name = alias_opt.as_ref().unwrap_or(col_name);
+                    
+                    // Check if this column should be filled
+                    if fill_columns.iter().any(|&c| c.eq_ignore_ascii_case(target_name)) {
+                        format!(
+                            r#"CASE
+                                WHEN "{0}" IS NULL OR
+                                    TRIM("{0}") = '' OR
+                                    UPPER(TRIM("{0}")) = 'NULL' OR
+                                    UPPER(TRIM("{0}")) = 'NA' OR
+                                    UPPER(TRIM("{0}")) = 'N/A' OR
+                                    UPPER(TRIM("{0}")) = 'NONE' OR
+                                    TRIM("{0}") = '-' OR
+                                    TRIM("{0}") = '?' OR
+                                    TRIM("{0}") = 'NaN' OR
+                                    UPPER(TRIM("{0}")) = 'NAN'
+                                THEN '{1}'
+                                ELSE "{0}"
+                            END AS "{0}""#,
+                            target_name, fill_value
+                        )
+                    } else {
+                        // Just reference the column by its name/alias from the base CTE
+                        format!("\"{}\"", target_name)
                     }
                 })
                 .collect()
         };
-        
-        let select_expressions: Vec<String> = all_columns
-            .iter()
-            .map(|col_name| {
-                let quoted_col = format!("\"{}\"", col_name);
-                let normalized_col = col_name.trim().replace(" ", "_").to_lowercase();
-                
-                // Check if this column should have nulls filled
-                let should_fill = columns.iter().any(|&target_col| {
-                    let normalized_target = target_col.trim().replace(" ", "_").to_lowercase();
-                    normalized_col == normalized_target
-                });
-                
-                if should_fill {
-                    format!(
-                        r#"CASE 
-                            WHEN {0} IS NULL OR 
-                                 TRIM({0}) = '' OR 
-                                 UPPER(TRIM({0})) = 'NULL' OR
-                                 UPPER(TRIM({0})) = 'NA' OR
-                                 UPPER(TRIM({0})) = 'N/A' OR
-                                 UPPER(TRIM({0})) = 'NONE' OR
-                                 TRIM({0}) = '-' OR
-                                 TRIM({0}) = '?' OR
-                                 TRIM({0}) = 'NaN' OR
-                                 UPPER(TRIM({0})) = 'NAN'
-                            THEN '{1}'
-                            ELSE {0}
-                        END AS {0}"#,
-                        quoted_col, fill_value
-                    )
-                } else {
-                    quoted_col
-                }
-            })
-            .collect();
         
         format!(
             r#"WITH fill_null_base AS (
@@ -2452,6 +2496,37 @@ impl CustomDataFrame {
             base_sql,
             select_expressions.join(", ")
         )
+    }
+
+    // Helper function to find alias position considering parentheses
+    fn find_alias_position(expr: &str) -> Option<usize> {
+        let expr_lower = expr.to_lowercase();
+        let mut as_positions = Vec::new();
+        let mut search_from = 0;
+        
+        while let Some(pos) = expr_lower[search_from..].find(" as ") {
+            as_positions.push(search_from + pos);
+            search_from = search_from + pos + 4;
+        }
+        
+        for &as_pos in as_positions.iter().rev() {
+            let before_as = &expr[..as_pos];
+            let mut paren_depth = 0;
+            
+            for ch in before_as.chars() {
+                match ch {
+                    '(' => paren_depth += 1,
+                    ')' => paren_depth -= 1,
+                    _ => {}
+                }
+            }
+            
+            if paren_depth == 0 {
+                return Some(as_pos);
+            }
+        }
+        
+        None
     }
 
     /// Handle DROP_NULL operation with enhanced null detection
@@ -3131,6 +3206,9 @@ impl CustomDataFrame {
     /// Construct the SQL query based on the current state, including joins
     /// Optimized SQL construction with SqlBuilder and reduced allocations
     fn construct_sql(&self) -> String {
+
+        // println!("DEBUG selected_columns: {:?}", self.selected_columns);
+        // println!("DEBUG aggregations: {:?}", self.aggregations);
         // Estimate capacity based on data size to reduce reallocations
         let estimated_capacity = self.estimate_sql_size();
         let mut builder = SqlBuilder::with_capacity(estimated_capacity);
