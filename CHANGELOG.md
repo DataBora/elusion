@@ -1,3 +1,7 @@
+## [7.1.0] - 2025-09-24
+## ADDED
+- Sharepoint Service principal functions for production purposes: load_from_sharepoint_with_service_principal(), load_folder_from_sharepoint_with_service_principal(), load_folder_from_sharepoint_with_filename_column_with_service_principal()
+
 ## [7.0.1] - 2025-09-21
 ## FIXED
 - Colission between string_functions() , fill_down() and fill_null() functions.

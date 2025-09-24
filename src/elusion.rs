@@ -699,7 +699,101 @@ impl CustomDataFrame {
             suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
         })
     }
-  
+
+    // service principal
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_from_sharepoint_with_service_principal(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        file_path: &str,
+        alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::sharepoint::load_from_sharepoint_with_service_principal_impl(
+           tenant_id, client_id, client_secret, site_url, file_path, alias
+        ).await
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_from_sharepoint_with_service_principal(
+        _tenant_id: &str,
+        _client_id: &str,
+        _client_secret: &str,
+         _site_url: &str,
+        _file_path: &str,
+        _alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint File Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint_with_service_principal(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::sharepoint::load_folder_from_sharepoint_with_service_principal_impl(
+            tenant_id, client_id, client_secret, site_url, folder_path, file_extensions, result_alias
+        ).await
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_folder_from_sharepoint_with_service_principal(
+        _tenant_id: &str,
+        _client_id: &str,
+        _client_secret: &str,
+        _site_url: &str,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Folder Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
+
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint_with_filename_column_with_service_principal(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::sharepoint::load_folder_from_sharepoint_with_filename_column_with_service_principal_impl(
+            tenant_id, client_id, client_secret, site_url, folder_path, file_extensions, result_alias
+        ).await
+    }
+
+    #[cfg(not(feature = "sharepoint"))]
+    pub async fn load_folder_from_sharepoint_with_filename_column_with_service_principal(
+        _tenant_id: &str,
+        _client_id: &str,
+        _client_secret: &str,
+         _site_url: &str,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::InvalidOperation {
+            operation: "SharePoint Folder Loading".to_string(),
+            reason: "SharePoint feature not enabled".to_string(),
+            suggestion: "💡 Add 'sharepoint' to your features: features = [\"sharepoint\"]".to_string(),
+        })
+    }
     
     // ====== POSTGRESS
 
