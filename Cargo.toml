@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "7.0.1"
+version = "7.1.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -28,6 +28,8 @@ plotly = { version = "0.12.1", optional = true }
 lazy_static = "1.5.0"
 azure_storage_blobs = { version = "0.21.0", optional = true }
 azure_storage = { version = "0.21.0", optional = true }
+azure_identity = { version = "0.28.0", optional = true }
+azure_core = { version = "0.28.0", optional = true }
 base64 = "0.22.1"
 csv = "1.1"
 tokio-cron-scheduler = "0.13.0"
@@ -56,7 +58,7 @@ azure = ["dep:azure_storage_blobs", "dep:azure_storage", "dep:reqwest"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
-sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding"] 
+sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding", "dep:azure_identity", "dep:azure_core"] 
 fabric = ["dep:reqwest", "dep:url", "dep:urlencoding", "dep:parquet"]
 all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint", "fabric"]
 

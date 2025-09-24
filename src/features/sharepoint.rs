@@ -7,17 +7,52 @@ use crate::ElusionResult;
 use crate::CustomDataFrame;
 #[cfg(feature = "sharepoint")]
 use crate::lowercase_column_names;
+#[cfg(feature = "sharepoint")]
+use azure_identity::{ClientSecretCredential, ClientSecretCredentialOptions};
+#[cfg(feature = "sharepoint")]
+use azure_core::credentials::TokenCredential;
+
+#[cfg(feature = "sharepoint")]
+#[derive(Debug, Clone)]
+pub enum AuthMethod {
+    AzureCLI,
+    ServicePrincipal {
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+    },
+}
 
 #[cfg(feature = "sharepoint")]
 #[derive(Debug, Clone)]
 pub struct SharePointConfig {
     pub site_url: String,
+    pub auth_method: AuthMethod,
 }
 
 #[cfg(feature = "sharepoint")]
 impl SharePointConfig {
     pub fn new(site_url: String) -> Self {
-        Self { site_url }
+        Self { 
+            site_url,
+            auth_method: AuthMethod::AzureCLI, 
+        }
+    }
+
+    pub fn new_with_service_principal(
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+        site_url: String,
+    ) -> Self {
+        Self { 
+            auth_method: AuthMethod::ServicePrincipal { 
+                tenant_id, 
+                client_id, 
+                client_secret 
+            }, 
+            site_url,
+        }
     }
 }
 
@@ -50,6 +85,58 @@ impl SharePointClient {
         }
     }
 
+    /// Authenticate using configured method (Azure CLI or Service Principal)
+    async fn authenticate(&mut self) -> ElusionResult<()> {
+        match &self.config.auth_method {
+            AuthMethod::AzureCLI => {
+                self.authenticate_with_azure_cli().await
+            },
+            AuthMethod::ServicePrincipal { tenant_id, client_id, client_secret } => {
+                self.authenticate_with_service_principal(
+                    tenant_id.clone(),
+                    client_id.clone(), 
+                    client_secret.clone()
+                ).await
+            }
+        }
+    }
+
+    /// Authenticate using service principal credentials
+    async fn authenticate_with_service_principal(
+        &mut self,
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+    ) -> ElusionResult<()> {
+        println!("🔐 Authenticating with Service Principal...");
+        
+        let options = ClientSecretCredentialOptions::default();
+        
+        let credential = ClientSecretCredential::new(
+            tenant_id.as_str().into(),
+            client_id.into(),
+            client_secret.into(),
+            Some(options),
+        ).map_err(|e| ElusionError::Custom(format!("Failed to create credential: {}", e)))?;
+        
+        let scopes = &["https://graph.microsoft.com/.default"];
+        
+        match credential.get_token(scopes, None).await {
+            Ok(token_response) => {
+                self.access_token = Some(token_response.token.secret().to_string());
+                println!("✅ Successfully authenticated with Service Principal");
+                Ok(())
+            },
+            Err(e) => {
+                Err(ElusionError::Custom(format!(
+                    "Service Principal authentication failed: {}. \
+                    Please verify your tenant_id, client_id, and client_secret are correct.",
+                    e
+                )))
+            }
+        }
+    }
+
     async fn execute_az_via_python(&self, args: &[&str]) -> ElusionResult<std::process::Output> {
         let python_path = r#"C:\Program Files\Microsoft SDKs\Azure\CLI2\python.exe"#;
         
@@ -69,7 +156,7 @@ impl SharePointClient {
     }
 
     /// Authenticate using Azure CLI 
-    async fn authenticate(&mut self) -> ElusionResult<()> {
+    async fn authenticate_with_azure_cli(&mut self) -> ElusionResult<()> {
         println!("🔍 Authenticating with Azure CLI (Unicode-safe method)...");
         
         // Try direct Python approach first (works with Unicode usernames)
@@ -449,6 +536,8 @@ impl SharePointClient {
         )))
     }
 }
+
+// IMPL
 
 #[cfg(feature = "sharepoint")]
 pub async fn load_from_sharepoint_impl(
@@ -1200,4 +1289,823 @@ async fn load_parquet_from_sharepoint(
         
         // Final elusion with the desired alias
         result.elusion(result_alias).await
+    }
+
+    // ================= WITH SERVICE PRINCIPAL
+
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_from_sharepoint_with_service_principal_impl(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        file_path: &str,
+        alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        // Rest of the implementation remains the same as load_from_sharepoint_impl
+        let file_extension = file_path
+            .split('.')
+            .last()
+            .unwrap_or("")
+            .to_lowercase();
+        
+        println!("🔍 Detected file type: {} for {}", file_extension, file_path);
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.{}", 
+            chrono::Utc::now().timestamp(), 
+            file_extension
+        ));
+        
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = match file_extension.as_str() {
+            "xlsx" | "xls" => {
+                println!("📊 Loading as Excel file...");
+                crate::features::excel::load_excel(temp_file.to_str().unwrap(), alias).await?
+            },
+            "csv" => {
+                println!("📋 Loading as CSV file...");
+                CustomDataFrame::load_csv(temp_file.to_str().unwrap(), alias).await?
+            },
+            "json" => {
+                println!("🔧 Loading as JSON file...");
+                CustomDataFrame::load_json(temp_file.to_str().unwrap(), alias).await?
+            },
+            "parquet" => {
+                println!("🗄️ Loading as Parquet file...");
+                CustomDataFrame::load_parquet(temp_file.to_str().unwrap(), alias).await?
+            },
+            _ => {
+                let _ = std::fs::remove_file(&temp_file);
+                return Err(ElusionError::InvalidOperation {
+                    operation: "SharePoint File Loading".to_string(),
+                    reason: format!("Unsupported file extension: '{}'", file_extension),
+                    suggestion: "💡 Supported formats: xlsx, xls, csv, json, parquet".to_string(),
+                });
+            }
+        };
+        
+        let _ = std::fs::remove_file(temp_file);
+        
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        println!("✅ Successfully loaded {} as '{}'", file_path, alias);
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
+    }
+
+    /// Load all files from a SharePoint folder using Service Principal authentication
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint_with_service_principal_impl(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        
+        // Get list of files in the folder
+        let files = client.list_folder_contents(folder_path).await?;
+        
+        let mut dataframes = Vec::new();
+        
+        for file_info in files {
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_info.name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                    continue;
+                }
+            }
+            
+            // Download and process file based on extension
+            let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+            
+            match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match load_csv_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded CSV: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match load_excel_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Excel: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match load_json_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded JSON: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match load_parquet_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Parquet: {}", file_info.name);
+                            dataframes.push(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_info.name);
+                }
+            }
+        }
+        
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "SharePoint Folder Loading".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains CSV, Excel, JSON, or Parquet files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded, returning as-is");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        // Check schema compatibility by column names AND types
+        println!("🔍 Checking schema compatibility for {} files (names + types)...", dataframes.len());
+        
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        // Print first file schema for reference
+        println!("📋 File 1 schema:");
+        for (i, field) in first_schema.fields().iter().enumerate() {
+            println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+        }
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            println!("📋 File {} schema:", file_idx + 1);
+            for (i, field) in current_schema.fields().iter().enumerate() {
+                println!("   Column {}: '{}' ({})", i + 1, field.name(), field.data_type());
+            }
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names and types match (case insensitive names)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    // Check column name (case insensitive)
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                    
+                    // Check column type
+                    if first_field.data_type() != current_field.data_type() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} ('{}') type is {:?}, but first file has {:?}", 
+                            file_idx + 1, col_idx + 1, current_field.name(), 
+                            current_field.data_type(), first_field.data_type()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            // Since all columns are UTF8, just reorder them by name to match first file
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            // Get the column order from the first file
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                // Select columns in the same order as first file
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                // Create temporary alias
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        // Union the compatible dataframes
+        println!("🔗 Unioning {} files with compatible schemas...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "SharePoint Folder Union All".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files using UNION ALL", total_files);
+        
+        // Final elusion with the desired alias
+        result.elusion(result_alias).await
+    }
+
+    /// Load all files from SharePoint folder with Service Principal and add filename as a column
+    #[cfg(feature = "sharepoint")]
+    pub async fn load_folder_from_sharepoint_with_filename_column_with_service_principal_impl(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        site_url: &str,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        
+        let mut client = SharePointClient::new(config);
+        
+        // Get list of files in the folder
+        let files = client.list_folder_contents(folder_path).await?;
+        
+        let mut dataframes = Vec::new();
+        
+        for file_info in files {
+            // Skip if file extensions filter is specified and file doesn't match
+            if let Some(ref extensions) = file_extensions {
+                let file_ext = file_info.name
+                    .split('.')
+                    .last()
+                    .unwrap_or("")
+                    .to_lowercase();
+                
+                if !extensions.iter().any(|ext| ext.to_lowercase() == file_ext) {
+                    continue;
+                }
+            }
+            
+            // Download and process file based on extension
+            let file_path = format!("{}/{}", folder_path.trim_end_matches('/'), file_info.name);
+            
+            let mut loaded_df = None;
+            
+            match file_info.name.split('.').last().unwrap_or("").to_lowercase().as_str() {
+                "csv" => {
+                    match load_csv_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded CSV: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load CSV file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "xlsx" | "xls" => {
+                    match load_excel_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Excel: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Excel file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "json" => {
+                    match load_json_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded JSON: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load JSON file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                "parquet" => {
+                    match load_parquet_from_sharepoint_with_service_principal(
+                        site_url, &file_path, tenant_id, client_id, client_secret
+                    ).await {
+                        Ok(df) => {
+                            println!("✅ Loaded Parquet: {}", file_info.name);
+                            loaded_df = Some(df);
+                        },
+                        Err(e) => {
+                            eprintln!("⚠️ Failed to load Parquet file {}: {}", file_info.name, e);
+                            continue;
+                        }
+                    }
+                },
+                _ => {
+                    println!("⏭️ Skipping unsupported file type: {}", file_info.name);
+                }
+            }
+            
+            // Add filename column to the loaded dataframe
+            if let Some(mut df) = loaded_df {
+                // Add filename as a new column using select with literal value
+                df = df.select_vec(vec![
+                    &format!("'{}' AS filename_added", file_info.name), 
+                    "*"
+                ]);
+                
+                // Execute the selection to create the dataframe with filename column
+                let temp_alias = format!("file_with_filename_{}", dataframes.len());
+                match df.elusion(&temp_alias).await {
+                    Ok(filename_df) => {
+                        println!("✅ Added filename column to {}", file_info.name);
+                        dataframes.push(filename_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to add filename to {}: {}", file_info.name, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        if dataframes.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "SharePoint Folder Loading with Filename".to_string(),
+                reason: "No supported files found or all files failed to load".to_string(),
+                suggestion: "💡 Check folder path and ensure it contains supported files".to_string(),
+            });
+        }
+        
+        // If only one file, return it directly
+        if dataframes.len() == 1 {
+            println!("📄 Single file loaded with filename column");
+            return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+        }
+        
+        // Check schema compatibility (all files should now have filename as first column)
+        println!("🔍 Checking schema compatibility for {} files with filename columns...", dataframes.len());
+        
+        let first_schema = dataframes[0].df.schema();
+        let mut compatible_schemas = true;
+        let mut schema_issues = Vec::new();
+        
+        for (file_idx, df) in dataframes.iter().enumerate().skip(1) {
+            let current_schema = df.df.schema();
+            
+            // Check if column count matches
+            if first_schema.fields().len() != current_schema.fields().len() {
+                compatible_schemas = false;
+                schema_issues.push(format!("File {} has {} columns, but first file has {}", 
+                    file_idx + 1, current_schema.fields().len(), first_schema.fields().len()));
+                continue;
+            }
+            
+            // Check if column names match (should be identical now with filename column)
+            for (col_idx, first_field) in first_schema.fields().iter().enumerate() {
+                if let Some(current_field) = current_schema.fields().get(col_idx) {
+                    if first_field.name().to_lowercase() != current_field.name().to_lowercase() {
+                        compatible_schemas = false;
+                        schema_issues.push(format!("File {} column {} name is '{}', but first file has '{}'", 
+                            file_idx + 1, col_idx + 1, current_field.name(), first_field.name()));
+                    }
+                }
+            }
+        }
+        
+        if !compatible_schemas {
+            println!("⚠️ Schema compatibility issues found:");
+            for issue in &schema_issues {
+                println!("   {}", issue);
+            }
+            
+            // Reorder columns by name to match first file (same as original function)
+            println!("🔧 Reordering columns by name to match first file...");
+            
+            let first_file_columns: Vec<String> = first_schema.fields()
+                .iter()
+                .map(|field| field.name().clone())
+                .collect();
+            
+            println!("📋 Target column order: {:?}", first_file_columns);
+            
+            let mut reordered_dataframes = Vec::new();
+            
+            for (i, df) in dataframes.clone().into_iter().enumerate() {
+                let column_refs: Vec<&str> = first_file_columns.iter().map(|s| s.as_str()).collect();
+                let reordered_df = df.select_vec(column_refs);
+                
+                let temp_alias = format!("reordered_file_{}", i + 1);
+                match reordered_df.elusion(&temp_alias).await {
+                    Ok(standardized_df) => {
+                        println!("✅ Reordered file {} columns", i + 1);
+                        reordered_dataframes.push(standardized_df);
+                    },
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to reorder file {} columns: {}", i + 1, e);
+                        continue;
+                    }
+                }
+            }
+            
+            if reordered_dataframes.is_empty() {
+                println!("📄 Column reordering failed, returning first file only");
+                return dataframes.into_iter().next().unwrap().elusion(result_alias).await;
+            }
+            
+            dataframes = reordered_dataframes;
+            println!("✅ All files reordered to match first file column order");
+        } else {
+            println!("✅ All schemas are compatible!");
+        }
+        
+        // Union the compatible dataframes
+        println!("🔗 Unioning {} files with filename tracking...", dataframes.len());
+        
+        let total_files = dataframes.len();
+        let mut result = dataframes.clone().into_iter().next().unwrap();
+        
+        // Union with remaining dataframes using union_all to keep all data
+        for (i, df) in dataframes.into_iter().enumerate().skip(1) {
+            result = result.union_all(df).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "SharePoint Folder Union with Filename".to_string(),
+                    reason: format!("Failed to union file {}: {}", i + 1, e),
+                    suggestion: "💡 Check that all files have compatible schemas".to_string(),
+                })?;
+            
+            println!("✅ Unioned file {}/{}", i + 1, total_files - 1);
+        }
+        
+        println!("🎉 Successfully combined {} files with filename tracking", total_files);
+        
+        // Final elusion with the desired alias
+        result.elusion(result_alias).await
+    }
+
+    #[cfg(feature = "sharepoint")]
+    async fn load_excel_from_sharepoint_with_service_principal(
+        site_url: &str,
+        file_path: &str,
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.xlsx", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = crate::features::excel::load_excel(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+        
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_excel".to_string(),
+            from_table: "sharepoint_excel".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
+    }
+
+    #[cfg(feature = "sharepoint")]
+    async fn load_csv_from_sharepoint_with_service_principal(
+        site_url: &str,
+        file_path: &str,
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+             site_url.to_string(),
+        );
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.csv", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = CustomDataFrame::load_csv(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_csv".to_string(),
+            from_table: "sharepoint_csv".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
+    }
+
+    #[cfg(feature = "sharepoint")]
+    async fn load_json_from_sharepoint_with_service_principal(
+        site_url: &str,
+        file_path: &str,
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.json", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = CustomDataFrame::load_json(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_json".to_string(),
+            from_table: "sharepoint_json".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
+    }
+
+    #[cfg(feature = "sharepoint")]
+    async fn load_parquet_from_sharepoint_with_service_principal(
+        site_url: &str,
+        file_path: &str,
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        let config = SharePointConfig::new_with_service_principal(
+            tenant_id.to_string(),
+            client_id.to_string(),
+            client_secret.to_string(),
+            site_url.to_string(),
+        );
+        let mut client = SharePointClient::new(config);
+        let content = client.download_file(file_path).await?;
+        
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join(format!("sharepoint_{}.parquet", chrono::Utc::now().timestamp()));
+        std::fs::write(&temp_file, content)?;
+        
+        let aliased_df = CustomDataFrame::load_parquet(temp_file.to_str().unwrap(), "sharepoint_data").await?;
+        let _ = std::fs::remove_file(temp_file);
+
+        let normalized_df = lowercase_column_names(aliased_df.dataframe).await?;
+        
+        Ok(CustomDataFrame {
+            df: normalized_df,
+            table_alias: "sharepoint_parquet".to_string(),
+            from_table: "sharepoint_parquet".to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false,
+        })
     }

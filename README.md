@@ -141,8 +141,11 @@ sales_df
     ])
     .select(["c.name", "p.category", "s.amount"])
     .filter("s.amount > 1000")
+    .string_functions(["SUBSTRING(s.DateTimeColumn, 7, 8) AS Date"])
+    .fill_null(["c.CustomerEmail"], "No Customer Email")
+    .drop_null(["c.CustomerKey"])
     .agg(["SUM(s.amount) AS total_revenue"])
-    .group_by(["c.region", "p.category"]) 
+    .group_by_all() 
     .order_by(["total_revenue"], ["DESC"])
     .elusion("quarterly_report")
     .await?
@@ -158,7 +161,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "7.0.1"
+elusion = "7.1.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -172,25 +175,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.0.1", features = ["fabric"] }
+elusion = { version = "7.1.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.0.1"
+elusion = "7.1.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.0.1", features = ["dashboard", "api", "fabric"] }
+elusion = { version = "7.1.0", features = ["dashboard", "api", "fabric"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.0.1", features = ["all"] }
+elusion = { version = "7.1.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -360,9 +363,7 @@ let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
 ).await?;
 ```
 ---
-# SharePoint connector
-### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame (make sure all files have same column schema)
-### To connect to SharePoint you need AzureCLI installed and to be logged in 
+## SharePoint and Fabric connectors need AzureCLI for development purposes an local work (for production use Service Principal). Bellow is download and installation guide for AzureCLI.
 ### 1. Install Azure CLI
 - Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 - Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
@@ -396,7 +397,12 @@ This should display your account information and confirm you're logged in.
 ### Grant necessary SharePoint permissions:
 - Sites.Read.All or Sites.ReadWrite.All
 - Files.Read.All or Files.ReadWrite.All
+---
+# SharePoint connector
+## There are 2 ways to work with SharePoint: 1. AzureCLI (for dev, test and local work), 2. Service principal (for production)
+### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame (make sure all files have same column schema)
 
+## SharePoint with AzureCLI
 #### Single file loading auto-recognize file extension (csv, excel, parquet, json):
 ```rust
 //Example:
@@ -416,7 +422,7 @@ sales_data.display().await?;
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint(
     "http://companyname.sharepoint.com/sites/SiteName", //site id
-    "Shared Documents/MainFolder/SubFolder",//folder path
+    "Shared Documents/MainFolder/SubFolder/",//folder path
     None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
     "combined_data" //dataframe alias
 ).await?;
@@ -427,16 +433,66 @@ dataframes.display().await?;
 ```rust
 let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_column(
     "http://companyname.sharepoint.com/sites/SiteName", 
-    "Shared Documents/MainFolder/SubFolder",
+    "Shared Documents/MainFolder/SubFolder/",
     None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
     "combined_data" //dataframe alias
 ).await?;
 
 dataframes.display().await?;
 ```
+
+## SharePoint with Service Principal
+#### Single file loading auto-recognize file extension (csv, excel, parquet, json):
+```rust
+let df_sp = CustomDataFrame::load_from_sharepoint_with_service_principal(
+        "your-tenant-id",
+        "your-client-it",
+        "your-client-secret",
+        "http://companyname.sharepoint.com/sites/SiteName", //site id
+        "Shared Documents/Data/customer_data.csv",  //file path
+        "sales_data", //dataframe alias
+    ).await?;
+
+let sales_data = df_sp
+    .select(["Column_1","Column_2","Column_3"])
+    .elusion("my_sales_data")
+    .await?;
+
+sales_data.display().await?;
+```
+#### Reading ALL Files from a folder into single DataFrame example:
+```rust
+let dataframes_sp = CustomDataFrame::load_folder_from_sharepoint_with_service_principal(
+        "your-tenant-id",
+        "your-client-it",
+        "your-client-secret",
+        "http://companyname.sharepoint.com/sites/SiteName", //site id
+        "Shared Documents/MainFolder/SubFolder/", // folder path
+        None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+        "combined_data",
+    ).await?;
+
+dataframes_sp.display().await?;
+```
+#### Reading ALL Files from a folder into single DataFrame with Adding filename column automatically ("filename_added"):
+```rust
+let dataframes_sp = CustomDataFrame::load_folder_from_sharepoint_with_filename_column_with_service_principal(
+        "your-tenant-id",
+        "your-client-it",
+        "your-client-secret",
+        "http://companyname.sharepoint.com/sites/SiteName", //site id
+        "Shared Documents/MainFolder/SubFolder/", // folder path
+        None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+        "combined_data",
+    ).await?;
+
+dataframes_sp.display().await?;
+```
 ---
 # Fabric Connector
-### Also require Azure CLI login as SharePoint. Please check how to install and login to Azure CLI in SharePoint section.
+## There are 2 ways to work with Fabric: 1. AzureCLI (for dev, test and local work), 2. Service principal (will come soon in next release)
+
+### Fabric with AzureCLI
 #### For reading you need abfss path, folder/file name and alias. Currently supported file extensions: csv, json, excel, xml, parquet
 ```rust
 let df = CustomDataFrame::from_fabric(
