@@ -399,7 +399,7 @@ This should display your account information and confirm you're logged in.
 - Files.Read.All or Files.ReadWrite.All
 ---
 # SharePoint connector
-## There are 2 ways to work with SharePoint: 1. AzureCLI (for dev, test and local work), 2. Service principal (for production)
+### There are 2 ways to work with SharePoint: 1. AzureCLI (for dev, test and local work), 2. Service principal (for production)
 ### You can load single EXCEL, CSV, JSON and PARQUET files OR All files from a FOLDER into Single DataFrame (make sure all files have same column schema)
 
 ## SharePoint with AzureCLI
@@ -440,18 +440,17 @@ let dataframes = CustomDataFrame::load_folder_from_sharepoint_with_filename_colu
 
 dataframes.display().await?;
 ```
-
 ## SharePoint with Service Principal
 #### Single file loading auto-recognize file extension (csv, excel, parquet, json):
 ```rust
 let df_sp = CustomDataFrame::load_from_sharepoint_with_service_principal(
-        "your-tenant-id",
-        "your-client-it",
-        "your-client-secret",
-        "http://companyname.sharepoint.com/sites/SiteName", //site id
-        "Shared Documents/Data/customer_data.csv",  //file path
-        "sales_data", //dataframe alias
-    ).await?;
+    "your-tenant-id",
+    "your-client-it",
+    "your-client-secret",
+    "http://companyname.sharepoint.com/sites/SiteName", //site id
+    "Shared Documents/Data/customer_data.csv",  //file path
+    "sales_data", //dataframe alias
+).await?;
 
 let sales_data = df_sp
     .select(["Column_1","Column_2","Column_3"])
@@ -463,53 +462,74 @@ sales_data.display().await?;
 #### Reading ALL Files from a folder into single DataFrame example:
 ```rust
 let dataframes_sp = CustomDataFrame::load_folder_from_sharepoint_with_service_principal(
-        "your-tenant-id",
-        "your-client-it",
-        "your-client-secret",
-        "http://companyname.sharepoint.com/sites/SiteName", //site id
-        "Shared Documents/MainFolder/SubFolder/", // folder path
-        None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
-        "combined_data",
-    ).await?;
+    "your-tenant-id",
+    "your-client-it",
+    "your-client-secret",
+    "http://companyname.sharepoint.com/sites/SiteName", //site id
+    "Shared Documents/MainFolder/SubFolder/", // folder path
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+    "combined_data",
+).await?;
 
 dataframes_sp.display().await?;
 ```
 #### Reading ALL Files from a folder into single DataFrame with Adding filename column automatically ("filename_added"):
 ```rust
 let dataframes_sp = CustomDataFrame::load_folder_from_sharepoint_with_filename_column_with_service_principal(
-        "your-tenant-id",
-        "your-client-it",
-        "your-client-secret",
-        "http://companyname.sharepoint.com/sites/SiteName", //site id
-        "Shared Documents/MainFolder/SubFolder/", // folder path
-        None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
-        "combined_data",
-    ).await?;
+    "your-tenant-id",
+    "your-client-it",
+    "your-client-secret",
+    "http://companyname.sharepoint.com/sites/SiteName", //site id
+    "Shared Documents/MainFolder/SubFolder/", // folder path
+    None, // None will read any file type, or you can filter by extension: Some(vec!["xlsx", "csv"])
+    "combined_data",
+).await?;
 
 dataframes_sp.display().await?;
 ```
 ---
 # Fabric Connector
-## There are 2 ways to work with Fabric: 1. AzureCLI (for dev, test and local work), 2. Service principal (will come soon in next release)
+### There are 2 ways to work with Fabric: 1. AzureCLI (for dev, test and local work), 2. Service principal (for production)
 
-### Fabric with AzureCLI
+## Fabric with AzureCLI
 #### For reading you need abfss path, folder/file name and alias. Currently supported file extensions: csv, json, excel, xml, parquet
 ```rust
 let df = CustomDataFrame::from_fabric(
-        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
-        "artikli/mapping.csv", // folder/file name
-        "map_data" // alias
-    ).await?;
+    "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+    "artikli/mapping.csv", // folder/file name
+    "map_data" // alias
+).await?;
 ```
 #### Writing to Fabric requires only abfss path and folder/file name. Currently supported file extension: parquet
 ```rust
-   df.write_parquet_to_fabric(
-        "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
-        "artikli/mapping_results.parquet" // folder/file name
-    ).await?;
+df.write_parquet_to_fabric(
+    "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+    "artikli/mapping_results.parquet" // folder/file name
+).await?;
+```
+## Fabric with Service Principal
+#### For reading you need: tenant-id, client-id, client secret, abfss path, folder/file name and alias. Currently supported file extensions: csv, json, excel, xml, parquet
+```rust
+let df = CustomDataFrame::from_fabric_with_service_principal(
+    "your-tenant-id",
+    "your-client-id", 
+    "your-client-secret",
+    "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+    "sales/2024/quarterly_sales.csv",  // folder/file name
+    "sales" // alias
+).await?;
+```
+#### Writing to Fabric requires: tenant-id, client-id, client secret, abfss path and folder/file name. Currently supported file extension: parquet
+```rust
+df.write_parquet_to_fabric_with_service_principal(
+    "your-tenant-id",
+    "your-client-id", 
+    "your-client-secret",
+    "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files", //abfss path
+    "sales/quarterly_sales.parquet" // folder/file name
+).await?;
 ```
 ---
-
 ### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
 ```rust
 let df = CustomDataFrame::from_azure_with_sas_token(
@@ -716,7 +736,15 @@ res.display().await?;
 #### 📋 Generated SQL Query:
 ============================================================
 ```sql
-SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
+SELECT count( * ) as "broj_transakcija", 
+sum("analysis"."kolicina") as "ukupna_kolicina", 
+sum("analysis"."neto_vrednost") as "ukupna_vrednost", 
+"veledrogerija" AS "pharm", 
+"region" AS "regionale", 
+"kolicina", 
+"neto_vrednost", 
+"mesto", 
+row_number() over (partition by region order by mesto desc) as region_rank
 FROM "analysis" AS analysis
 WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
 GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
@@ -728,7 +756,15 @@ LIMIT 10
 #### ==================================================
 #### 🔍 SQL Query:
 ```sql
-SELECT count( * ) as "broj_transakcija", sum("analysis"."kolicina") as "ukupna_kolicina", sum("analysis"."neto_vrednost") as "ukupna_vrednost", "veledrogerija" AS "pharm", "region" AS "regionale", "kolicina", "neto_vrednost", "mesto", row_number() over (partition by region order by mesto desc) as region_rank
+SELECT count( * ) as "broj_transakcija", 
+sum("analysis"."kolicina") as "ukupna_kolicina", 
+sum("analysis"."neto_vrednost") as "ukupna_vrednost", 
+"veledrogerija" AS "pharm", 
+"region" AS "regionale", 
+"kolicina", 
+"neto_vrednost", 
+"mesto", 
+row_number() over (partition by region order by mesto desc) as region_rank
 FROM "analysis" AS analysis
 WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
 GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"

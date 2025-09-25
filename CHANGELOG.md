@@ -1,3 +1,7 @@
+## [7.2.0] - 2025-09-24
+## ADDED
+- FABRIC Service principal functions for production purposes: from_fabric_with_service_principal() and write_parquet_to_fabric_with_service_principal()
+
 ## [7.1.0] - 2025-09-24
 ## ADDED
 - Sharepoint Service principal functions for production purposes: load_from_sharepoint_with_service_principal(), load_folder_from_sharepoint_with_service_principal(), load_folder_from_sharepoint_with_filename_column_with_service_principal()

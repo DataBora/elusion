@@ -5600,6 +5600,37 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
     }
 
+    #[cfg(feature = "fabric")]
+    pub async fn from_fabric_with_service_principal(
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        abfss_path: &str,
+        file_path: &str,
+        alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        crate::features::fabric::load_from_fabric_abfss_with_service_principal_impl(
+            tenant_id,
+            client_id,
+            client_secret,
+            abfss_path,
+            file_path,
+            alias,
+        ).await
+    }
+
+    #[cfg(not(feature = "fabric"))]
+    pub async fn from_fabric_with_service_principal(
+        _tenant_id: &str,
+        _client_id: &str,
+        _client_secret: &str,
+        _abfss_path: &str,
+        _file_path: &str,
+        _alias: &str,
+    ) -> ElusionResult<CustomDataFrame> {
+        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
+    }
+
     // Write Parquet to fabric using ABFSS path
     #[cfg(feature = "fabric")]
     pub async fn write_parquet_to_fabric(
@@ -5623,24 +5654,41 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
     }
 
+    #[cfg(feature = "fabric")]
+    pub async fn write_parquet_to_fabric_with_service_principal(
+        &self,
+        tenant_id: &str,
+        client_id: &str,
+        client_secret: &str,
+        abfss_path: &str,
+        file_path: &str,
+    ) -> ElusionResult<()> {
+        crate::features::fabric::write_parquet_to_fabric_abfss_with_service_principal_impl(
+            self,
+            tenant_id,
+            client_id,
+            client_secret,
+            abfss_path,
+            file_path,
+        ).await
+    }
+
+    #[cfg(not(feature = "fabric"))]
+    pub async fn write_parquet_to_fabric_with_service_principal(
+        &self,
+        _tenant_id: &str,
+        _client_id: &str,
+        _client_secret: &str,
+        _abfss_path: &str,
+        _file_path: &str,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
+    }
+
     //=================== LOCAL LOADERS ============================= //
 
    
-    // /// LOAD function for XML files
-    // pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
-    //     Box::pin(async move {
-    //         let config = XmlParseConfig::default();
-    //         load_xml_intelligent(file_path, alias, Some(config)).await
-    //     })
-    // }
-
-    // pub fn load_xml_cartesian<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
-    //     Box::pin(async move {
-    //         let config = XmlParseConfig::default();
-    //         load_xml_intelligent_cartesian(file_path, alias, Some(config)).await
-    //     })
-    // }
-
+    /// LOAD function for XML files
     pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
         Box::pin(async move {
             load_xml_with_mode(file_path, alias, XmlProcessingMode::Auto).await
