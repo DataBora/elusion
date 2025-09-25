@@ -16,6 +16,21 @@ use parquet::arrow::ArrowWriter;
 use parquet::file::properties::{WriterProperties, WriterVersion};
 #[cfg(feature = "fabric")]
 use parquet::basic::Compression;
+#[cfg(feature = "fabric")]
+use azure_identity::{ClientSecretCredential, ClientSecretCredentialOptions};
+#[cfg(feature = "fabric")]
+use azure_core::credentials::TokenCredential;
+
+#[cfg(feature = "fabric")]
+#[derive(Debug, Clone)]
+pub enum FabricAuthMethod {
+    AzureCLI,
+    ServicePrincipal {
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+    },
+}
 
 #[cfg(feature = "fabric")]
 #[derive(Debug, Clone)]
@@ -33,6 +48,7 @@ pub struct OneLakeConfig {
     pub workspace_id: String,
     pub lakehouse_id: Option<String>,
     pub warehouse_id: Option<String>,
+    pub auth_method: FabricAuthMethod,
 }
 
 #[cfg(feature = "fabric")]
@@ -40,6 +56,42 @@ pub struct OneLakeClient {
     config: OneLakeConfig,
     access_token: Option<String>,
     fabric_token: Option<String>,
+}
+
+#[cfg(feature = "fabric")]
+impl OneLakeConfig {
+    pub fn new(
+        workspace_id: String,
+        lakehouse_id: Option<String>,
+        warehouse_id: Option<String>,
+    ) -> Self {
+        Self {
+            workspace_id,
+            lakehouse_id,
+            warehouse_id,
+            auth_method: FabricAuthMethod::AzureCLI,
+        }
+    }
+
+    pub fn new_with_service_principal(
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+        workspace_id: String,
+        lakehouse_id: Option<String>,
+        warehouse_id: Option<String>,
+    ) -> Self {
+        Self {
+            workspace_id,
+            lakehouse_id,
+            warehouse_id,
+            auth_method: FabricAuthMethod::ServicePrincipal {
+                tenant_id,
+                client_id,
+                client_secret,
+            },
+        }
+    }
 }
 
 #[cfg(feature = "fabric")]
@@ -53,6 +105,73 @@ impl OneLakeClient {
     }
 
     pub async fn authenticate(&mut self) -> ElusionResult<()> {
+        match &self.config.auth_method {
+            FabricAuthMethod::AzureCLI => {
+                self.authenticate_with_azure_cli().await
+            },
+            FabricAuthMethod::ServicePrincipal { tenant_id, client_id, client_secret } => {
+                self.authenticate_with_service_principal(
+                    tenant_id.clone(),
+                    client_id.clone(),
+                    client_secret.clone(),
+                ).await
+            }
+        }
+    }
+
+    /// Authenticate using service principal credentials for Fabric/OneLake
+    async fn authenticate_with_service_principal(
+        &mut self,
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+    ) -> ElusionResult<()> {
+        println!("🔐 Authenticating with Service Principal for Fabric/OneLake...");
+        
+        let options = ClientSecretCredentialOptions::default();
+        
+        let credential = ClientSecretCredential::new(
+            tenant_id.as_str().into(),
+            client_id.into(),
+            client_secret.into(),
+            Some(options),
+        ).map_err(|e| ElusionError::Custom(format!("Failed to create credential: {}", e)))?;
+        
+        // Get Azure Storage token for OneLake access
+        let storage_scopes = &["https://storage.azure.com/.default"];
+        match credential.get_token(storage_scopes, None).await {
+            Ok(token_response) => {
+                self.access_token = Some(token_response.token.secret().to_string());
+                println!("✅ Successfully obtained Azure Storage token");
+            },
+            Err(e) => {
+                return Err(ElusionError::Custom(format!(
+                    "Failed to get Azure Storage token: {}. \
+                    Please verify your tenant_id, client_id, and client_secret are correct, \
+                    and that the service principal has appropriate permissions.",
+                    e
+                )));
+            }
+        }
+
+        // Get Fabric API token for workspace/lakehouse operations
+        let fabric_scopes = &["https://api.fabric.microsoft.com/.default"];
+        match credential.get_token(fabric_scopes, None).await {
+            Ok(token_response) => {
+                self.fabric_token = Some(token_response.token.secret().to_string());
+                println!("✅ Successfully obtained Fabric API token");
+            },
+            Err(e) => {
+                println!("⚠️ Warning: Failed to get Fabric API token: {}. Some operations may be limited.", e);
+                // Don't fail here as storage token is sufficient for basic file operations
+            }
+        }
+
+        println!("✅ Successfully authenticated with Service Principal for Fabric/OneLake");
+        Ok(())
+    }
+
+    pub async fn authenticate_with_azure_cli(&mut self) -> ElusionResult<()> {
         println!("🔍 Authenticating with Azure CLI for Fabric - OneLake access...");
         
         match self.execute_az_via_python(&["--version"]).await {
@@ -417,13 +536,26 @@ impl OneLakeClient {
         lakehouse_id: Option<String>,
         warehouse_id: Option<String>,
     ) -> ElusionResult<Self> {
+        let config = OneLakeConfig::new(workspace_id, lakehouse_id, warehouse_id);
+        Ok(OneLakeClient::new(config))
+    }
 
-        let config = OneLakeConfig {
+    pub async fn new_with_service_principal(
+        tenant_id: String,
+        client_id: String,
+        client_secret: String,
+        workspace_id: String,
+        lakehouse_id: Option<String>,
+        warehouse_id: Option<String>,
+    ) -> ElusionResult<Self> {
+        let config = OneLakeConfig::new_with_service_principal(
+            tenant_id,
+            client_id,
+            client_secret,
             workspace_id,
             lakehouse_id,
             warehouse_id,
-        };
-
+        );
         Ok(OneLakeClient::new(config))
     }
 
@@ -639,6 +771,172 @@ pub async fn write_parquet_to_fabric_abfss_impl(
 
     client.upload_file(&full_file_path, buffer).await?;
     println!("Successfully wrote Parquet data to OneLake: {}", file_path);
+
+    Ok(())
+}
+
+// SERVICE PRINCIPAL
+// ABFSS Path Implementation - Load from OneLake with Service Principal
+#[cfg(feature = "fabric")]
+pub async fn load_from_fabric_abfss_with_service_principal_impl(
+    tenant_id: &str,
+    client_id: &str,
+    client_secret: &str,
+    abfss_path: &str,
+    file_path: &str,
+    alias: &str,
+) -> ElusionResult<CustomDataFrame> {
+    // Parse the ABFSS path
+    let parsed = OneLakeClient::parse_abfss_path(abfss_path)?;
+    
+    println!("Parsed Fabric - OneLake path with Service Principal:");
+    println!("  Workspace ID: {}", parsed.workspace_id);
+    if parsed.is_lakehouse {
+        println!("  Lakehouse ID: {}", parsed.lakehouse_id.as_ref().unwrap());
+    } else {
+        println!("  Warehouse ID: {}", parsed.warehouse_id.as_ref().unwrap());
+    }
+    println!("  Base Path: {}", parsed.base_path);
+    println!("  File: {}", file_path);
+
+    // Create client with service principal credentials
+    let mut client = OneLakeClient::new_with_service_principal(
+        tenant_id.to_string(),
+        client_id.to_string(),
+        client_secret.to_string(),
+        parsed.workspace_id,
+        parsed.lakehouse_id,
+        parsed.warehouse_id,
+    ).await?;
+
+    // Build full file path
+    let full_file_path = if parsed.base_path == "Files" || parsed.base_path.is_empty() {
+        file_path.to_string()
+    } else {
+        format!("{}/{}", parsed.base_path.trim_start_matches("Files/"), file_path)
+    };
+
+    // Download content from OneLake
+    let content = client.download_file(&full_file_path).await?;
+
+    // Write to temporary file and load
+    let temp_dir = std::env::temp_dir();
+    let file_extension = file_path
+        .split('.')
+        .last()
+        .unwrap_or("tmp")
+        .to_lowercase();
+    
+    let temp_file = temp_dir.join(format!(
+        "onelake_sp_{}_{}.{}", 
+        alias,
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+        file_extension
+    ));
+    
+    std::fs::write(&temp_file, content)
+        .map_err(|e| ElusionError::Custom(format!("Failed to write temporary file: {}", e)))?;
+
+    let aliased_df = CustomDataFrame::load(
+        temp_file.to_str().unwrap(),
+        alias
+    ).await?;
+
+    let _ = std::fs::remove_file(temp_file);
+
+    Ok(CustomDataFrame {
+        df: aliased_df.dataframe,
+        table_alias: aliased_df.alias.clone(),
+        from_table: aliased_df.alias.clone(),
+        selected_columns: Vec::new(),
+        alias_map: Vec::new(),
+        aggregations: Vec::new(),
+        group_by_columns: Vec::new(),
+        where_conditions: Vec::new(),
+        having_conditions: Vec::new(),
+        order_by_columns: Vec::new(),
+        limit_count: None,
+        joins: Vec::new(),
+        window_functions: Vec::new(),
+        ctes: Vec::new(),
+        subquery_source: None,
+        set_operations: Vec::new(),
+        query: String::new(),
+        aggregated_df: None,
+        union_tables: None,
+        original_expressions: Vec::new(),
+        needs_normalization: false,
+        raw_selected_columns: Vec::new(),
+        raw_group_by_columns: Vec::new(),
+        raw_where_conditions: Vec::new(),
+        raw_having_conditions: Vec::new(),
+        raw_join_conditions: Vec::new(),
+        raw_aggregations: Vec::new(),
+        uses_group_by_all: false,
+    })
+}
+
+// Write Parquet to OneLake using ABFSS path with Service Principal
+#[cfg(feature = "fabric")]
+pub async fn write_parquet_to_fabric_abfss_with_service_principal_impl(
+    df: &CustomDataFrame,
+    tenant_id: &str,
+    client_id: &str,
+    client_secret: &str,
+    abfss_path: &str,
+    file_path: &str,
+) -> ElusionResult<()> {
+    if !file_path.ends_with(".parquet") {
+        return Err(ElusionError::Custom(
+            "Invalid file extension. Parquet files must end with '.parquet'".to_string()
+        ));
+    }
+
+    // Parse the ABFSS path
+    let parsed = OneLakeClient::parse_abfss_path(abfss_path)?;
+
+    // Create client with service principal credentials
+    let mut client = OneLakeClient::new_with_service_principal(
+        tenant_id.to_string(),
+        client_id.to_string(),
+        client_secret.to_string(),
+        parsed.workspace_id,
+        parsed.lakehouse_id,
+        parsed.warehouse_id,
+    ).await?;
+
+    let batches: Vec<RecordBatch> = df.df.clone().collect().await
+        .map_err(|e| ElusionError::Custom(format!("Failed to collect DataFrame: {}", e)))?;
+
+    let props = WriterProperties::builder()
+        .set_writer_version(WriterVersion::PARQUET_2_0)
+        .set_compression(Compression::SNAPPY)
+        .set_created_by("Elusion".to_string())
+        .build();
+
+    let mut buffer = Vec::new();
+    {
+        let schema = df.df.schema();
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+            .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
+
+        for batch in batches {
+            writer.write(&batch)
+                .map_err(|e| ElusionError::Custom(format!("Failed to write batch to Parquet: {}", e)))?;
+        }
+        writer.close()
+            .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
+    }
+
+    // Build full file path
+    let full_file_path = if parsed.base_path == "Files" || parsed.base_path.is_empty() {
+        file_path.to_string()
+    } else {
+        format!("{}/{}", parsed.base_path.trim_start_matches("Files/"), file_path)
+    };
+
+    client.upload_file(&full_file_path, buffer).await?;
+    println!("Successfully wrote Parquet data to OneLake with Service Principal: {}", file_path);
 
     Ok(())
 }
