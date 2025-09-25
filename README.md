@@ -363,7 +363,7 @@ let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
 ).await?;
 ```
 ---
-## SharePoint and Fabric connectors need AzureCLI for development purposes an local work (for production use Service Principal). Bellow is download and installation guide for AzureCLI.
+## SharePoint and Fabric connectors need AzureCLI for development purposes an local work. For production use Service Principal functions that don't need Azure CLI. Bellow is download and installation guide for AzureCLI.
 ### 1. Install Azure CLI
 - Download and install Azure CLI from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli
 - Microsoft users can download here: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows?view=azure-cli-latest&pivots=msi 
