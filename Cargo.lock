@@ -1836,7 +1836,7 @@ checksum = "b7914353092ddf589ad78f25c5c1c21b7f80b0ff8621e7c814c3485b5306da9d"
 
 [[package]]
 name = "elusion"
-version = "7.2.0"
+version = "7.3.0"
 dependencies = [
  "arrow",
  "azure_core 0.28.0",
@@ -1869,6 +1869,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "suppaftp",
  "tempfile",
  "tokio",
  "tokio-cron-scheduler",
@@ -2115,6 +2116,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-lite"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad"
+dependencies = [
+ "fastrand 2.3.0",
+ "futures-core",
+ "futures-io",
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "futures-macro"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2358,7 +2372,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "base64 0.13.1",
- "futures-lite",
+ "futures-lite 1.13.0",
  "infer",
  "pin-project-lite",
  "rand 0.7.3",
@@ -2772,6 +2786,29 @@ checksum = "1cfaf33c695fc6e08064efbc1f72ec937429614f25eef83af942d0e227c3a28f"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "lazy-regex"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60c7310b93682b36b98fa7ea4de998d3463ccbebd94d935d6b48ba5b6ffa7126"
+dependencies = [
+ "lazy-regex-proc_macros",
+ "once_cell",
+ "regex",
+]
+
+[[package]]
+name = "lazy-regex-proc_macros"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ba01db5ef81e17eb10a5e0f2109d1b3a3e29bac3070fdbd7d156bf7dbd206a1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -4619,6 +4656,20 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "suppaftp"
+version = "7.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "598ef99dbdc60b61792cd65b931205966a4b4823e216d915e54836cc2897e1ce"
+dependencies = [
+ "chrono",
+ "futures-lite 2.6.1",
+ "lazy-regex",
+ "log",
+ "native-tls",
+ "thiserror 2.0.11",
+]
 
 [[package]]
 name = "syn"

@@ -13,3 +13,4 @@ pub mod csv;
 pub mod redis;
 pub mod xml;
 pub mod fabric;
+pub mod ftp;

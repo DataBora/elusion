@@ -231,3 +231,26 @@ pub use serde_json;
 pub use xml::reader::{EventReader, XmlEvent};
 pub use crate::features::xml::XmlProcessingMode;
 pub use crate::features::xml::load_xml_with_mode;
+
+//===== DTP
+#[cfg(feature = "ftp")]
+pub use crate::features::ftp::{FtpConnection, FtpUtils};
+
+#[cfg(not(feature = "ftp"))]
+pub struct FtpUtils;
+
+#[cfg(not(feature = "ftp"))]
+impl FtpUtils {
+    pub fn list_files(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _path: Option<&str>,
+        _port: Option<u16>,
+        _use_tls: bool,
+    ) -> crate::ElusionResult<Vec<String>> {
+        Err(crate::ElusionError::Custom(
+            "*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()
+        ))
+    }
+}

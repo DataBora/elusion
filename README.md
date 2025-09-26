@@ -13,7 +13,7 @@
 ![Elusion Logo](images/elusiongithub.png)
 ---
 
-Elusion is a high-performance **DataFrame** / **Data Engineering** library designed for in-memory data formats such as **CSV**, **EXCEL**, **JSON**, **XML**, **PARQUET**, **DELTA**, as well as for **Microsoft Fabric - OneLake** connection, **Microsoft SharePoint** connection, **Microsoft Azure Blob Storage** connections, **Postgres Database** connection, **MySql Database** connection, and **REST API**'s for creating **JSON files** which can be forwarded to DataFrame, with advanced query results caching abilities with **Redis** and **Native cashing**.
+Elusion is a high-performance **DataFrame** / **Data Engineering** library designed for in-memory data formats such as **CSV**, **EXCEL**, **JSON**, **XML**, **PARQUET**, **DELTA**, as well as for **Microsoft Fabric - OneLake** connection, **Microsoft SharePoint** connection, **Microsoft Azure Blob Storage** connections, **FTP/FTPS** connections, **Postgres Database** connection, **MySql Database** connection, and **REST API**'s for creating **JSON files** which can be forwarded to DataFrame, with advanced query results caching abilities with **Redis** and **Native cashing**.
 
 This Library is mostly focused on **Microsoft Stack**, designed to be used for **Business Data Engineering** with reasonable file sizes, with focus on accuracy, user experience by auto-creating schema and simplified query usage. Elusion is NOT made for Data Science, nor Machine Learning, 1TB and 500 columns datasets. 
 
@@ -41,25 +41,27 @@ You can enable only the features you need, which helps reduce dependencies and c
 ## 🚀 Available Features
 
 <p align="center">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg" alt="Fabric" height="32"/>
-  &nbsp;&nbsp;&nbsp;
+  <img src="https://upload.wikimedia.org/wikipedia/commons/c/cf/New_Power_BI_Logo.svg" alt="Fabric" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://static.cdnlogo.com/logos/m/58/microsoft-azure.svg" alt="Azure" height="32"/>
-  &nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://static.cdnlogo.com/logos/s/57/sharepoint.svg" alt="SharePoint" height="32"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" height="32"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mysql/mysql-original.svg" alt="MySQL" height="32"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn-icons-png.flaticon.com/512/2659/2659360.png" alt="API" height="32"/>
-  &nbsp;&nbsp;&nbsp;
-  <img src="https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/plotly.svg" alt="Dashboard" height="32"/>
-  &nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn-icons-png.flaticon.com/512/716/716784.png" alt="FTP/FTPS" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="https://upload.wikimedia.org/wikipedia/commons/7/73/Microsoft_Excel_2013-2019_logo.svg" alt="Excel" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/postgresql/postgresql-original.svg" alt="PostgreSQL" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/mysql/mysql-original.svg" alt="MySQL" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn-icons-png.flaticon.com/512/2659/2659360.png" alt="API" height="32"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://cdn.jsdelivr.net/npm/simple-icons@v11/icons/plotly.svg" alt="Dashboard" height="32"/>
 </p>
 
 <p align="center">
-  Fabric &nbsp; &nbsp; Azure &nbsp; &nbsp; SharePoint &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard &nbsp; &nbsp; Excel
+  Fabric &nbsp; &nbsp; Azure &nbsp; &nbsp; SharePoint &nbsp; &nbsp; FTP/FTPS &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard &nbsp; &nbsp; Excel
 </p>
 
 | Feature | Description | Usage |
@@ -67,11 +69,12 @@ You can enable only the features you need, which helps reduce dependencies and c
 | **Fabric** | Microsoft Fabric - OneLake connectivity | `features = ["fabric"]` |
 | **Azure** | Azure BLOB storage connectivity | `features = ["azure"]` |
 | **SharePoint** | SharePoint connectivity | `features = ["sharepoint"]` |
+| **FTP/FTPS** | FTP/FTPS connectivity | `features = ["ftp"]` |
+| **Excel** | Excel file operations | `features = ["excel"]` |
 | **PostgreSQL** | PostgreSQL Database connectivity | `features = ["postgres"]` |
 | **MySQL** | MySQL Database connectivity | `features = ["mysql"]` |
 | **API** | HTTP API integration | `features = ["api"]` |
 | **Dashboard** | Data visualization and dashboards | `features = ["dashboard"]` |
-| **Excel** | Excel file operations | `features = ["excel"]` |
 
 ---
 
@@ -82,8 +85,10 @@ You can enable only the features you need, which helps reduce dependencies and c
 
 ### 🌐 External Data Sources Integration
 - Azure Blob Storage: Direct integration with Azure Blob Storage for Reading and Writing data files.
-- REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 - SharePoint: Elusion provides seamless integration with Microsoft SharePoint Online, allowing you to load data directly from SharePoint document libraries into DataFrames.
+- Fabric - OneLake connectivity for reading and writing files to Lakehouses and Warehouses
+- FTP/FTPS: Server connectivity for Both standard FTP and secure FTPS (FTP over TLS/SSL)
+- REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
 
 ### 🚀 High-Performance DataFrame Query Operations
 - Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
@@ -161,7 +166,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "7.2.0"
+elusion = "7.3.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -175,25 +180,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.2.0", features = ["fabric"] }
+elusion = { version = "7.3.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.2.0"
+elusion = "7.3.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.2.0", features = ["dashboard", "api", "fabric"] }
+elusion = { version = "7.3.0", features = ["dashboard", "api", "fabric", "ftp"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.2.0", features = ["all"] }
+elusion = { version = "7.3.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -230,14 +235,14 @@ async fn main() -> ElusionResult<()> {
 ### - Loading data into CustomDataFrame can be from:
 #### - Empty() DataFrames
 #### - In-Memory data formats: CSV, EXCEL, JSON, XML, PARQUET, DELTA 
+#### - FABRIC - OneLake
 #### - SharePoint
+#### - FTP/ FTPS
 #### - Azure Blob Storage endpoints (BLOB, DFS)
 #### - Postgres Database SQL Queries
 #### - MySQL Database Queries
 #### - REST API -> json -> DataFrame
 
-#### -> NEXT is example for reading data from local files, 
-#### at the end are examples for Azure Blob Storage, Postgres and MySQL Databases
 ---
 ### LOADING data from Files into CustomDataFrame (in-memory data formats)
 #### - File extensions are automatically recognized 
@@ -280,36 +285,6 @@ let df = CustomDataFrame::new(xml_path, "xml_data").await?;
 ```rust
 let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
 let df = CustomDataFrame::new(delta_path, "delta_data").await?;
-```
----
-## STREAMING
----
-### LOADING data from CSV into CustomDataFrame
-#### Example for Stream processing (Process and display results)
-```rust
-let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
-let big_file_path_df = CustomDataFrame::new(big_file_path, "raw22").await?;
-
-big_file_path_df
-    .select(["first_name", "last_name","company", "city" ,"country"])
-    .string_functions(["CAST(subscription_date AS DATE) as date"])
-    .limit(10)
-    .elusion_streaming("logentries1").await?;
-```
-#### Example for Stream writing (Writes DataFrame result into file extension choosen withing file path)
-```rust
-let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
-let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
-
-big_file_path_df
-    .select(["first_name", "last_name","company", "city" ,"country"])
-    .string_functions(["CAST(subscription_date AS DATE) as date"])
-    .limit(10)
-    .elusion_streaming_write("data", "C:\\output\\results.csv", "overwrite").await?; // you can also use "append"
-
-SAME USAGE IS FOR .json and .parquet
-.elusion_streaming_write("data", "C:\\output\\results.json", "overwrite").await?; // you can also use "append"
-.elusion_streaming_write("data", "C:\\output\\results.parquet", "overwrite").await?; // you can also use "append"
 ```
 ---
 ### LOADING data from LOCAL FOLDER into CustomDataFrame
@@ -360,6 +335,176 @@ let excel_files_with_source = CustomDataFrame::load_folder_with_filename_column(
    "C:\\BorivojGrujicic\\RUST\\Elusion\\MonthlySales", 
    Some(vec!["xlsx", "xls"]), // Only Excel files
    "monthly_excel_data"
+).await?;
+```
+---
+# FTP/FTPS connector
+
+## Listing files
+```rust
+let files = FtpUtils::list_files(
+    "192.133.0.32", // server
+    "user1",  // username
+    "pass123", // password
+    None, // path 
+    None, // port
+    false  // use_tls
+)?;
+
+println!("Files: {:?}", files);
+```
+## Reading from FTP/FTPS
+### Loading Single Files
+#### Basic FTP Connection, Load a single file from FTP server
+```rust
+let df = CustomDataFrame::from_ftp(
+    "ftp.example.com",     // server
+    "username",            // username
+    "password",            // password
+    "data/sales.csv",      // remote file path
+    "sales_data"           // alias
+).await?;
+```
+#### Secure FTPS Connection, Load a single file from FTPS server (secure)
+```rust
+let df = CustomDataFrame::from_ftps(
+    "ftps.example.com",    // server
+    "username",            // username
+    "password",            // password
+    "reports/monthly.xlsx", // remote file path
+    "monthly_report"       // alias
+).await?;
+```
+#### Custom Port Connection, Connect to FTP server on custom port
+```rust
+let df = CustomDataFrame::from_ftp_with_port(
+    "ftp.example.com",     // server
+    2121,                  // custom port
+    "username",            // username
+    "password",            // password
+    "data/products.json",  // remote file path
+    "products"             // alias
+).await?;
+```
+#### Working Directory Connection, Connect with specific working directory
+```rust
+let df = CustomDataFrame::from_ftp_with_directory(
+    "ftp.example.com",     // server
+    "username",            // username
+    "password",            // password
+    "/home/user/reports",  // working directory
+    "quarterly.parquet",   // remote file path (relative to working dir)
+    "quarterly_data"       // alias
+).await?;
+```
+### Loading Multiple Files from Folders
+#### Load All Files from FTP Folder, Load and combine all compatible files from FTP folder
+```rust
+let combined_df = CustomDataFrame::from_ftp_folder(
+    "ftp.example.com",           // server
+    "username",                  // username
+    "password",                  // password
+    None,                        // port (None for default port 21)
+    "/data/daily_reports",       // folder path
+    None,                        // file extensions (None = all supported) or add Some(vec!["csv", "excel"])
+    "combined_daily_reports"     // result alias
+).await?;
+
+// Load only specific file types
+let csv_excel_df = CustomDataFrame::from_ftp_folder(
+    "ftp.example.com",
+    "username", 
+    "password",
+    Some(2121),                  // custom port
+    "/exports",
+    Some(vec!["csv", "xlsx"]),   // only CSV and Excel files
+    "filtered_data"
+).await?;
+```
+#### Load All Files from FTPS Folder (Secure), Secure FTPS folder loading
+```rust
+let secure_df = CustomDataFrame::from_ftps_folder(
+    "ftps.example.com",          // server
+    "username",                  // username
+    "password",                  // password
+    None,                        // port (None for default)
+    "/secure_data",              // folder path
+    Some(vec!["parquet", "json"]), // specific file types
+    "secure_combined_data"       // result alias
+).await?;
+```
+### Load Files with Filename Tracking folder with filename column
+#### Perfect for time-series data where filename contains date information or when you need to track data sources:
+```rust
+let df_with_source = CustomDataFrame::from_ftp_folder_with_filename_column(
+    "ftp.example.com",
+    "username",
+    "password", 
+    None,                        // default port
+    "/logs/daily",               // folder path
+    Some(vec!["csv"]),           // only CSV files
+    "daily_logs_with_source"     // result alias
+).await?;
+
+// FTPS folder with filename column (secure)
+let secure_df_with_source = CustomDataFrame::from_ftps_folder_with_filename_column(
+    "ftps.example.com",
+    "username",
+    "password",
+    Some(990),                   // custom FTPS port
+    "/backups/monthly",          // folder path
+    None,                        // all supported file types
+    "monthly_backups_tracked"    // result alias
+).await?;
+```
+The `filename_added` column will contain the original filename for each row, making it easy to track data sources:
+```rust
+// Use the filename column in your analysis
+df_with_source
+    .select(["filename_added", "date", "amount", "category"])
+    .string_functions(["SUBSTRING(filename_added, 7, 8) AS file_date"])
+    .filter("amount > 1000")
+    .elusion("processed_data").await?
+    .display().await?;
+```
+---
+## Writing to FTP/FTPS
+### Export DataFrame to CSV
+```rust
+df.write_csv_to_ftp(
+    "ftp.example.com",      // server
+    "username",             // username  
+    "password",             // password
+    "exports/results.csv"   // remote path
+).await?;
+```
+### Export DataFrame to Excel
+```rust
+df.write_excel_to_ftp(
+    "ftp.example.com",      // server
+    "username",             // username
+    "password",             // password
+    "reports/analysis.xlsx", // remote path
+    Some("Sales Data")      // sheet name (optional)
+).await?;
+```
+### Export DataFrame to Parquet
+```rust
+df.write_parquet_to_ftp(
+    "ftp.example.com",      // server
+    "username",             // username
+    "password",             // password
+    "warehouse/data.parquet" // remote path
+).await?;
+```
+### Export DataFrame to JSON, Write DataFrame to FTP server as JSON
+```rust
+df.write_json_to_ftp(
+    "ftp.example.com",      // server
+    "username",             // username
+    "password",             // password
+    "api/data.json",        // remote path
+    true                    // pretty format (true/false)
 ).await?;
 ```
 ---
@@ -530,8 +675,14 @@ df.write_parquet_to_fabric_with_service_principal(
 ).await?;
 ```
 ---
-### LOADING data from Azure BLOB Storage into CustomDataFrame (**scroll till the end for FULL example**)
+# Azure BLOB Storage connector
+## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided
+### Currently supported file types .JSON and .CSV
+#### DFS endpoint is “Data Lake Storage Gen2” and behave more like a real file system. This makes reading operations more efficient—especially at large scale.
 ```rust
+let blob_url= "https://your_storage_account_name.blob.core.windows.net/your-container-name"; // for better performance use DFS
+let sas_token = "your_sas_token";
+
 let df = CustomDataFrame::from_azure_with_sas_token(
         blob_url, 
         sas_token, 
@@ -539,13 +690,548 @@ let df = CustomDataFrame::from_azure_with_sas_token(
         "data" // alias for registering table
     ).await?;
 ```
+## Writing Parquet to Azure BLOB Storage 
+#### We have 2 writing options "overwrite" and "append"
+#### Writing is set to Default, Compression: SNAPPY and Parquet 2.0
+#### Threshold file size is 1GB
+```rust
+let df = CustomDataFrame::new(csv_data, "sales").await?; 
+
+let query = df.select(["*"]);
+
+let data = query.elusion("df_sales").await?;
+
+let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
+let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
+
+data.write_parquet_to_azure_with_sas(
+    "overwrite",
+    url_to_folder_and_file_name,
+    sas_write_token
+).await?;
+
+// append version
+data.write_parquet_to_azure_with_sas(
+    "append",
+    url_to_folder_and_file_name,
+    sas_write_token
+).await?;
+```
+---
+## Writing JSON to Azure BLOB Storage 
+#### Only can create new or overwrite exisitng file
+#### Threshold file size is 1GB
+```rust
+let df = CustomDataFrame::new(csv_data, "sales").await?; 
+
+let query = df.select(["*"]);
+
+let data = query.elusion("df_sales").await?;
+
+let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/data.json";
+let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
+
+data.write_json_to_azure_with_sas(
+    url_to_folder_and_file_name,
+    sas_write_token,
+    true  // Set to true for pretty-printed JSON, false for compact JSON
+).await?;
+```
+---
+# DATABASES
+
+## POSTGRES
+
 ### LOADING data from POSTGRES into CustomDataFrame (**scroll till the end for FULL example with config, conn and query**)
 ```rust
 let df = CustomDataFrame::from_postgres(&conn, query, "df_alias").await?;
 ```
+### Full example:
+#### Create Config, Conn and Query, and pass it to from_postgres() function.
+```rust
+ let pg_config = PostgresConfig {
+        host: "localhost".to_string(),
+        port: 5432,
+        user: "borivoj".to_string(),
+        password: "pass123".to_string(),
+        database: "db_test".to_string(),
+        pool_size: Some(5), 
+    };
+
+let conn = PostgresConnection::new(pg_config).await?;
+
+Option2: You can use map_err()
+let conn = PostgresConnection::new(pg_config).await
+    .map_err(|e| ElusionError::Custom(format!("PostgreSQL connection error: {}", e)))?;
+
+let query = "
+    SELECT 
+        c.id, 
+        c.name, 
+        s.product_name,
+        SUM(s.quantity * s.price) as total_revenue
+    FROM customers c
+    LEFT JOIN sales s ON c.id = s.customer_id
+    GROUP BY c.id, c.name, s.product_name
+    ORDER BY total_revenue DESC
+";
+
+let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "postgres_df").await?;
+
+sales_by_customer_df.display().await?;
+```
+## MY SQL
 ### LOADING data from MySQL into CustomDataFrame (**scroll till the end for FULL example with config, conn and query**)
 ```rust
 let df = CustomDataFrame::from_mysql(&conn, query, "df_alias").await?;
+```
+### Full Example:
+#### Create Config, Conn and Query, and pass it to from_mysql() function.
+```rust
+let mysql_config = MySqlConfig {
+    host: "localhost".to_string(),
+    port: 3306,
+    user: "borivoj".to_string(),
+    password: "pass123".to_string(),
+    database: "db_test".to_string(),
+    pool_size: Some(5),
+};
+
+let conn = MySqlConnection::new(mysql_config).await?;
+
+let mysql_query = "
+    WITH ranked_sales AS (
+        SELECT 
+            c.color AS brew_color, 
+            bd.beer_style, 
+            bd.location, 
+            SUM(bd.total_sales) AS total_sales
+        FROM 
+            brewery_data bd
+        JOIN 
+            colors c ON bd.Color = c.color_number
+        WHERE 
+            bd.brew_date >= '2020-01-01' AND bd.brew_date <= '2020-03-01'
+        GROUP BY 
+            c.color, bd.beer_style, bd.location
+    )
+    SELECT 
+        brew_color, 
+        beer_style, 
+        location, 
+        total_sales,
+        ROW_NUMBER() OVER (PARTITION BY brew_color ORDER BY total_sales DESC) AS ranked
+    FROM 
+        ranked_sales
+    ORDER BY 
+    brew_color, total_sales DESC";
+
+let df = CustomDataFrame::from_mysql(&conn, mysql_query, "mysql_df").await?;
+
+df.display().await?;
+```
+---
+# Pipeline Scheduler
+
+### Time is set according to UTC
+#### Currently available job frequencies
+```rust
+"1min","2min","5min","10min","15min","30min" ,
+"1h","2h","3h","4h","5h","6h","7h","8h","9h","10h","11h","12h","24h" 
+"2days","3days","4days","5days","6days","7days","14days","30days" 
+```
+### PipelineScheduler Example (parsing data from Azure BLOB Stoarge, DataFrame operation and Writing to Parquet)
+```rust
+use elusion::prelude::*;
+
+#[tokio::main]
+async fn main() -> ElusionResult<()>{
+    
+// Create Pipeline Scheduler 
+let scheduler = PipelineScheduler::new("5min", || async {
+
+let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
+let sas_token = "your_sas_token";
+// Read from Azure
+let header_df = CustomDataFrame::from_azure_with_sas_token(
+    dfs_url,
+    dfs_sas_token,
+    Some("folder_name/"), // Optional: FILTERING can filter any part of string: file path, file name...
+    "head"
+).await?;
+
+// DataFrame operation
+let headers_payments = header_df
+   .select(["Brand", "Id", "Name", "Item", "Bill", "Tax",
+           "ServCharge", "Percentage", "Discount", "Date"])
+   .agg([
+       "SUM(Bill) AS total_bill",
+       "SUM(Tax) AS total_tax", 
+       "SUM(ServCharge) AS total_service",
+       "AVG(Percentage) AS avg_percentage",
+       "COUNT(*) AS transaction_count",
+       "SUM(ServCharge) / SUM(Bill) * 100 AS service_ratio"
+   ])
+   .group_by(["Brand", "Date"])
+   .filter("Bill > 0")
+   .order_by(["total_bill"], ["ASC"]);
+
+let headers_data = headers_payments.elusion("headers_df").await?;
+
+// Write output
+headers_data
+    .write_to_parquet(
+        "overwrite",
+        "C:\\Borivoj\\RUST\\Elusion\\Scheduler\\sales_data.parquet",
+        None
+    )
+    .await?;
+    
+    Ok(())
+
+}).await?;
+
+scheduler.shutdown().await?;
+
+Ok(())
+}
+
+```
+---
+# API connectors
+
+### Creating JSON files from REST API's
+#### Customizable Headers, Params, Pagination, Date Ranges...
+### FROM API
+```rust
+// example 1
+let posts_df = ElusionApi::new();
+posts_df
+    .from_api(
+        "https://jsonplaceholder.typicode.com/posts", // url
+        "C:\\Borivoj\\RUST\\Elusion\\JSON\\posts_data.json" // path where json will be stored
+    ).await?;
+
+// example 2
+let users_df = ElusionApi::new();
+users_df.from_api(
+    "https://jsonplaceholder.typicode.com/users",
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\users_data.json",
+).await?;
+
+// example 3
+let ceo = ElusionApi::new();
+ceo.from_api(
+    "https://dog.ceo/api/breeds/image/random/3",
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\ceo_data.json"
+).await?;
+```
+### FROM API WITH HEADERS
+```rust
+// example 1
+let mut headers = HashMap::new();
+headers.insert("Custom-Header".to_string(), "test-value".to_string());
+
+let bin_df = ElusionApi::new();
+bin_df.from_api_with_headers(
+    "https://httpbin.org/headers",  // url
+    headers,                        // headers
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\bin_data.json",  // path where json will be stored
+).await?;
+    
+// example 2
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let git_hub = ElusionApi::new();
+git_hub.from_api_with_headers(
+    "https://api.github.com/search/repositories?q=rust+language:rust&sort=stars&order=desc",
+    headers,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\git_hub_data.json"
+).await?;
+
+// example 3
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/json".to_string());
+headers.insert("X-Version".to_string(), "1".to_string());
+
+let pokemon_df = ElusionApi::new();
+pokemon_df.from_api_with_headers(
+    "https://pokeapi.co/api/v2/pokemon", 
+    headers,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\pokemon_data.json"
+).await?;
+```
+### FROM API WITH PARAMS
+```rust
+// Using OpenLibrary API with params
+let mut params = HashMap::new();
+params.insert("q", "rust programming");
+params.insert("limit", "10");
+
+let open_lib = ElusionApi::new();
+open_lib.from_api_with_params(
+    "https://openlibrary.org/search.json",           // url
+    params,                                          // params
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\open_lib_data.json",  // path where json will be stored
+).await?;
+
+// Random User Generator API with params
+let mut params = HashMap::new();
+params.insert("results", "10");
+params.insert("nat", "us,gb");
+
+let generator = ElusionApi::new(); 
+generator.from_api_with_params(
+    "https://randomuser.me/api",
+    params,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\generator_data.json"
+).await?;
+
+// JSON Placeholder with multiple endpoints
+let mut params = HashMap::new();
+params.insert("userId", "1");
+params.insert("_limit", "5");
+
+let multi = ElusionApi::new(); 
+multi.from_api_with_params(
+    "https://jsonplaceholder.typicode.com/posts",
+    params,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\multi_data.json"
+).await?;
+
+// NASA Astronomy Picture of the Day
+let mut params = HashMap::new();
+params.insert("count", "5");
+params.insert("thumbs", "true");
+
+let nasa = ElusionApi::new(); 
+nasa.from_api_with_params(
+    "https://api.nasa.gov/planetary/apod",
+    params,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\nasa_pics_data.json"
+).await?;
+
+// example 5
+let mut params = HashMap::new();
+params.insert("brand", "elusion");
+params.insert("password", "some_password");
+params.insert("siteid", "993");
+params.insert("Datefrom", "01 jan 2025 06:00");
+params.insert("Dateto", "31 jan 2025 06:00");
+params.insert("user", "borivoj");
+
+let api = ElusionApi::new();
+api.from_api_with_params(
+    "https://salesapi.net.co.rs/SSPAPI/api/data",
+    params,
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2025.json"
+).await?;
+```
+### FROM API WITH PARAMS AND HEADERS
+```rust
+let mut params = HashMap::new();
+params.insert("since", "2024-01-01T00:00:00Z");
+params.insert("until", "2024-01-07T23:59:59Z");
+
+let mut headers = HashMap::new();
+headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
+headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
+
+let commits_df = ElusionApi::new();
+commits_df.from_api_with_params_and_headers(
+    "https://api.github.com/repos/rust-lang/rust/commits",    // url
+    params,                                                   // params
+    headers,                                                 // headers
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\commits_data.json",  // path where json will be stored
+).await?;
+```
+### FROM API WITH DATES
+```rust
+// example 1
+let post_df = ElusionApi::new();
+post_df.from_api_with_dates(
+    "https://jsonplaceholder.typicode.com/posts",            // url
+    "2024-01-01",                                           // date from
+    "2024-01-07",                                           // date to
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\post_data.json",  // path where json will be stored
+).await?;
+
+// Example 2: COVID-19 historical data
+let covid_df = ElusionApi::new();
+covid_df.from_api_with_dates(
+    "https://disease.sh/v3/covid-19/historical/all",
+    "2024-01-01",
+    "2024-01-07",
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\covid_data.json"
+).await?;
+```
+### FROM API WITH PAGINATION
+```rust
+// example 1
+let reqres = ElusionApi::new();
+reqres.from_api_with_pagination(
+    "https://reqres.in/api/users",
+    1,      // page
+    10,      // per_page
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\reqres_data.json"
+).await?;
+```
+### FROM API WITH SORT
+```rust
+let movie_db = ElusionApi::new();
+movie_db.from_api_with_sort(
+    "https://api.themoviedb.org/3/discover/movie", // base url
+    "popularity",   // sort field
+    "desc",         // order
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies.json"
+).await?;
+```
+### FROM API WITH HEADERS AND SORT
+```rust
+let mut headers = HashMap::new();
+headers.insert("Authorization".to_string(), "Bearer YOUR_TMDB_API_KEY".to_string());
+headers.insert("accept".to_string(), "application/json".to_string());
+
+let movie_db = ElusionApi::new();
+movie_db.from_api_with_headers_and_sort(
+    "https://api.themoviedb.org/3/discover/movie",  // base url
+    headers,                                        // headers
+    "popularity",                                   // sort field
+    "desc",                                        // order
+    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies1.json"
+).await?;
+```
+---
+# LOCAL WRITERS
+
+## Writing to EXCEL File ***needs excel feature enabled
+
+#### EXCEL writer can only write or overwrite, so only 2 arguments needed
+#### 1. Path, 2. Optional Sheet name. (default is Sheet1)
+```rust
+ df.write_to_excel(
+    "C:\\Borivoj\\RUST\\Elusion\\Excel\\sales2.xlsx", //path
+    Some("string_interop") // Optional sheet name. Can be None
+).await?;
+```
+---
+## Writing to Parquet File
+#### We have 2 writing modes: **Overwrite** and **Append**
+```rust
+// overwrite existing file
+df.write_to_parquet(
+    "overwrite",
+    "C:\\Path\\To\\Your\\test.parquet",
+    None // I've set WriteOptions to default for writing Parquet files, so keep it None
+)
+.await?;
+
+// append to exisiting file
+df.write_to_parquet(
+    "append",
+    "C:\\Path\\To\\Your\\test.parquet",
+    None // I've set WriteOptions to default for writing Parquet files, so keep it None
+) 
+.await?;
+```
+---
+## Writing to CSV File
+
+#### CSV Writing options are **mandatory**
+##### has_headers: TRUE is dynamically set for Overwrite mode, and FALSE for Append mode.
+```rust
+let custom_csv_options = CsvWriteOptions {
+        delimiter: b',',
+        escape: b'\\',
+        quote: b'"',
+        double_quote: false,
+        null_value: "NULL".to_string(),
+    };
+```
+#### We have 2 writing modes: Overwrite and Append
+```rust
+// overwrite existing file
+df.write_to_csv(
+    "overwrite", 
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+    custom_csv_options
+)
+.await?;
+
+// append to exisiting file
+df.write_to_csv(
+    "append", 
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
+    custom_csv_options
+)
+.await?;
+
+```
+---
+## Writing to JSON File
+
+#### JSON writer can only overwrite, so only 2 arguments needed
+#### 1. Path, 2. If you want pretty-printed JSON or not (true or false)
+```rust
+df.write_to_json(
+    "C:\\Borivoj\\RUST\\Elusion\\date_table.json", // path
+    true // pretty-printed JSON, false for compact JSON
+).await?;
+```
+---
+## Writing to DELTA table / lake 
+#### We can write to delta in 2 modes **Overwrite** and **Append**
+#### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
+#### Once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, append also need to have same column for partitioning
+```rust
+// Overwrite
+df.write_to_delta_table(
+    "overwrite",
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
+    Some(vec!["order_date".into()]), 
+)
+.await
+.expect("Failed to overwrite Delta table");
+// Append
+df.write_to_delta_table(
+    "append",
+    "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
+    Some(vec!["order_date".into()]),
+)
+.await
+.expect("Failed to append to Delta table");
+```
+---
+# STREAMING
+
+### LOADING data from CSV into CustomDataFrame and straming results to terminal or to a file
+#### Example for Stream processing (Process and display results)
+```rust
+let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
+let big_file_path_df = CustomDataFrame::new(big_file_path, "raw22").await?;
+
+big_file_path_df
+    .select(["first_name", "last_name","company", "city" ,"country"])
+    .string_functions(["CAST(subscription_date AS DATE) as date"])
+    .limit(10)
+    .elusion_streaming("logentries1").await?;
+```
+#### Example for Stream writing (Writes DataFrame result into file extension choosen withing file path)
+```rust
+let big_file_path = "C:\\Borivoj\\RUST\\Elusion\\bigdata\\customers-2000000.csv"; 
+let big_file_path_df = CustomDataFrame::new_with_stream(big_file_path, "raw22").await?;
+
+big_file_path_df
+    .select(["first_name", "last_name","company", "city" ,"country"])
+    .string_functions(["CAST(subscription_date AS DATE) as date"])
+    .limit(10)
+    .elusion_streaming_write("data", "C:\\output\\results.csv", "overwrite").await?; // you can also use "append"
+
+SAME USAGE IS FOR .json and .parquet
+.elusion_streaming_write("data", "C:\\output\\results.json", "overwrite").await?; // you can also use "append"
+.elusion_streaming_write("data", "C:\\output\\results.parquet", "overwrite").await?; // you can also use "append"
 ```
 ---
 ## CREATE EMPTY DataFrame
@@ -732,61 +1418,9 @@ let res =   complex_result.elusion("analysis1").await?;
     
 res.display().await?;
 ```
-### YOU WILL GET RESULT:
-#### 📋 Generated SQL Query:
-============================================================
-```sql
-SELECT count( * ) as "broj_transakcija", 
-sum("analysis"."kolicina") as "ukupna_kolicina", 
-sum("analysis"."neto_vrednost") as "ukupna_vrednost", 
-"veledrogerija" AS "pharm", 
-"region" AS "regionale", 
-"kolicina", 
-"neto_vrednost", 
-"mesto", 
-row_number() over (partition by region order by mesto desc) as region_rank
-FROM "analysis" AS analysis
-WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
-GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
-ORDER BY "ukupna_vrednost" DESC
-LIMIT 10
-```
-#### ============================================================
-#### 📋 Query Analysis:
-#### ==================================================
-#### 🔍 SQL Query:
-```sql
-SELECT count( * ) as "broj_transakcija", 
-sum("analysis"."kolicina") as "ukupna_kolicina", 
-sum("analysis"."neto_vrednost") as "ukupna_vrednost", 
-"veledrogerija" AS "pharm", 
-"region" AS "regionale", 
-"kolicina", 
-"neto_vrednost", 
-"mesto", 
-row_number() over (partition by region order by mesto desc) as region_rank
-FROM "analysis" AS analysis
-WHERE "mesec" = 'Januar' AND "neto_vrednost" > 1000
-GROUP BY "veledrogerija", "region", "kolicina", "neto_vrednost", "mesto"
-ORDER BY "ukupna_vrednost" DESC
-LIMIT 10
-```
-#### 📊 Query Info:
-#####    • Has CTEs: false
-#####    • Has JOINs: false
-#####    • Has WHERE: true
-#####    • Has GROUP BY: true
-#####    • Has HAVING: false
-#####    • Has ORDER BY: true
-#####    • Has LIMIT: true
-#####    • Has UNION: false
-#####    • CTE count: 0
-#####    • Join count: 0
-#####    • Union count: 0
-#####    • Function calls: ~5
-#####   • Complexity: Moderate
 ---
-### STATISTICAL FUNCTIONS
+## STATISTICAL FUNCTIONS
+
 #### These Functions can give you quick statistical overview of your DataFrame columns and correlations
 #### Currently available: display_stats(), display_null_analysis(), display_correlation_matrix()
 ```rust
@@ -2137,7 +2771,8 @@ let union_all_df = result_df1.union_many([result_df2, result_df3, result_df4, re
 let union_all_many_df = result_df1.union_all_many([result_df2, result_df3, result_df4, resuld_df5]).await?;
 ```
 ---
-## PIVOT and UNPIVOT
+# PIVOT and UNPIVOT
+
 #### Pivot and Unpivot functions are ASYNC function
 #### They should be used separately from other functions: 1. directly on initial CustomDataFrame, 2. after .elusion() evaluation.
 #### Future needs to be in final state so .await? must be used
@@ -2211,6 +2846,7 @@ result_unpivot_scalar.display().await?;
 ```
 ---
 ## EXTRACTING VALUES: extract_value_from_df()
+
 #### Example how you can extract values from DataFrame and use it within REST API
 ```rust
 //create calendar dataframe
@@ -2487,195 +3123,7 @@ CustomDataFrame::invalidate_redis_cache(&redis_conn, &["sales", "customers"]).aw
     println!();
 ```
 ---
-# Postgres Database Connector 
-### Create Config, Conn and Query, and pass it to from_postgres() function.
-```rust
- let pg_config = PostgresConfig {
-        host: "localhost".to_string(),
-        port: 5432,
-        user: "borivoj".to_string(),
-        password: "pass123".to_string(),
-        database: "db_test".to_string(),
-        pool_size: Some(5), 
-    };
 
-let conn = PostgresConnection::new(pg_config).await?;
-
-Option2: You can use map_err()
-let conn = PostgresConnection::new(pg_config).await
-    .map_err(|e| ElusionError::Custom(format!("PostgreSQL connection error: {}", e)))?;
-
-let query = "
-    SELECT 
-        c.id, 
-        c.name, 
-        s.product_name,
-        SUM(s.quantity * s.price) as total_revenue
-    FROM customers c
-    LEFT JOIN sales s ON c.id = s.customer_id
-    GROUP BY c.id, c.name, s.product_name
-    ORDER BY total_revenue DESC
-";
-
-let sales_by_customer_df = CustomDataFrame::from_postgres(&conn, query, "postgres_df").await?;
-
-sales_by_customer_df.display().await?;
-```
----
-# MySQL Database Connector 
-### Create Config, Conn and Query, and pass it to from_mysql() function.
-```rust
-let mysql_config = MySqlConfig {
-    host: "localhost".to_string(),
-    port: 3306,
-    user: "borivoj".to_string(),
-    password: "pass123".to_string(),
-    database: "db_test".to_string(),
-    pool_size: Some(5),
-};
-
-let conn = MySqlConnection::new(mysql_config).await?;
-
-let mysql_query = "
-    WITH ranked_sales AS (
-        SELECT 
-            c.color AS brew_color, 
-            bd.beer_style, 
-            bd.location, 
-            SUM(bd.total_sales) AS total_sales
-        FROM 
-            brewery_data bd
-        JOIN 
-            colors c ON bd.Color = c.color_number
-        WHERE 
-            bd.brew_date >= '2020-01-01' AND bd.brew_date <= '2020-03-01'
-        GROUP BY 
-            c.color, bd.beer_style, bd.location
-    )
-    SELECT 
-        brew_color, 
-        beer_style, 
-        location, 
-        total_sales,
-        ROW_NUMBER() OVER (PARTITION BY brew_color ORDER BY total_sales DESC) AS ranked
-    FROM 
-        ranked_sales
-    ORDER BY 
-    brew_color, total_sales DESC";
-
-let df = CustomDataFrame::from_mysql(&conn, mysql_query, "mysql_df").await?;
-
-df.display().await?;
-```
----
-# AZURE Blob Storage Connector 
-## Storage connector available with BLOB and DFS url endpoints, along with SAS token provided
-### Currently supported file types .JSON and .CSV
-#### DFS endpoint is “Data Lake Storage Gen2” and behave more like a real file system. This makes reading operations more efficient—especially at large scale.
-
-### BLOB endpoint example
-```rust
-let blob_url= "https://your_storage_account_name.blob.core.windows.net/your-container-name";
-let sas_token = "your_sas_token";
-
-let df = CustomDataFrame::from_azure_with_sas_token(
-        blob_url, 
-        sas_token, 
-        Some("folder-name/file-name"), // FILTERING is optional. Can be None if you want to take everything from Container
-        "data" // alias for registering table
-    ).await?;
-
-let data_df = df.select(["*"]);
-
-let test_data = data_df.elusion("data_df").await?;
-test_data.display().await?;
-```
-### DFS endpoint example
-
-```rust
-let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
-let sas_token = "your_sas_token";
-
-let df = CustomDataFrame::from_azure_with_sas_token(
-        dfs_url, 
-        sas_token, 
-        Some("folder-name/file-name.csv"), // FILTERING is optional. Can be None if you want to take everything from Container
-        "data" // alias for registering table
-    ).await?;
-
-let data_df = df.select(["*"]);
-
-let test_data = data_df.elusion("data_df").await?;
-test_data.display().await?;
-```
----
-# Pipeline Scheduler
-### Time is set according to UTC
-
-#### Currently available job frequencies
-```rust
-"1min","2min","5min","10min","15min","30min" ,
-"1h","2h","3h","4h","5h","6h","7h","8h","9h","10h","11h","12h","24h" 
-"2days","3days","4days","5days","6days","7days","14days","30days" 
-```
-### PipelineScheduler Example (parsing data from Azure BLOB Stoarge, DataFrame operation and Writing to Parquet)
-```rust
-use elusion::prelude::*;
-
-#[tokio::main]
-async fn main() -> ElusionResult<()>{
-    
-// Create Pipeline Scheduler 
-let scheduler = PipelineScheduler::new("5min", || async {
-
-let dfs_url= "https://your_storage_account_name.dfs.core.windows.net/your-container-name";
-let sas_token = "your_sas_token";
-// Read from Azure
-let header_df = CustomDataFrame::from_azure_with_sas_token(
-    dfs_url,
-    dfs_sas_token,
-    Some("folder_name/"), // Optional: FILTERING can filter any part of string: file path, file name...
-    "head"
-).await?;
-
-// DataFrame operation
-let headers_payments = header_df
-   .select(["Brand", "Id", "Name", "Item", "Bill", "Tax",
-           "ServCharge", "Percentage", "Discount", "Date"])
-   .agg([
-       "SUM(Bill) AS total_bill",
-       "SUM(Tax) AS total_tax", 
-       "SUM(ServCharge) AS total_service",
-       "AVG(Percentage) AS avg_percentage",
-       "COUNT(*) AS transaction_count",
-       "SUM(ServCharge) / SUM(Bill) * 100 AS service_ratio"
-   ])
-   .group_by(["Brand", "Date"])
-   .filter("Bill > 0")
-   .order_by(["total_bill"], ["ASC"]);
-
-let headers_data = headers_payments.elusion("headers_df").await?;
-
-// Write output
-headers_data
-    .write_to_parquet(
-        "overwrite",
-        "C:\\Borivoj\\RUST\\Elusion\\Scheduler\\sales_data.parquet",
-        None
-    )
-    .await?;
-    
-    Ok(())
-
-}).await?;
-
-scheduler.shutdown().await?;
-
-Ok(())
-}
-
-```
----
 # JSON files
 ### Currently supported files can include: Fileds, Arrays, Objects. 
 #### Best performance with flat json ("key":"value") 
@@ -2730,359 +3178,6 @@ result.display().await?;
 
 let json_path = "C:\\Borivoj\\RUST\\Elusion\\test2.json";
 let json_df = CustomDataFrame::new(json_path, "test2").await?;
-```
----
-# REST API connectors
-### Creating JSON files from REST API's
-#### Customizable Headers, Params, Pagination, Date Ranges...
-### FROM API
-```rust
-// example 1
-let posts_df = ElusionApi::new();
-posts_df
-    .from_api(
-        "https://jsonplaceholder.typicode.com/posts", // url
-        "C:\\Borivoj\\RUST\\Elusion\\JSON\\posts_data.json" // path where json will be stored
-    ).await?;
-
-// example 2
-let users_df = ElusionApi::new();
-users_df.from_api(
-    "https://jsonplaceholder.typicode.com/users",
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\users_data.json",
-).await?;
-
-// example 3
-let ceo = ElusionApi::new();
-ceo.from_api(
-    "https://dog.ceo/api/breeds/image/random/3",
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\ceo_data.json"
-).await?;
-```
-### FROM API WITH HEADERS
-```rust
-// example 1
-let mut headers = HashMap::new();
-headers.insert("Custom-Header".to_string(), "test-value".to_string());
-
-let bin_df = ElusionApi::new();
-bin_df.from_api_with_headers(
-    "https://httpbin.org/headers",  // url
-    headers,                        // headers
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\bin_data.json",  // path where json will be stored
-).await?;
-    
-// example 2
-let mut headers = HashMap::new();
-headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
-headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
-
-let git_hub = ElusionApi::new();
-git_hub.from_api_with_headers(
-    "https://api.github.com/search/repositories?q=rust+language:rust&sort=stars&order=desc",
-    headers,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\git_hub_data.json"
-).await?;
-
-// example 3
-let mut headers = HashMap::new();
-headers.insert("Accept".to_string(), "application/json".to_string());
-headers.insert("X-Version".to_string(), "1".to_string());
-
-let pokemon_df = ElusionApi::new();
-pokemon_df.from_api_with_headers(
-    "https://pokeapi.co/api/v2/pokemon", 
-    headers,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\pokemon_data.json"
-).await?;
-```
-### FROM API WITH PARAMS
-```rust
-// Using OpenLibrary API with params
-let mut params = HashMap::new();
-params.insert("q", "rust programming");
-params.insert("limit", "10");
-
-let open_lib = ElusionApi::new();
-open_lib.from_api_with_params(
-    "https://openlibrary.org/search.json",           // url
-    params,                                          // params
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\open_lib_data.json",  // path where json will be stored
-).await?;
-
-// Random User Generator API with params
-let mut params = HashMap::new();
-params.insert("results", "10");
-params.insert("nat", "us,gb");
-
-let generator = ElusionApi::new(); 
-generator.from_api_with_params(
-    "https://randomuser.me/api",
-    params,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\generator_data.json"
-).await?;
-
-// JSON Placeholder with multiple endpoints
-let mut params = HashMap::new();
-params.insert("userId", "1");
-params.insert("_limit", "5");
-
-let multi = ElusionApi::new(); 
-multi.from_api_with_params(
-    "https://jsonplaceholder.typicode.com/posts",
-    params,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\multi_data.json"
-).await?;
-
-// NASA Astronomy Picture of the Day
-let mut params = HashMap::new();
-params.insert("count", "5");
-params.insert("thumbs", "true");
-
-let nasa = ElusionApi::new(); 
-nasa.from_api_with_params(
-    "https://api.nasa.gov/planetary/apod",
-    params,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\nasa_pics_data.json"
-).await?;
-
-// example 5
-let mut params = HashMap::new();
-params.insert("brand", "elusion");
-params.insert("password", "some_password");
-params.insert("siteid", "993");
-params.insert("Datefrom", "01 jan 2025 06:00");
-params.insert("Dateto", "31 jan 2025 06:00");
-params.insert("user", "borivoj");
-
-let api = ElusionApi::new();
-api.from_api_with_params(
-    "https://salesapi.net.co.rs/SSPAPI/api/data",
-    params,
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\sales_jan_2025.json"
-).await?;
-```
-### FROM API WITH PARAMS AND HEADERS
-```rust
-let mut params = HashMap::new();
-params.insert("since", "2024-01-01T00:00:00Z");
-params.insert("until", "2024-01-07T23:59:59Z");
-
-let mut headers = HashMap::new();
-headers.insert("Accept".to_string(), "application/vnd.github.v3+json".to_string());
-headers.insert("User-Agent".to_string(), "elusion-dataframe-test".to_string());
-
-let commits_df = ElusionApi::new();
-commits_df.from_api_with_params_and_headers(
-    "https://api.github.com/repos/rust-lang/rust/commits",    // url
-    params,                                                   // params
-    headers,                                                 // headers
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\commits_data.json",  // path where json will be stored
-).await?;
-```
-### FROM API WITH DATES
-```rust
-// example 1
-let post_df = ElusionApi::new();
-post_df.from_api_with_dates(
-    "https://jsonplaceholder.typicode.com/posts",            // url
-    "2024-01-01",                                           // date from
-    "2024-01-07",                                           // date to
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\post_data.json",  // path where json will be stored
-).await?;
-
-// Example 2: COVID-19 historical data
-let covid_df = ElusionApi::new();
-covid_df.from_api_with_dates(
-    "https://disease.sh/v3/covid-19/historical/all",
-    "2024-01-01",
-    "2024-01-07",
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\covid_data.json"
-).await?;
-```
-### FROM API WITH PAGINATION
-```rust
-// example 1
-let reqres = ElusionApi::new();
-reqres.from_api_with_pagination(
-    "https://reqres.in/api/users",
-    1,      // page
-    10,      // per_page
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\reqres_data.json"
-).await?;
-```
-### FROM API WITH SORT
-```rust
-let movie_db = ElusionApi::new();
-movie_db.from_api_with_sort(
-    "https://api.themoviedb.org/3/discover/movie", // base url
-    "popularity",   // sort field
-    "desc",         // order
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies.json"
-).await?;
-```
-### FROM API WITH HEADERS AND SORT
-```rust
-let mut headers = HashMap::new();
-headers.insert("Authorization".to_string(), "Bearer YOUR_TMDB_API_KEY".to_string());
-headers.insert("accept".to_string(), "application/json".to_string());
-
-let movie_db = ElusionApi::new();
-movie_db.from_api_with_headers_and_sort(
-    "https://api.themoviedb.org/3/discover/movie",  // base url
-    headers,                                        // headers
-    "popularity",                                   // sort field
-    "desc",                                        // order
-    "C:\\Borivoj\\RUST\\Elusion\\JSON\\popular_movies1.json"
-).await?;
-```
----
-# WRITERS
-
-## Writing to EXCEL File ***needs excel feature enabled
-
-#### EXCEL writer can only write or overwrite, so only 2 arguments needed
-#### 1. Path, 2. Optional Sheet name. (default is Sheet1)
-```rust
- df.write_to_excel(
-    "C:\\Borivoj\\RUST\\Elusion\\Excel\\sales2.xlsx", //path
-    Some("string_interop") // Optional sheet name. Can be None
-).await?;
-```
----
-## Writing to Parquet File
-#### We have 2 writing modes: **Overwrite** and **Append**
-```rust
-// overwrite existing file
-df.write_to_parquet(
-    "overwrite",
-    "C:\\Path\\To\\Your\\test.parquet",
-    None // I've set WriteOptions to default for writing Parquet files, so keep it None
-)
-.await?;
-
-// append to exisiting file
-df.write_to_parquet(
-    "append",
-    "C:\\Path\\To\\Your\\test.parquet",
-    None // I've set WriteOptions to default for writing Parquet files, so keep it None
-) 
-.await?;
-```
----
-## Writing to CSV File
-
-#### CSV Writing options are **mandatory**
-##### has_headers: TRUE is dynamically set for Overwrite mode, and FALSE for Append mode.
-```rust
-let custom_csv_options = CsvWriteOptions {
-        delimiter: b',',
-        escape: b'\\',
-        quote: b'"',
-        double_quote: false,
-        null_value: "NULL".to_string(),
-    };
-```
-#### We have 2 writing modes: Overwrite and Append
-```rust
-// overwrite existing file
-df.write_to_csv(
-    "overwrite", 
-    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
-    custom_csv_options
-)
-.await?;
-
-// append to exisiting file
-df.write_to_csv(
-    "append", 
-    "C:\\Borivoj\\RUST\\Elusion\\agg_sales.csv", 
-    custom_csv_options
-)
-.await?;
-
-```
----
-## Writing to JSON File
-
-#### JSON writer can only overwrite, so only 2 arguments needed
-#### 1. Path, 2. If you want pretty-printed JSON or not (true or false)
-```rust
-df.write_to_json(
-    "C:\\Borivoj\\RUST\\Elusion\\date_table.json", // path
-    true // pretty-printed JSON, false for compact JSON
-).await?;
-```
----
-## Writing to DELTA table / lake 
-#### We can write to delta in 2 modes **Overwrite** and **Append**
-#### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
-#### Once you decide to use partitioning column for writing your delta table, if you want to APPEND to it, append also need to have same column for partitioning
-```rust
-// Overwrite
-df.write_to_delta_table(
-    "overwrite",
-    "C:\\Borivoj\\RUST\\Elusion\\agg_sales", 
-    Some(vec!["order_date".into()]), 
-)
-.await
-.expect("Failed to overwrite Delta table");
-// Append
-df.write_to_delta_table(
-    "append",
-    "C:\\Borivoj\\RUST\\Elusion\\agg_sales",
-    Some(vec!["order_date".into()]),
-)
-.await
-.expect("Failed to append to Delta table");
-```
----
-## Writing Parquet to Azure BLOB Storage 
-#### We have 2 writing options "overwrite" and "append"
-#### Writing is set to Default, Compression: SNAPPY and Parquet 2.0
-#### Threshold file size is 1GB
-```rust
-let df = CustomDataFrame::new(csv_data, "sales").await?; 
-
-let query = df.select(["*"]);
-
-let data = query.elusion("df_sales").await?;
-
-let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/sales.parquet";
-let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
-
-data.write_parquet_to_azure_with_sas(
-    "overwrite",
-    url_to_folder_and_file_name,
-    sas_write_token
-).await?;
-
-// append version
-data.write_parquet_to_azure_with_sas(
-    "append",
-    url_to_folder_and_file_name,
-    sas_write_token
-).await?;
-```
----
-## Writing JSON to Azure BLOB Storage 
-#### Only can create new or overwrite exisitng file
-#### Threshold file size is 1GB
-```rust
-let df = CustomDataFrame::new(csv_data, "sales").await?; 
-
-let query = df.select(["*"]);
-
-let data = query.elusion("df_sales").await?;
-
-let url_to_folder_and_file_name = "https://your_storage_account_name.dfs.core.windows.net/your-container-name/folder/data.json";
-let sas_write_token = "your_sas_token"; // make sure SAS token has writing permissions
-
-data.write_json_to_azure_with_sas(
-    url_to_folder_and_file_name,
-    sas_write_token,
-    true  // Set to true for pretty-printed JSON, false for compact JSON
-).await?;
 ```
 ---
 # REPORTING
