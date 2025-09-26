@@ -61,7 +61,7 @@ You can enable only the features you need, which helps reduce dependencies and c
 </p>
 
 <p align="center">
-  Fabric &nbsp; &nbsp;&nbsp; Azure &nbsp; &nbsp; &nbsp; SharePoint &nbsp; &nbsp; FTP/FTPS &nbsp; &nbsp; Excel &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard 
+  Fabric &nbsp; &nbsp;&nbsp; Azure &nbsp; &nbsp; &nbsp; SharePoint &nbsp; &nbsp; &nbsp; FTP/FTPS &nbsp; &nbsp; &nbsp; Excel &nbsp; &nbsp; PostgreSQL &nbsp; &nbsp; MySQL &nbsp; &nbsp; API &nbsp; &nbsp; Dashboard 
 </p>
 
 | Feature | Description | Usage |
