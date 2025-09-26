@@ -5685,8 +5685,396 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: fabric feature not enabled. Add 'fabric' feature under [dependencies]".to_string()))
     }
 
-    //=================== LOCAL LOADERS ============================= //
+    // ================== FTP COnnector ========================== //
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftp(
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_impl(
+            server,
+            username,
+            password,
+            remote_path,
+            alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftp(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str,
+        _alias: &str
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
 
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftps(
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftps_impl(
+            server,
+            username,
+            password,
+            remote_path,
+            alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftps(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str,
+        _alias: &str
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftp_with_port(
+        server: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        remote_path: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_with_port_impl(
+            server,
+            port,
+            username,
+            password,
+            remote_path,
+            alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftp_with_port(
+        _server: &str,
+        _port: u16,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str,
+        _alias: &str
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftp_with_directory(
+        server: &str,
+        username: &str,
+        password: &str,
+        directory: &str,
+        remote_path: &str,
+        alias: &str
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_with_directory_impl(
+            server,
+            username,
+            password,
+            directory,
+            remote_path,
+            alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftp_with_directory(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _directory: &str,
+        _remote_path: &str,
+        _alias: &str
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Load all files from an FTP folder and union them if they have compatible schemas
+    /// Supports CSV, Excel, JSON, Parquet, and XML files
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftp_folder(
+        server: &str,
+        username: &str,
+        password: &str,
+        port: Option<u16>,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_folder_impl(
+            server,
+            username,
+            password,
+            port,
+            false,
+            folder_path,
+            file_extensions,
+            result_alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftp_folder(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _port: Option<u16>,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Load all files from an FTPS folder and union them if they have compatible schemas
+    /// Supports CSV, Excel, JSON, Parquet, and XML files
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftps_folder(
+        server: &str,
+        username: &str,
+        password: &str,
+        port: Option<u16>,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_folder_impl(
+            server,
+            username,
+            password,
+            port,
+            true,
+            folder_path,
+            file_extensions,
+            result_alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftps_folder(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _port: Option<u16>,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Load all files from an FTPS folder and union them if they have compatible schemas and andds column with file names
+    /// Supports CSV, Excel, JSON, Parquet, and XML files
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftp_folder_with_filename_column(
+        server: &str,
+        username: &str,
+        password: &str,
+        port: Option<u16>,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_folder_with_filename_column_impl(
+            server,
+            username,
+            password,
+            port,
+            false,
+            folder_path,
+            file_extensions,
+            result_alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftp_folder_with_filename_column(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _port: Option<u16>,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Load all files from an FTPS folder and union them if they have compatible schemas and andds column with file names
+    /// Supports CSV, Excel, JSON, Parquet, and XML files
+    #[cfg(feature = "ftp")]
+    pub async fn from_ftps_folder_with_filename_column(
+        server: &str,
+        username: &str,
+        password: &str,
+        port: Option<u16>,
+        folder_path: &str,
+        file_extensions: Option<Vec<&str>>,
+        result_alias: &str,
+    ) -> ElusionResult<Self> {
+        crate::features::ftp::from_ftp_folder_with_filename_column_impl(
+            server,
+            username,
+            password,
+            port,
+            true,
+            folder_path,
+            file_extensions,
+            result_alias
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn from_ftps_folder_with_filename_column(
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _port: Option<u16>,
+        _folder_path: &str,
+        _file_extensions: Option<Vec<&str>>,
+        _result_alias: &str,
+    ) -> ElusionResult<Self> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Write DataFrame result to FTP server as CSV
+    #[cfg(feature = "ftp")]
+    pub async fn write_csv_to_ftp(
+        &self,
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str
+    ) -> ElusionResult<()> {
+        crate::features::ftp::write_csv_to_ftp_impl(
+            self,
+            server,
+            username,
+            password,
+            remote_path
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn write_csv_to_ftp(
+        &self,
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Write DataFrame result to FTP server as EXCEL
+    #[cfg(feature = "ftp")]
+    pub async fn write_excel_to_ftp(
+        &self,
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str,
+        sheet_name: Option<&str>
+    ) -> ElusionResult<()> {
+        crate::features::ftp::write_excel_to_ftp_impl(
+            self,
+            server,
+            username,
+            password,
+            remote_path,
+            sheet_name
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn write_excel_to_ftp(
+        &self,
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str,
+        _sheet_name: Option<&str>
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Write DataFrame result to FTP server as Parquet
+    #[cfg(feature = "ftp")]
+    pub async fn write_parquet_to_ftp(
+        &self,
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str
+    ) -> ElusionResult<()> {
+        crate::features::ftp::write_parquet_to_ftp_impl(
+            self,
+            server,
+            username,
+            password,
+            remote_path
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn write_parquet_to_ftp(
+        &self,
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    /// Write DataFrame result to FTP server as JSON
+    #[cfg(feature = "ftp")]
+    pub async fn write_json_to_ftp(
+        &self,
+        server: &str,
+        username: &str,
+        password: &str,
+        remote_path: &str,
+        pretty: bool
+    ) -> ElusionResult<()> {
+        crate::features::ftp::write_json_to_ftp_impl(
+            self,
+            server,
+            username,
+            password,
+            remote_path,
+            pretty
+        ).await
+    }
+    
+    #[cfg(not(feature = "ftp"))]
+    pub async fn write_json_to_ftp(
+        &self,
+        _server: &str,
+        _username: &str,
+        _password: &str,
+        _remote_path: &str,
+        _pretty: bool
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: ftp feature not enabled. Add 'ftp' feature under [dependencies]".to_string()))
+    }
+
+    //=================== LOCAL LOADERS ============================= //
    
     /// LOAD function for XML files
     pub fn load_xml<'a>(file_path: &'a str, alias: &'a str) -> BoxFuture<'a, ElusionResult<AliasedDataFrame>> {
@@ -7792,4 +8180,3 @@ impl CustomDataFrame {
 
 
 }
-

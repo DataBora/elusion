@@ -1,3 +1,7 @@
+## [7.3.0] - 2025-09-26
+## ADDED
+- FTP/FTPS Connector for reading and writing files with numerous functions: from_ftp(), from_ftp_folder(), write_csv_to_ftp(), write_excel_to_ftp(), write_parquet_to_ftp()...
+
 ## [7.2.0] - 2025-09-24
 ## ADDED
 - FABRIC Service principal functions for production purposes: from_fabric_with_service_principal() and write_parquet_to_fabric_with_service_principal()
