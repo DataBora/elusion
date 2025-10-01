@@ -1623,13 +1623,13 @@ let processed_df = df
 ### ALIAS column names in SELECT() function (AS is case insensitive)
 ```rust
 let df_AS = select_df
-    .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]);
+    .select(["CustomerKey AS customerkey_alias", "FirstName as first_name", "LastName", "EmailAddress"]).elusion("df").await?;
 
-let df_select_all = select_df.select(["*"]);
+let df_select_all = select_df.select(["*"]).elusion("df1").await?;
 
-let df_count_all = select_df.select(["COUNT(*)"]);
+let df_count_all = select_df.select(["COUNT(*)"]).elusion("df2").await?;
 
-let df_distinct = select_df.select(["DISTINCT(column_name) as distinct_values"]);
+let df_distinct = select_df.select(["DISTINCT(column_name) as distinct_values"]).elusion("df3").await?;
 
 // example usage
 let join_result = sales_df
@@ -1638,7 +1638,7 @@ let join_result = sales_df
         (products_df, ["s.ProductKey = p.ProductKey"], "LEFT OUTER"),
     ])
     .select(["c.*","p.*"])
-    .elusion("sales_join") .await?;
+    .elusion("sales_join").await?;
 
 join_result.display().await?;
 
