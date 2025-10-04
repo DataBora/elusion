@@ -33,6 +33,9 @@ Tested for MacOS, Linux and Windows
 ## Fastest way to learn ELUSION
 [Elusion UDEMY Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
+## ELUSION ANTHEM to get you started! 🤘
+[Elusion Anthem](https://www.youtube.com/watch?v=sk8mVplzVI4)
+
 ---
 ## Key Features and Feature Flags
 Elusion uses Cargo feature flags to keep the library lightweight and modular. 
