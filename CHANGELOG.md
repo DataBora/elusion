@@ -1,3 +1,9 @@
+## [7.4.0] - 2025-10-05
+## IMPROVED
+- Error message for select() and group_by_all()
+## ADDED
+- drop_duplicates() function that creates new dataframe with removed duplicate rows by keeping first row occurence
+
 ## [7.3.0] - 2025-09-26
 ## ADDED
 - FTP/FTPS Connector for reading and writing files with numerous functions: from_ftp(), from_ftp_folder(), write_csv_to_ftp(), write_excel_to_ftp(), write_parquet_to_ftp()...
