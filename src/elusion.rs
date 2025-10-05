@@ -837,24 +837,6 @@ impl CustomDataFrame {
     // ==================== DATAFRAME Methods ====================
 
     /// Add JOIN clauses 
-    // pub fn join<const N: usize>(
-    //     mut self,
-    //     other: CustomDataFrame,
-    //     conditions: [&str; N],  // Keeping single array of conditions with "="
-    //     join_type: &str
-    // ) -> Self {
-    //     let condition = conditions.iter()
-    //         .map(|&cond| normalize_condition(cond))  // Keeping the "=" in condition
-    //         .collect::<Vec<_>>()
-    //         .join(" AND ");
-    
-    //     self.joins.push(Join {
-    //         dataframe: other,
-    //         condition,
-    //         join_type: join_type.to_string(),
-    //     });
-    //     self
-    // }
     pub fn join<const N: usize>(
         mut self,
         other: CustomDataFrame,
@@ -3297,6 +3279,122 @@ impl CustomDataFrame {
         }).collect()
     }
 
+    /// Remove duplicate rows across all columns, keeping the first occurrence
+    pub async fn drop_duplicates(
+        &self,
+        alias: &str,
+    ) -> ElusionResult<Self> {
+        let ctx = SessionContext::new();
+        
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        let columns_to_check: Vec<String> = self.df.schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        
+        let sql = Self::build_drop_duplicates_sql_first(&self.table_alias, &columns_to_check);
+        
+        let result_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "drop_duplicates execution".to_string(),
+                reason: format!("Failed to execute drop_duplicates: {}", e),
+                suggestion: "💡 Check if the DataFrame contains valid data".to_string(),
+            })?;
+        
+        let batches = result_df.clone().collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "drop_duplicates collection".to_string(),
+                reason: format!("Failed to collect results: {}", e),
+                suggestion: "💡 Check memory availability".to_string(),
+            })?;
+        
+        let mem_table = MemTable::try_new(
+            result_df.schema().clone().into(),
+            vec![batches]
+        ).map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to create result table: {}", e),
+            schema: Some(result_df.schema().to_string()),
+            suggestion: "💡 Check schema compatibility".to_string(),
+        })?;
+        
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Registration".to_string(),
+                reason: format!("Failed to register result table: {}", e),
+                suggestion: "💡 Try using a different alias name".to_string(),
+            })?;
+        
+        let final_df = ctx.table(alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Retrieval".to_string(),
+                reason: format!("Failed to retrieve final result: {}", e),
+                suggestion: "💡 This might be an internal issue - try a different alias".to_string(),
+            })?;
+        
+        Ok(CustomDataFrame {
+            df: final_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql,
+            aggregated_df: Some(result_df),
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false,
+        })
+    }
+
+    // /// Chainable duplicate removal across all columns, keeping first (lazy - executes on .elusion())
+    // pub fn drop_duplicates_lazy(mut self) -> Self {
+    //     self.set_operations.push("DROP_DUPLICATES".to_string());
+    //     self
+    // }
+    
+ 
+    //helper for drop duplicates
+    fn build_drop_duplicates_sql_first(table_alias: &str, columns: &[String]) -> String {
+        let partition_cols = columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        format!(
+            r#"WITH ranked_rows AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (PARTITION BY {} ORDER BY 1) as rn
+                FROM {}
+            )
+            SELECT * EXCEPT (rn)
+            FROM ranked_rows
+            WHERE rn = 1"#,
+            partition_cols,
+            normalize_alias(table_alias)
+        )
+    }
+
+
     /// Construct the SQL query based on the current state, including joins
     /// Optimized SQL construction with SqlBuilder and reduced allocations
     fn construct_sql(&self) -> String {
@@ -3969,10 +4067,10 @@ impl CustomDataFrame {
         
         if self.is_column_likely_in_select(missing_col) {
             return ColumnErrorContext {
-                context: format!("Column '{}' is referenced in SELECT clause", missing_col),
-                location: "select() function".to_string(),
+                context: format!("Column '{}' is wrongly referenced, or is NOT referenced at all in SELECT([...]) clause", missing_col),
+                location: "select([...]) function".to_string(),
                 suggestion: format!(
-                    "💡 Check your .select([...]) function. Column '{}' doesn't exist in the table. Use .df_schema() to see available columns", 
+                    "💡 [1] Use .df_schema() to see available columns. [2] Check your .select([...]), .string_functions([...]) and .datetime_functions([...]). [3] Column '{}' doesn't exist in the table OR is missing in SELECT function if you are using GROUP_BY_ALL(). [4] Maybe try to use GROUP_BY([...]) function and specify all select([...]) columns, and aliased columns from string_functions([...]) and .datetime_functions([...]).", 
                     missing_col
                 ),
             };

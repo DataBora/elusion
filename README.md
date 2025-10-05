@@ -169,7 +169,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "7.3.0"
+elusion = "7.4.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -183,25 +183,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.3.0", features = ["fabric"] }
+elusion = { version = "7.4.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.3.0"
+elusion = "7.4.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.3.0", features = ["dashboard", "api", "fabric", "ftp"] }
+elusion = { version = "7.4.0", features = ["dashboard", "api", "fabric", "ftp"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.3.0", features = ["all"] }
+elusion = { version = "7.4.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -1544,6 +1544,17 @@ let processed_df = df
     .fill_null(["age"], "0")
     .filter("age > 21")
     .elusion("adult_customers").await?;
+```
+---
+### DROP DUPLICATES
+#### Creates new dataframe with removed duplicate rows by keeping first row occurence
+#### CANNOT BE USED IN FUNCTION CHAIN. Need to be separatelly used before or after query.
+#### 1 argument needed: table alias
+```rust
+let dup_path = "C:\\Borivoj\\RUST\\Elusion\\duplicate_data.xlsx";
+let df_dup = CustomDataFrame::new(dup_path, "dup").await?;
+
+let unique_df = df_dup.drop_duplicates("unique").await?;
 ```
 ---
 ### FILL_DOWN function - fill_down() - that fills down null values in column with firs non null values above
