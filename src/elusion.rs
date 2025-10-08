@@ -3365,11 +3365,114 @@ impl CustomDataFrame {
         })
     }
 
-    // /// Chainable duplicate removal across all columns, keeping first (lazy - executes on .elusion())
-    // pub fn drop_duplicates_lazy(mut self) -> Self {
-    //     self.set_operations.push("DROP_DUPLICATES".to_string());
-    //     self
-    // }
+    /// Remove duplicate rows based on specified columns, keeping the first occurrence
+    pub async fn drop_duplicates_by_column(
+        &self,
+        columns: &[&str],
+        alias: &str,
+    ) -> ElusionResult<Self> {
+        // Validate that columns are not empty
+        if columns.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "drop_duplicates_by_column".to_string(),
+                reason: "No columns specified for duplicate detection".to_string(),
+                suggestion: "💡 Provide at least one column name, or use drop_duplicates() to check all columns".to_string(),
+            });
+        }
+
+        let ctx = SessionContext::new();
+        
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+        
+        // Validate that all specified columns exist in the DataFrame
+        let schema_fields: Vec<String> = self.df.schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        
+        let columns_to_check: Vec<String> = columns.iter().map(|s| s.to_string()).collect();
+        
+        for col in &columns_to_check {
+            if !schema_fields.contains(col) {
+                return Err(ElusionError::InvalidOperation {
+                    operation: "drop_duplicates_by_column".to_string(),
+                    reason: format!("Column '{}' does not exist in DataFrame", col),
+                    suggestion: format!("💡 Available columns: {}", schema_fields.join(", ")),
+                });
+            }
+        }
+        
+        let sql = Self::build_drop_duplicates_sql_first(&self.table_alias, &columns_to_check);
+        
+        let result_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "drop_duplicates_by_column execution".to_string(),
+                reason: format!("Failed to execute drop_duplicates_by_column: {}", e),
+                suggestion: "💡 Check if the DataFrame contains valid data".to_string(),
+            })?;
+        
+        let batches = result_df.clone().collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "drop_duplicates_by_column collection".to_string(),
+                reason: format!("Failed to collect results: {}", e),
+                suggestion: "💡 Check memory availability".to_string(),
+            })?;
+        
+        let mem_table = MemTable::try_new(
+            result_df.schema().clone().into(),
+            vec![batches]
+        ).map_err(|e| ElusionError::SchemaError {
+            message: format!("Failed to create result table: {}", e),
+            schema: Some(result_df.schema().to_string()),
+            suggestion: "💡 Check schema compatibility".to_string(),
+        })?;
+        
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Registration".to_string(),
+                reason: format!("Failed to register result table: {}", e),
+                suggestion: "💡 Try using a different alias name".to_string(),
+            })?;
+        
+        let final_df = ctx.table(alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Result Retrieval".to_string(),
+                reason: format!("Failed to retrieve final result: {}", e),
+                suggestion: "💡 This might be an internal issue - try a different alias".to_string(),
+            })?;
+        
+        Ok(CustomDataFrame {
+            df: final_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql,
+            aggregated_df: Some(result_df),
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false,
+        })
+    }
     
  
     //helper for drop duplicates
