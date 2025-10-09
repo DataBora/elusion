@@ -1836,7 +1836,7 @@ checksum = "b7914353092ddf589ad78f25c5c1c21b7f80b0ff8621e7c814c3485b5306da9d"
 
 [[package]]
 name = "elusion"
-version = "7.5.0"
+version = "7.6.0"
 dependencies = [
  "arrow",
  "azure_core 0.28.0",
