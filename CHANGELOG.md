@@ -1,3 +1,7 @@
+## [7.6.0] - 2025-10-09
+## ENHANCED
+- Schema Type conversion for Excel file reading
+
 ## [7.5.0] - 2025-10-08
 ## ADDED
 - drop_duplicates_by_column() function that creates new dataframe with removed duplicate rows by keeping first row occurence

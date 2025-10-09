@@ -26,7 +26,7 @@ pub use datafusion::datasource::MemTable;
 pub use std::sync::Arc;
 pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use chrono::NaiveDate;
-pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array};
+pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array, Date32Builder, TimestampMillisecondBuilder};
 
 pub use arrow::record_batch::RecordBatch;
 pub use ArrowDataType::*;
