@@ -7899,6 +7899,54 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled.".to_string()))
     }
 
+    /// Export PLOT to PNG
+    #[cfg(feature = "dashboard")]
+    pub async fn export_plot_to_png(
+        plot: &PlotlyPlot,
+        filename: &str,
+        width: u32,
+        height: u32,
+    ) -> ElusionResult<()> {
+        crate::features::dashboard::export_plot_to_png_impl(plot, filename, width, height).await
+    }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn export_plot_to_png(
+        _plot: &PlotlyPlot,
+        _filename: &str,
+        _width: u32,
+        _height: u32,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled. Add feature dashboard under [dependencies]".to_string()))
+    }
+
+    /// Export report to PDF
+    #[cfg(feature = "dashboard")]
+    pub async fn export_report_to_pdf(
+        plots: Option<&[(&PlotlyPlot, &str)]>,
+        tables: Option<&[(&CustomDataFrame, &str)]>,
+        report_title: &str,
+        pdf_filename: &str,
+        layout_config: Option<ReportLayout>,
+        table_options: Option<TableOptions>,
+    ) -> ElusionResult<()> {
+        crate::features::dashboard::export_report_to_pdf_impl(
+            plots, tables, report_title, pdf_filename, layout_config, table_options
+        ).await
+    }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn export_report_to_pdf(
+        _plots: Option<&[(&PlotlyPlot, &str)]>,
+        _tables: Option<&[(&CustomDataFrame, &str)]>,
+        _report_title: &str,
+        _pdf_filename: &str,
+        _layout_config: Option<ReportLayout>,
+        _table_options: Option<TableOptions>,
+    ) -> ElusionResult<()> {
+        Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled. Add feature dashboard under [dependencies]".to_string()))
+    }
+
 
     // ============== CSV STREAMING =================
 

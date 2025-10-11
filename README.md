@@ -169,7 +169,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "7.6.0"
+elusion = "7.7.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -183,25 +183,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.6.0", features = ["fabric"] }
+elusion = { version = "7.7.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.6.0"
+elusion = "7.7.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.6.0", features = ["dashboard", "api", "fabric", "ftp"] }
+elusion = { version = "7.7.0", features = ["dashboard", "api", "fabric", "ftp"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.6.0", features = ["all"] }
+elusion = { version = "7.7.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -3222,11 +3222,13 @@ let sales_order_df = CustomDataFrame::new(ord, "ord").await?;
 let mix_query = sales_order_df
 .select([
     "customer_name",
-    "order_date",
     "ABS(billable_value) AS abs_billable_value",
     "ROUND(SQRT(billable_value), 2) AS SQRT_billable_value",
     "billable_value * 2 AS double_billable_value",  // Multiplication
     "billable_value / 100 AS percentage_billable"  // Division
+])
+.string_functions([
+    "CAST(order_date AS DATE) AS order_date",
 ])
 .agg([
     "ROUND(AVG(ABS(billable_value)), 2) AS avg_abs_billable",
@@ -3236,7 +3238,14 @@ let mix_query = sales_order_df
     "SUM(billable_value) / 100 AS percentage_total_billable" // Operator-based aggregation
 ])
 .filter("billable_value > 50.0")
-.group_by_all()
+.group_by(["customer_name",
+    "order_date",  
+    "billable_value",
+    "abs_billable_value",
+    "SQRT_billable_value",
+    "double_billable_value",
+    "percentage_billable"
+])           
 .order_by_many([
     ("total_billable", "DESC"),  
     ("max_abs_billable", "ASC"), 
@@ -3382,6 +3391,27 @@ CustomDataFrame::create_report(
     "C:\\Borivoj\\RUST\\Elusion\\Plots\\interactive_aggrid_dashboard.html", // filename
     Some(layout),      // layout_config (Optional)
     Some(table_options)  // table_options (Optional)
+).await?;
+```
+#### Coverting Report to PDF
+```rust
+// Export the entire report (with all plots and tables) to PDF
+CustomDataFrame::export_report_to_pdf(
+    Some(&plots),
+    Some(&tables),
+    "Interactive Sales Analysis Dashboard",
+    "C:\\Borivoj\\RUST\\Elusion\\Plots\\improvements_dashboard.pdf", // REPORT PATH
+    Some(layout),
+    Some(table_options),
+).await?;
+```
+#### Exporting Individual Plot to PNG
+```rust
+CustomDataFrame::export_plot_to_png(
+    &bars,
+    "C:\\Borivoj\\RUST\\Elusion\\Plots\\sales_line_plot.png",
+    1200,
+    600
 ).await?;
 ```
 ### Dashboard Demo

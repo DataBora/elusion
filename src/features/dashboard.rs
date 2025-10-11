@@ -1,5 +1,9 @@
 
 use crate::prelude::*;
+#[cfg(feature = "dashboard")]
+use headless_chrome::{Browser, LaunchOptions};
+#[cfg(feature = "dashboard")]
+use uuid::Uuid;
 
 //======= Ploting Helper functions
 #[cfg(feature = "dashboard")]
@@ -1355,6 +1359,34 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                         --ag-font-size: 17px;
                         --ag-header-height: 40px;
                     }}
+
+                    /* NEW: Print-specific styles for PDF to prevent splits */
+                    @media print {{
+                        @page {{
+                            size: A4 portrait; /* Or 'letter' if preferred; matches your 8.5x11 */
+                            margin: 1cm; /* Override code margins for consistency */
+                        }}
+                        body {{
+                            margin: 0;
+                        }}
+                        .container {{
+                            box-shadow: none;
+                            border-radius: 0;
+                        }}
+                        .controls, .loading {{
+                            display: none; /* Hide non-essential elements in PDF */
+                        }}
+                        .plot-container, .table-container {{
+                            page-break-inside: avoid;
+                            break-inside: avoid;
+                            break-before: auto;
+                            break-after: auto;
+                            margin-bottom: 20px; /* Add space between elements */
+                        }}
+                        .grid {{
+                            display: block; /* Switch to block for linear PDF flow */
+                        }}
+                    }}
                 </style>
             </head>
             <body>
@@ -1578,6 +1610,263 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             });
         "#);
 
+        js.push_str(r#"
+        // Global filter state
+        let globalFilters = {
+            dateRange: { start: null, end: null },
+            selectedCategories: new Set(),
+            selectedPoints: new Set()
+        };
+
+        // Initialize cross-filtering
+        function initializeCrossFiltering() {
+            // Add date range picker if time series plots exist
+            if (document.querySelector('[data-plot-type="time-series"]')) {
+                addDateRangeFilter();
+            }
+
+            // Setup plot selection events
+            setupPlotSelectionEvents();
+
+            // Setup table filtering
+            setupTableFiltering();
+        }
+
+        // Add date range filter control
+        function addDateRangeFilter() {
+            const filterContainer = document.createElement('div');
+            filterContainer.className = 'date-range-filter';
+            filterContainer.innerHTML = `
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="margin-top: 0;">Date Range Filter</h3>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="date" id="startDate" style="padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
+                        <span>to</span>
+                        <input type="date" id="endDate" style="padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
+                        <button onclick="applyDateFilter()" style="padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Apply Filter</button>
+                        <button onclick="clearDateFilter()" style="padding: 6px 12px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear</button>
+                    </div>
+                </div>
+            `;
+            
+            const container = document.querySelector('.container');
+            const controls = document.querySelector('.controls');
+            container.insertBefore(filterContainer, controls.nextSibling);
+        }
+
+        function applyDateFilter() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (startDate && endDate) {
+                globalFilters.dateRange.start = new Date(startDate);
+                globalFilters.dateRange.end = new Date(endDate);
+                
+                // Apply to all plots
+                document.querySelectorAll('.plot-container').forEach((container, index) => {
+                    const plotDiv = container.querySelector(`[id^="plot_"]`);
+                    if (plotDiv && plotDiv.data) {
+                        const filteredData = filterPlotData(plotDiv.data, globalFilters.dateRange);
+                        Plotly.react(plotDiv, filteredData, plotDiv.layout);
+                    }
+                });
+                
+                // Apply to tables
+                applyTableDateFilter();
+                
+                showNotification('Date filter applied', 'info');
+            }
+        }
+
+        function clearDateFilter() {
+            globalFilters.dateRange.start = null;
+            globalFilters.dateRange.end = null;
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            
+            // Reset all plots
+            document.querySelectorAll('.plot-container').forEach((container, index) => {
+                const plotDiv = container.querySelector(`[id^="plot_"]`);
+                const originalData = JSON.parse(container.dataset.plotData);
+                Plotly.react(plotDiv, originalData, plotDiv.layout);
+            });
+            
+            // Clear table filters
+            clearTableFilters();
+            
+            showNotification('Filters cleared', 'info');
+        }
+
+        function filterPlotData(data, dateRange) {
+            if (!dateRange.start || !dateRange.end) return data;
+            
+            return data.map(trace => {
+                if (trace.x && Array.isArray(trace.x)) {
+                    const filteredIndices = [];
+                    trace.x.forEach((x, i) => {
+                        const date = new Date(x);
+                        if (date >= dateRange.start && date <= dateRange.end) {
+                            filteredIndices.push(i);
+                        }
+                    });
+                    
+                    return {
+                        ...trace,
+                        x: filteredIndices.map(i => trace.x[i]),
+                        y: filteredIndices.map(i => trace.y[i])
+                    };
+                }
+                return trace;
+            });
+        }
+
+        function setupPlotSelectionEvents() {
+            document.querySelectorAll('.plot-container').forEach((container, index) => {
+                const plotDiv = container.querySelector(`[id^="plot_"]`);
+                
+                if (plotDiv) {
+                    // Selection event for scatter/line plots
+                    plotDiv.on('plotly_selected', function(eventData) {
+                        if (!eventData || !eventData.points) return;
+                        
+                        // Store selected points
+                        globalFilters.selectedPoints.clear();
+                        eventData.points.forEach(point => {
+                            globalFilters.selectedPoints.add({
+                                x: point.x,
+                                y: point.y,
+                                curveNumber: point.curveNumber
+                            });
+                        });
+                        
+                        // Highlight corresponding points in other plots
+                        highlightConnectedPoints(index);
+                        
+                        // Filter tables based on selection
+                        filterTablesBySelection();
+                    });
+                    
+                    // Click event for bar/pie charts
+                    plotDiv.on('plotly_click', function(data) {
+                        if (!data || !data.points || data.points.length === 0) return;
+                        
+                        const point = data.points[0];
+                        const category = point.x || point.label;
+                        
+                        if (category) {
+                            if (globalFilters.selectedCategories.has(category)) {
+                                globalFilters.selectedCategories.delete(category);
+                            } else {
+                                globalFilters.selectedCategories.add(category);
+                            }
+                            
+                            updateCategoryHighlights();
+                            filterTablesByCategories();
+                        }
+                    });
+                }
+            });
+        }
+
+        function highlightConnectedPoints(sourceIndex) {
+            document.querySelectorAll('.plot-container').forEach((container, index) => {
+                if (index === sourceIndex) return;
+                
+                const plotDiv = container.querySelector(`[id^="plot_"]`);
+                if (plotDiv && plotDiv.data) {
+                    // Create highlight effect
+                    const update = {
+                        'marker.color': [],
+                        'marker.size': []
+                    };
+                    
+                    plotDiv.data[0].x.forEach((x, i) => {
+                        const isSelected = Array.from(globalFilters.selectedPoints).some(
+                            p => p.x === x && p.y === plotDiv.data[0].y[i]
+                        );
+                        update['marker.color'].push(isSelected ? 'red' : 'blue');
+                        update['marker.size'].push(isSelected ? 12 : 8);
+                    });
+                    
+                    Plotly.restyle(plotDiv, update, [0]);
+                }
+            });
+        }
+
+        function setupTableFiltering() {
+            // Add filter input for each table
+            document.querySelectorAll('.table-container').forEach((container) => {
+                const filterDiv = document.createElement('div');
+                filterDiv.innerHTML = `
+                    <input type="text" 
+                           placeholder="Type to filter table..." 
+                           class="table-filter-input"
+                           style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                `;
+                container.insertBefore(filterDiv, container.querySelector('[id^="grid_"]'));
+                
+                filterDiv.querySelector('input').addEventListener('input', function(e) {
+                    const gridElement = container.querySelector('[id^="grid_"]');
+                    if (gridElement && gridElement.gridOptions) {
+                        gridElement.gridOptions.api.setQuickFilter(e.target.value);
+                    }
+                });
+            });
+        }
+
+        function applyTableDateFilter() {
+            document.querySelectorAll('[id^="grid_"]').forEach(gridElement => {
+                if (gridElement.gridOptions && globalFilters.dateRange.start) {
+                    const api = gridElement.gridOptions.api;
+                    api.setFilterModel({
+                        // Apply date filter to date columns
+                        date: {
+                            type: 'inRange',
+                            dateFrom: globalFilters.dateRange.start.toISOString().split('T')[0],
+                            dateTo: globalFilters.dateRange.end.toISOString().split('T')[0]
+                        }
+                    });
+                    api.onFilterChanged();
+                }
+            });
+        }
+
+        function clearTableFilters() {
+            document.querySelectorAll('[id^="grid_"]').forEach(gridElement => {
+                if (gridElement.gridOptions) {
+                    gridElement.gridOptions.api.setFilterModel(null);
+                }
+            });
+        }
+
+        // Initialize everything when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                initializeCrossFiltering();
+            }, 1000);
+        });
+
+        // Helper functions
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                padding: 10px 20px;
+                border-radius: 4px;
+                color: white;
+                background: ${type === 'error' ? '#dc3545' : '#007bff'};
+                z-index: 1000;
+                animation: slideIn 0.5s ease-out;
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+    "#);
+
         // Plots JavaScript
         if has_plots {
             js.push_str(&format!(r#"
@@ -1776,3 +2065,279 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         js
     }
 
+   // EXPORTING TO PDS AND PNG
+   #[cfg(feature = "dashboard")]
+    pub async fn export_plot_to_png_impl(
+        plot: &PlotlyPlot,
+        filename: &str,
+        width: u32,
+        height: u32,
+    ) -> ElusionResult<()> {
+        // Create HTML with single plot
+        let html_content = format!(
+            r#"<!DOCTYPE html>
+            <html>
+            <head>
+                <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+                <style>
+                    body {{ margin: 0; padding: 0; }}
+                    #plot {{ width: {}px; height: {}px; }}
+                </style>
+            </head>
+            <body>
+                <div id="plot"></div>
+                <script>
+                    const data = {};
+                    const layout = {};
+                    layout.width = {};
+                    layout.height = {};
+                    Plotly.newPlot('plot', data, layout, {{
+                        staticPlot: true,
+                        displayModeBar: false
+                    }}).then(function(gd) {{
+                        return Plotly.toImage(gd, {{
+                            format: 'png',
+                            width: {},
+                            height: {}
+                        }});
+                    }}).then(function(dataUrl) {{
+                        // Store the image data for retrieval
+                        window.plotlyImageData = dataUrl;
+                    }});
+                </script>
+            </body>
+            </html>"#,
+            width, height,
+            serde_json::to_string(plot.data()).unwrap(),
+            serde_json::to_string(plot.layout()).unwrap(),
+            width, height,
+            width, height
+        );
+
+        // Use headless Chrome to render and capture
+        let browser = Browser::new(LaunchOptions {
+            headless: true,
+            window_size: Some((width, height)),
+            ..Default::default()
+        }).map_err(|e| ElusionError::Custom(format!("Failed to launch browser: {}", e)))?;
+
+        let tab = browser.new_tab()
+            .map_err(|e| ElusionError::Custom(format!("Failed to create tab: {}", e)))?;
+
+        // Create temp HTML file
+        let temp_html = format!("{}.html", Uuid::new_v4());
+        std::fs::write(&temp_html, html_content)?;
+
+        // Get absolute path and convert to proper file URL
+        let absolute_path = std::fs::canonicalize(&temp_html)
+            .map_err(|e| ElusionError::Custom(format!("Failed to canonicalize path: {}", e)))?;
+        
+        // Convert path to proper file URL based on platform
+        let file_url = {
+            let mut path_str = absolute_path.to_str()
+                .ok_or_else(|| ElusionError::Custom("Invalid UTF-8 in path".to_string()))?
+                .to_string();
+            
+            #[cfg(target_os = "windows")]
+            {
+                // Remove Windows UNC prefix if present (\\?\)
+                if path_str.starts_with(r"\\?\") {
+                    path_str = path_str[4..].to_string();
+                }
+                // Convert backslashes to forward slashes
+                path_str = path_str.replace('\\', "/");
+                format!("file:///{}", path_str)
+            }
+            
+            #[cfg(target_os = "macos")]
+            {
+                format!("file://{}", path_str)
+            }
+            
+            #[cfg(target_os = "linux")]
+            {
+                format!("file://{}", path_str)
+            }
+            
+            #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+            {
+                format!("file://{}", path_str)
+            }
+        };
+
+        println!("📄 Navigating to: {}", file_url);
+
+        tab.navigate_to(&file_url)
+            .map_err(|e| ElusionError::Custom(format!("Failed to navigate to {}: {}", file_url, e)))?;
+
+        // Wait for plot to render
+        tab.wait_until_navigated()
+            .map_err(|e| ElusionError::Custom(format!("Navigation timeout: {}", e)))?;
+        
+        // Additional wait for JavaScript execution
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // Get the image data
+        let result = tab.evaluate(
+            "window.plotlyImageData",
+            false
+        ).map_err(|e| ElusionError::Custom(format!("Failed to get image data: {}", e)))?;
+
+        if let Some(data_url) = result.value {
+            if let Some(url_str) = data_url.as_str() {
+                // Remove data URL prefix
+                let base64_data = url_str.replace("data:image/png;base64,", "");
+                let image_data = STANDARD.decode(base64_data)
+                    .map_err(|e| ElusionError::Custom(format!("Failed to decode image: {}", e)))?;
+                
+                std::fs::write(filename, image_data)?;
+                println!("✅ Plot exported to PNG: {}", filename);
+            }
+        }
+
+        // Cleanup
+        if let Err(e) = std::fs::remove_file(temp_html) {
+            eprintln!("⚠️  Warning: Failed to remove temp HTML file: {}", e);
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "dashboard")]
+    pub async fn export_report_to_pdf_impl(
+        plots: Option<&[(&PlotlyPlot, &str)]>,
+        tables: Option<&[(&CustomDataFrame, &str)]>,
+        report_title: &str,
+        pdf_filename: &str,
+        layout_config: Option<ReportLayout>,
+        table_options: Option<TableOptions>,
+    ) -> ElusionResult<()> {
+        use headless_chrome::types::PrintToPdfOptions;
+        
+        // First create HTML report in the same directory as the PDF
+        let pdf_path = LocalPath::new(pdf_filename);
+        let temp_html_path = if let Some(parent) = pdf_path.parent() {
+            parent.join(format!("temp_{}.html", Uuid::new_v4()))
+        } else {
+            LocalPath::new(&format!("temp_{}.html", Uuid::new_v4())).to_path_buf()
+        };
+        
+        let temp_html = temp_html_path.to_str()
+            .ok_or_else(|| ElusionError::Custom("Invalid temp HTML path".to_string()))?;
+
+        create_report_impl(
+            plots,
+            tables,
+            report_title,
+            temp_html,
+            layout_config,
+            table_options
+        ).await?;
+
+        // Use headless Chrome to convert HTML to PDF
+        let browser = Browser::new(LaunchOptions {
+            headless: true,
+            window_size: Some((1920, 1080)),
+            ..Default::default()
+        }).map_err(|e| ElusionError::Custom(format!("Failed to launch browser: {}", e)))?;
+
+        let tab = browser.new_tab()
+            .map_err(|e| ElusionError::Custom(format!("Failed to create tab: {}", e)))?;
+
+        // Get absolute path and convert to proper file URL
+        let absolute_path = std::fs::canonicalize(temp_html)
+            .map_err(|e| ElusionError::Custom(format!("Failed to canonicalize path: {}", e)))?;
+        
+        // Convert path to proper file URL based on platform
+        let file_url = {
+            let mut path_str = absolute_path.to_str()
+                .ok_or_else(|| ElusionError::Custom("Invalid UTF-8 in path".to_string()))?
+                .to_string();
+            
+            #[cfg(target_os = "windows")]
+            {
+                // Remove Windows UNC prefix if present (\\?\)
+                if path_str.starts_with(r"\\?\") {
+                    path_str = path_str[4..].to_string();
+                }
+                // Convert backslashes to forward slashes
+                path_str = path_str.replace('\\', "/");
+                format!("file:///{}", path_str)
+            }
+            
+            #[cfg(target_os = "macos")]
+            {
+                format!("file://{}", path_str)
+            }
+            
+            #[cfg(target_os = "linux")]
+            {
+                format!("file://{}", path_str)
+            }
+            
+            #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+            {
+                format!("file://{}", path_str)
+            }
+        };
+
+        println!("📄 Navigating to: {}", file_url);
+
+        // Navigate to the HTML file
+        tab.navigate_to(&file_url)
+            .map_err(|e| ElusionError::Custom(format!("Failed to navigate to {}: {}", file_url, e)))?;
+
+        // Wait for content to load
+        tab.wait_until_navigated()
+            .map_err(|e| ElusionError::Custom(format!("Navigation timeout: {}", e)))?;
+        
+        // Additional wait for JavaScript execution (plots and tables rendering)
+        std::thread::sleep(std::time::Duration::from_secs(7));
+
+        // Wait for specific elements to ensure full rendering
+        tab.wait_for_element("body")
+            .map_err(|e| ElusionError::Custom(format!("Failed to find body element: {}", e)))?;
+
+        // Generate PDF with options
+        let pdf_options = PrintToPdfOptions {
+            landscape: Some(false),
+            display_header_footer: Some(true),
+            print_background: Some(true),
+            scale: Some(1.0),
+            paper_width: Some(8.5),
+            paper_height: Some(11.0),
+            margin_top: Some(0.4),
+            margin_bottom: Some(0.4),
+            margin_left: Some(0.4),
+            margin_right: Some(0.4),
+            page_ranges: None,
+            ignore_invalid_page_ranges: None,
+            header_template: Some(String::new()),
+            footer_template: Some(String::new()),
+            prefer_css_page_size: Some(true),
+            transfer_mode: None,
+            generate_document_outline: Some(false),
+            generate_tagged_pdf: Some(false),
+        };
+
+        // Generate PDF
+        let pdf_data = tab.print_to_pdf(Some(pdf_options))
+            .map_err(|e| ElusionError::Custom(format!("Failed to generate PDF: {}", e)))?;
+
+        // Ensure parent directory exists for PDF
+        if let Some(parent) = LocalPath::new(pdf_filename).parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+
+        std::fs::write(pdf_filename, pdf_data)?;
+        println!("✅ Report exported to PDF: {}", pdf_filename);
+
+        // Cleanup
+        if let Err(e) = std::fs::remove_file(temp_html) {
+            eprintln!("⚠️  Warning: Failed to remove temp HTML file: {}", e);
+        }
+
+        Ok(())
+    }

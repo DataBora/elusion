@@ -1,3 +1,7 @@
+## [7.7.0] - 2025-10-11
+## ADDED
+- New features for DASHBOARD: export_report_to_pdf(), export_plot_to_png()
+
 ## [7.6.0] - 2025-10-09
 ## ENHANCED
 - Schema Type conversion for Excel file reading

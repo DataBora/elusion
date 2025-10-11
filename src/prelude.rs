@@ -90,6 +90,7 @@ pub use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
 pub use plotly::layout::{DragMode, RangeSlider};
 #[cfg(feature = "dashboard")]
 pub use std::cmp::Ordering;
+
 #[cfg(not(feature = "dashboard"))]
 pub struct PlotlyPlot;
 
