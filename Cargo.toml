@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "7.6.0"
+version = "7.7.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -50,10 +50,12 @@ redis = { version = "0.32.5", features = ["tokio-comp", "connection-manager"] }
 xml = "1.0.0"
 parquet = { version = "53.0.0", optional = true }
 suppaftp = {version = "7.0.4", features = ["native-tls"], optional = true}
+headless_chrome = {version = "1.0.18", optional = true }
+uuid = {version = "1.18.1" , features = ["v4"], optional = true } 
 
 [features]
 default = []
-dashboard = ["dep:plotly"]
+dashboard = ["dep:plotly", "headless_chrome", "dep:uuid"]
 api = ["dep:reqwest", "dep:urlencoding"]
 azure = ["dep:azure_storage_blobs", "dep:azure_storage", "dep:reqwest"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
