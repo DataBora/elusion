@@ -169,7 +169,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "7.7.0"
+elusion = "7.8.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 ## Rust version needed
@@ -183,25 +183,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.7.0", features = ["fabric"] }
+elusion = { version = "7.8.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.7.0"
+elusion = "7.8.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.7.0", features = ["dashboard", "api", "fabric", "ftp"] }
+elusion = { version = "7.8.0", features = ["dashboard", "api", "fabric", "ftp"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.7.0", features = ["all"] }
+elusion = { version = "7.8.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -3212,7 +3212,8 @@ let json_df = CustomDataFrame::new(json_path, "test2").await?;
 ---
 # REPORTING
 ### CREATING REPORT with Interactive Plots/Visuals and Tables
-### Export Table data to EXCEL and CSV
+#### If you have time series plots, you will get auto generated Calendar filtering on the top of the HTML
+### Export Table data to EXCEL
 #### Currently available Interactive Plots: TimeSeries, Box, Bar, Histogram, Pie, Donut, Scatter...
 #### Interactive Tables can: Paginate pages, Filter, Reorder, Resize columns...
 ```rust

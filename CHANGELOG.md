@@ -1,3 +1,25 @@
+## [7.8.0] - 2025-10-12
+### Added
+- **Dashboard Filtering Features** (requires `dashboard` feature flag)
+  - Date range filtering for time-series plots with calendar picker UI
+  - Cross-plot filtering - selections in one plot highlight corresponding points in others
+  - Point selection and deselection handlers for interactive data exploration
+  - Table quick-filter for real-time search across all columns
+  - "Reset All Filters" button to clear all active filters
+  - Visual indicators for filtered/selected plot states
+
+### Fixed
+- Number formatting in Excel exports now correctly handles both US and European locale formats
+- Excel exports now use proper numeric cell types instead of formatted strings
+- Column widths in Excel exports set to 20 characters for better readability
+- Date column detection and formatting in Excel exports
+
+### Changed
+- Excel export button label updated to "Export tables to Excel" for clarity
+- Removed CSV export option (Excel-only export now)
+- Improved table title sanitization for exported filenames
+
+
 ## [7.7.0] - 2025-10-11
 ## ADDED
 - New features for DASHBOARD: export_report_to_pdf(), export_plot_to_png()
