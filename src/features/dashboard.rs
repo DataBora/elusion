@@ -952,19 +952,26 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         // Create plot containers HTML if plots are provided
         let plot_containers = plots.map(|plots| {
             plots.iter().enumerate()
-                .map(|(i, (plot, title))| format!(
-                    r#"<div class="plot-container" 
-                        data-plot-data='{}'
-                        data-plot-layout='{}'>
-                        <div class="plot-title">{}</div>
-                        <div id="plot_{}" style="width:100%;height:{}px;"></div>
-                    </div>"#,
-                    serde_json::to_string(plot.data()).unwrap(),
-                    serde_json::to_string(plot.layout()).unwrap(),
-                    title,
-                    i,
-                    layout.plot_height
-                ))
+                .map(|(i, (plot, title))| {
+                    let plot_data = serde_json::to_string(plot.data())
+                        .unwrap_or_else(|_| "[]".to_string());
+                    let plot_layout = serde_json::to_string(plot.layout())
+                        .unwrap_or_else(|_| "{}".to_string());
+                    
+                    format!(
+                        r#"<div class="plot-container" 
+                            data-plot-data='{}'
+                            data-plot-layout='{}'>
+                            <div class="plot-title">{}</div>
+                            <div id="plot_{}" style="width:100%;height:{}px;"></div>
+                        </div>"#,
+                        plot_data,
+                        plot_layout,
+                        title,
+                        i,
+                        layout.plot_height
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         }).unwrap_or_default();
@@ -1153,7 +1160,7 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 let container = format!(
                     r#"<div class="table-container">
                         <div class="table-title">{0}</div>
-                        <div id="grid_{1}" class="{2}" style="width:100%;height:{3}px;">
+                         <div id="grid_{1}"class="{2}"style="width:100%;height:{3}px;"data-table-title="{0}">
                             <!-- AG Grid will be rendered here -->
                         </div>
                         <script>
@@ -1261,6 +1268,18 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                         border-radius: 8px;
                         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                     }}
+                    .plot-container.has-selection {{
+                        border: 2px solid #007bff;
+                        box-shadow: 0 0 10px rgba(0,123,255,0.3);
+                    }}
+
+                    .category-selected {{
+                        opacity: 1 !important;
+                    }}
+
+                    .category-dimmed {{
+                        opacity: 0.3 !important;
+                    }}
                     h1 {{
                         color: #333;
                         text-align: center;
@@ -1337,6 +1356,7 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                         padding: 20px;
                         border-radius: 8px;
                         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        z-index: 9999;
                     }}
                     .ag-cell-font-size {{
                         font-size: 17px;
@@ -1524,14 +1544,16 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         
         if has_plots {
             controls.extend_from_slice(&[
-                r#"<button onclick="toggleGrid()">Toggle Layout</button>"#
+                r#"<button onclick="toggleGrid()">Toggle Layout</button>"#,
+                r#"<button onclick="resetAllFilters()">Reset All Filters</button>"#,
+              //  r#"<button onclick="initializeCrossFiltering()">Initialize Filters</button>"#,  // DEBUG BUTTON
             ]);
         }
         
         if has_tables {
             controls.extend_from_slice(&[
-                r#"<button onclick="exportAllTables()" class="export-button">Export to CSV</button>"#,
-                r#"<button onclick="exportToExcel()" class="export-button">Export to Excel</button>"#
+               // r#"<button onclick="exportAllTables()" class="export-button">Export to CSV</button>"#,
+                r#"<button onclick="exportToExcel()" class="export-button">Export tables to Excel</button>"#
             ]);
         }
         
@@ -1620,9 +1642,37 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
 
         // Initialize cross-filtering
         function initializeCrossFiltering() {
-            // Add date range picker if time series plots exist
-            if (document.querySelector('[data-plot-type="time-series"]')) {
+            console.log('Initializing cross-filtering...');
+            
+            // Check if ANY plot has a date axis
+            let hasDateAxis = false;
+            document.querySelectorAll('.plot-container').forEach(container => {
+                try {
+                    const layoutData = container.dataset.plotLayout;
+                    console.log('Raw layout data:', layoutData);
+                    
+                    if (!layoutData || layoutData === 'undefined' || layoutData === '{}') {
+                        console.warn('No valid layout data for container:', container);
+                        return;
+                    }
+                    
+                    const layout = JSON.parse(layoutData);
+                    console.log('Parsed layout:', layout);
+                    
+                    if (layout.xaxis && layout.xaxis.type === 'date') {
+                        hasDateAxis = true;
+                        console.log('Found plot with date axis!');
+                    }
+                } catch (e) {
+                    console.error('Error parsing layout:', e, 'for container:', container);
+                }
+            });
+            
+            console.log('Has date axis:', hasDateAxis);
+            if (hasDateAxis) {
                 addDateRangeFilter();
+            } else {
+                console.log('No date axis plots found, skipping date filter');
             }
 
             // Setup plot selection events
@@ -1634,11 +1684,39 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
 
         // Add date range filter control
         function addDateRangeFilter() {
+            // Count how many time-series plots exist
+            let timeSeriesCount = 0;
+            document.querySelectorAll('.plot-container').forEach(container => {
+                try {
+                    const layoutData = container.dataset.plotLayout;
+                    
+                    // Skip if no valid layout data
+                    if (!layoutData || layoutData === 'undefined' || layoutData === '{}') {
+                        return;
+                    }
+                    
+                    const layout = JSON.parse(layoutData);
+                    if (layout.xaxis && layout.xaxis.type === 'date') {
+                        timeSeriesCount++;
+                    }
+                } catch (e) {
+                    console.error('Error parsing layout in addDateRangeFilter:', e);
+                }
+            });
+            
+            if (timeSeriesCount === 0) {
+                console.log('No time-series plots found, not adding date filter');
+                return;
+            }
+            
             const filterContainer = document.createElement('div');
             filterContainer.className = 'date-range-filter';
             filterContainer.innerHTML = `
                 <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
                     <h3 style="margin-top: 0;">Date Range Filter</h3>
+                    <p style="font-size: 14px; color: #666; margin: 5px 0;">
+                        Applies to ${timeSeriesCount} time-series plot(s)
+                    </p>
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="date" id="startDate" style="padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
                         <span>to</span>
@@ -1651,7 +1729,9 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             
             const container = document.querySelector('.container');
             const controls = document.querySelector('.controls');
-            container.insertBefore(filterContainer, controls.nextSibling);
+            if (container && controls) {
+                container.insertBefore(filterContainer, controls.nextSibling);
+            }
         }
 
         function applyDateFilter() {
@@ -1662,39 +1742,72 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 globalFilters.dateRange.start = new Date(startDate);
                 globalFilters.dateRange.end = new Date(endDate);
                 
-                // Apply to all plots
+                // Apply to ONLY time-series plots (plots with date axes)
                 document.querySelectorAll('.plot-container').forEach((container, index) => {
                     const plotDiv = container.querySelector(`[id^="plot_"]`);
                     if (plotDiv && plotDiv.data) {
-                        const filteredData = filterPlotData(plotDiv.data, globalFilters.dateRange);
-                        Plotly.react(plotDiv, filteredData, plotDiv.layout);
+                        const layout = JSON.parse(container.dataset.plotLayout);
+                        
+                        // Only apply filter if this plot has a date axis
+                        if (layout.xaxis && layout.xaxis.type === 'date') {
+                            const filteredData = filterPlotData(plotDiv.data, globalFilters.dateRange);
+                            Plotly.react(plotDiv, filteredData, plotDiv.layout);
+                        }
+                        // Skip non-date plots - they remain unchanged
                     }
                 });
                 
-                // Apply to tables
+                // Apply to tables (only if they have date columns)
                 applyTableDateFilter();
                 
-                showNotification('Date filter applied', 'info');
+                showNotification('Date filter applied to time-series plots', 'info');
             }
         }
 
         function clearDateFilter() {
             globalFilters.dateRange.start = null;
             globalFilters.dateRange.end = null;
-            document.getElementById('startDate').value = '';
-            document.getElementById('endDate').value = '';
             
-            // Reset all plots
-            document.querySelectorAll('.plot-container').forEach((container, index) => {
-                const plotDiv = container.querySelector(`[id^="plot_"]`);
-                const originalData = JSON.parse(container.dataset.plotData);
-                Plotly.react(plotDiv, originalData, plotDiv.layout);
+            if (document.getElementById('startDate')) {
+                document.getElementById('startDate').value = '';
+            }
+            if (document.getElementById('endDate')) {
+                document.getElementById('endDate').value = '';
+            }
+            
+            // Reset ONLY plots that have date axes
+            const containers = document.querySelectorAll('.plot-container[data-plot-layout]');
+            console.log('Clearing filters for', containers.length, 'containers');
+            
+            containers.forEach((container, index) => {
+                try {
+                    const layoutData = container.dataset.plotLayout;
+                    
+                    // Skip if no valid layout data
+                    if (!layoutData || layoutData === 'undefined' || layoutData === '{}') {
+                        return;
+                    }
+                    
+                    const layout = JSON.parse(layoutData);
+                    
+                    // Only reset if this plot has a date axis
+                    if (layout.xaxis && layout.xaxis.type === 'date') {
+                        const plotDiv = container.querySelector(`[id^="plot_"]`);
+                        if (plotDiv) {
+                            const originalData = JSON.parse(container.dataset.plotData);
+                            console.log('Resetting plot:', plotDiv.id);
+                            Plotly.react(plotDiv, originalData, layout);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error clearing filter for container:', container, e);
+                }
             });
             
             // Clear table filters
             clearTableFilters();
             
-            showNotification('Filters cleared', 'info');
+            showNotification('Date filters cleared', 'info');
         }
 
         function filterPlotData(data, dateRange) {
@@ -1729,6 +1842,9 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                     plotDiv.on('plotly_selected', function(eventData) {
                         if (!eventData || !eventData.points) return;
                         
+                        // Add visual indicator
+                        container.classList.add('has-selection');
+                        
                         // Store selected points
                         globalFilters.selectedPoints.clear();
                         eventData.points.forEach(point => {
@@ -1744,6 +1860,16 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                         
                         // Filter tables based on selection
                         filterTablesBySelection();
+                        
+                        showNotification(`Selected ${eventData.points.length} points`, 'info');
+                    });
+                    
+                    // Add deselect handler
+                    plotDiv.on('plotly_deselect', function() {
+                        container.classList.remove('has-selection');
+                        globalFilters.selectedPoints.clear();
+                        resetPlotHighlights();
+                        clearTableFilters();
                     });
                     
                     // Click event for bar/pie charts
@@ -1793,15 +1919,40 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             });
         }
 
+        function resetPlotHighlights() {
+            document.querySelectorAll('.plot-container').forEach((container) => {
+                const plotDiv = container.querySelector(`[id^="plot_"]`);
+                if (plotDiv && plotDiv.data) {
+                    const originalData = JSON.parse(container.dataset.plotData);
+                    Plotly.react(plotDiv, originalData, plotDiv.layout);
+                }
+            });
+        }
+
+        function updateCategoryHighlights() {
+            // Placeholder for category highlighting logic
+            console.log('Category highlights updated');
+        }
+
+        function filterTablesBySelection() {
+            // Placeholder for table filtering by selection
+            console.log('Tables filtered by selection');
+        }
+
+        function filterTablesByCategories() {
+            // Placeholder for table filtering by categories
+            console.log('Tables filtered by categories');
+        }
+
         function setupTableFiltering() {
             // Add filter input for each table
             document.querySelectorAll('.table-container').forEach((container) => {
                 const filterDiv = document.createElement('div');
                 filterDiv.innerHTML = `
                     <input type="text" 
-                           placeholder="Type to filter table..." 
-                           class="table-filter-input"
-                           style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                        placeholder="Type to filter table..." 
+                        class="table-filter-input"
+                        style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
                 `;
                 container.insertBefore(filterDiv, container.querySelector('[id^="grid_"]'));
                 
@@ -1864,6 +2015,28 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             `;
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
+        }
+        
+        function showLoading() {
+            console.log('showLoading called');
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.display = 'block';
+                console.log('Loading indicator shown');
+            } else {
+                console.error('Loading element not found');
+            }
+        }
+        
+        function hideLoading() {
+            console.log('hideLoading called');
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.display = 'none';
+                console.log('Loading indicator hidden');
+            } else {
+                console.error('Loading element not found');
+            }
         }
     "#);
 
@@ -1937,22 +2110,42 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 // Table utility functions
                 function exportAllTables() {
                     try {
-                        document.querySelectorAll('.ag-theme-alpine').forEach((container, index) => {
+                        const exportedTables = new Set(); // Track exported tables to avoid duplicates
+                        
+                        document.querySelectorAll('[id^="grid_"]').forEach((container) => {
+                            // Skip if already exported
+                            if (exportedTables.has(container.id)) {
+                                return;
+                            }
+                            exportedTables.add(container.id);
+                            
+                            if (!container.gridOptions || !container.gridOptions.api) {
+                                console.warn('No grid API found for:', container.id);
+                                return;
+                            }
+                            
                             const gridApi = container.gridOptions.api;
                             const csvContent = gridApi.getDataAsCsv({
                                 skipHeader: false,
                                 skipFooters: true,
                                 skipGroups: true,
-                                fileName: `table_${index}.csv`
+                                suppressQuotes: false,
+                                columnSeparator: ','
                             });
                             
                             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
                             const link = document.createElement('a');
                             link.href = URL.createObjectURL(blob);
-                            link.download = `table_${index}.csv`;
+                            link.download = `${container.id}.csv`;
                             link.click();
+                            
+                            // Cleanup
+                            setTimeout(() => {
+                                URL.revokeObjectURL(link.href);
+                            }, 100);
                         });
-                        showNotification('Exported all tables');
+                        
+                        showNotification(`Exported ${exportedTables.size} table(s)`, 'info');
                     } catch (error) {
                         console.error('Error exporting tables:', error);
                         showNotification('Error exporting tables', 'error');
@@ -1960,55 +2153,151 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 }
 
                 function exportToExcel() {
-                try {
-                    document.querySelectorAll('.ag-theme-alpine').forEach((container, index) => {
-                        const gridApi = container.gridOptions.api;
-                        const columnApi = container.gridOptions.columnApi;
+                    try {
+                        const exportedTables = new Set();
                         
-                        // Get displayed columns
-                        const columns = columnApi.getAllDisplayedColumns();
-                        const columnDefs = columns.map(col => ({
-                            header: col.colDef.headerName || col.colDef.field,
-                            field: col.colDef.field
-                        }));
-                        
-                        // Get all rows data
-                        const rowData = [];
-                        gridApi.forEachNode(node => {
-                            const row = {};
-                            columnDefs.forEach(col => {
-                                row[col.header] = node.data[col.field];
+                        document.querySelectorAll('[id^="grid_"]').forEach((container) => {
+                            if (exportedTables.has(container.id)) {
+                                return;
+                            }
+                            exportedTables.add(container.id);
+                            
+                            if (!container.gridOptions || !container.gridOptions.api) {
+                                console.warn('No grid API found for:', container.id);
+                                return;
+                            }
+                            
+                            // Get the table title from data attribute
+                            const tableTitle = container.dataset.tableTitle || container.id;
+                            // Sanitize filename (remove invalid characters)
+                            const filename = tableTitle.replace(/[^a-z0-9_\-\s]/gi, '_').replace(/\s+/g, '_');
+                            
+                            const gridApi = container.gridOptions.api;
+                            const columnApi = container.gridOptions.columnApi;
+                            
+                            const columns = columnApi.getAllDisplayedColumns();
+                            const columnDefs = columns.map(col => ({
+                                header: col.colDef.headerName || col.colDef.field,
+                                field: col.colDef.field
+                            }));
+                            
+                            const rowData = [];
+                            gridApi.forEachNode(node => {
+                                const row = {};
+                                columnDefs.forEach(col => {
+                                    let value = node.data[col.field];
+                                    
+                                    // Handle numbers - ensure proper parsing
+                                    if (typeof value === 'number') {
+                                        row[col.header] = value;
+                                    } 
+                                    else if (typeof value === 'string') {
+                                        // Remove all thousand separators (both comma and period)
+                                        // Then convert last comma or period to decimal point
+                                        const cleanValue = value.trim();
+                                        
+                                        // Check if it looks like a number with formatting
+                                        if (cleanValue.match(/^[\d.,]+$/)) {
+                                            // Count commas and periods
+                                            const commaCount = (cleanValue.match(/,/g) || []).length;
+                                            const periodCount = (cleanValue.match(/\./g) || []).length;
+                                            
+                                            let parsed;
+                                            
+                                            // Determine format and parse accordingly
+                                            if (periodCount > 1 || (periodCount === 1 && commaCount === 0 && cleanValue.indexOf('.') < cleanValue.length - 3)) {
+                                                // European format: 1.234.567,89 or 1.234
+                                                parsed = parseFloat(cleanValue.replace(/\./g, '').replace(',', '.'));
+                                            } else if (commaCount > 1 || (commaCount === 1 && periodCount === 0 && cleanValue.indexOf(',') < cleanValue.length - 3)) {
+                                                // US format with commas: 1,234,567.89 or 1,234
+                                                parsed = parseFloat(cleanValue.replace(/,/g, ''));
+                                            } else if (periodCount === 1 && commaCount === 0) {
+                                                // Simple decimal with period: 123.45
+                                                parsed = parseFloat(cleanValue);
+                                            } else if (commaCount === 1 && periodCount === 0) {
+                                                // Could be European decimal: 123,45
+                                                parsed = parseFloat(cleanValue.replace(',', '.'));
+                                            } else {
+                                                // Just try parsing as-is
+                                                parsed = parseFloat(cleanValue.replace(/,/g, ''));
+                                            }
+                                            
+                                            if (!isNaN(parsed)) {
+                                                row[col.header] = parsed;
+                                            } else {
+                                                row[col.header] = value;
+                                            }
+                                        } else {
+                                            row[col.header] = value;
+                                        }
+                                    }
+                                    else {
+                                        row[col.header] = value;
+                                    }
+                                });
+                                rowData.push(row);
                             });
-                            rowData.push(row);
+                            
+                            const worksheet = XLSX.utils.json_to_sheet(rowData);
+                            
+                            // Apply number formatting to all numeric cells
+                            const range = XLSX.utils.decode_range(worksheet['!ref']);
+                            for (let C = range.s.c; C <= range.e.c; ++C) {
+                                const headerCell = worksheet[XLSX.utils.encode_col(C) + '1'];
+                                const headerText = headerCell ? headerCell.v : '';
+                                
+                                for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                                    const cellAddress = XLSX.utils.encode_col(C) + (R + 1);
+                                    if (!worksheet[cellAddress]) continue;
+                                    
+                                    const cell = worksheet[cellAddress];
+                                    if (typeof cell.v === 'number') {
+                                        cell.t = 'n';
+                                        
+                                        // Check if this is a date column
+                                        if (headerText && (headerText.toLowerCase().includes('date') || headerText.toLowerCase().includes('time'))) {
+                                            cell.z = 'yyyy-mm-dd';
+                                        } else {
+                                            // US number format: comma for thousands, period for decimal
+                                            cell.z = '#,##0.00';
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Set column widths for better readability
+                            const colWidths = columns.map(() => ({ wch: 20 }));
+                            worksheet['!cols'] = colWidths;
+                            
+                            const workbook = XLSX.utils.book_new();
+                            XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+                            
+                            const excelBuffer = XLSX.write(workbook, { 
+                                bookType: 'xlsx', 
+                                type: 'array',
+                                cellStyles: true
+                            });
+                            const blob = new Blob([excelBuffer], { 
+                                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                            });
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `${filename}.xlsx`;
+                            
+                            link.click();
+                            
+                            setTimeout(() => {
+                                window.URL.revokeObjectURL(url);
+                            }, 100);
                         });
                         
-                        // Create workbook and worksheet
-                        const worksheet = XLSX.utils.json_to_sheet(rowData);
-                        const workbook = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(workbook, worksheet, `Table_${index}`);
-                        
-                        // Generate Excel file
-                        const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-                        const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                        const url = window.URL.createObjectURL(blob);
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = `table_${index}.xlsx`;
-                        document.body.appendChild(link);
-                        link.click();
-                        
-                        // Cleanup
-                        setTimeout(() => {
-                            document.body.removeChild(link);
-                            window.URL.revokeObjectURL(url);
-                        }, 0);
-                    });
-                    showNotification('Exported tables to Excel');
-                } catch (error) {
-                    console.error('Error exporting to Excel:', error);
-                    showNotification('Error exporting to Excel', 'error');
+                        showNotification(`Exported ${exportedTables.size} table(s) to Excel`, 'info');
+                    } catch (error) {
+                        console.error('Error exporting to Excel:', error);
+                        showNotification('Error exporting to Excel', 'error');
+                    }
                 }
-            }
         
                 // Initialize AG Grid Quick Filter after DOM is loaded
                 document.addEventListener('DOMContentLoaded', function() {
@@ -2060,6 +2349,53 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 }
             `;
             document.head.appendChild(style);
+        "#);
+
+        js.push_str(r#"
+            function resetAllFilters() {
+                // Clear date filter
+                if (document.getElementById('startDate')) {
+                    clearDateFilter();
+                }
+                
+                // Clear selected categories
+                globalFilters.selectedCategories.clear();
+                globalFilters.selectedPoints.clear();
+                
+                // Reset all plots to original styling
+                document.querySelectorAll('.plot-container').forEach((container) => {
+                    container.classList.remove('has-selection');
+                    const plotDiv = container.querySelector(`[id^="plot_"]`);
+                    if (plotDiv && plotDiv.data) {
+                        const originalData = JSON.parse(container.dataset.plotData);
+                        const originalLayout = JSON.parse(container.dataset.plotLayout);
+                        Plotly.react(plotDiv, originalData, originalLayout);
+                    }
+                });
+                
+                // Clear table filters
+                clearTableFilters();
+                
+                showNotification('All filters reset', 'info');
+            }
+        "#);
+
+        js.push_str(r#"
+            // Force hide loading immediately and after everything loads
+            (function() {
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+            })();
+            
+            // Also hide on window load as backup
+            window.addEventListener('load', function() {
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.style.display = 'none';
+                }
+            });
         "#);
 
         js
