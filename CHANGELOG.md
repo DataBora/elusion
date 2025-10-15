@@ -1,3 +1,10 @@
+## [7.9.0] - 2025-10-12
+### Added
+- **Dashboard Filtering Features** (requires `dashboard` feature flag)
+- Category filtering for bar, pie and donut plots with category picker UI
+- Waterfall plot
+- NEW Color schema for all plots
+
 ## [7.8.0] - 2025-10-12
 ### Added
 - **Dashboard Filtering Features** (requires `dashboard` feature flag)

@@ -79,15 +79,15 @@ pub use plotly::Plot as PlotlyPlot;
 #[cfg(feature = "dashboard")]
 pub use plotly::{Scatter, Bar, Histogram, BoxPlot, Pie};
 #[cfg(feature = "dashboard")]
-pub use plotly::common::{Mode, Line, Marker, Orientation};
+pub use plotly::common::{Mode, Line, Marker, Orientation, LineShape, ColorScale, ColorScalePalette, MarkerSymbol};
 #[cfg(feature = "dashboard")]
 pub use plotly::layout::{Axis, Layout};
 #[cfg(feature = "dashboard")]
-pub use plotly::color::Rgb;
+pub use plotly::color::{Rgb, Rgba, NamedColor};
 #[cfg(feature = "dashboard")]
 pub use plotly::layout::update_menu::{Button,UpdateMenu,UpdateMenuDirection};
 #[cfg(feature = "dashboard")]
-pub use plotly::layout::{DragMode, RangeSlider};
+pub use plotly::layout::{DragMode, RangeSlider, BarMode};
 #[cfg(feature = "dashboard")]
 pub use std::cmp::Ordering;
 

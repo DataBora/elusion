@@ -7873,6 +7873,27 @@ impl CustomDataFrame {
         Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled. Add feature dashboard under [dependencies]".to_string()))
     }
 
+    /// Create a waterfall chart showing cumulative changes
+    #[cfg(feature = "dashboard")]
+    pub async fn plot_waterfall(
+        &self,
+        x_col: &str,
+        y_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<PlotlyPlot> {
+        crate::features::dashboard::plot_waterfall_impl(self, x_col, y_col, title).await
+    }
+
+    #[cfg(not(feature = "dashboard"))]
+    pub async fn plot_waterfall(
+        &self,
+        _x_col: &str,
+        _y_col: &str,
+        _title: Option<&str>,
+    ) -> ElusionResult<PlotlyPlot> {
+        Err(ElusionError::Custom("*** Warning ***: Dashboard feature not enabled. Add feature dashboard under [dependencies]".to_string()))
+    }
+
     #[cfg(feature = "dashboard")]
     pub async fn create_report(
         plots: Option<&[(&PlotlyPlot, &str)]>,
