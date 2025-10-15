@@ -149,37 +149,39 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         let y_idx = batch.schema().index_of(y_col)
             .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", y_col, e)))?;
 
-        // Get arrays and convert to vectors
         let x_values: Vec<f64> = convert_to_f64_vec(batch.column(x_idx))?;
         let y_values: Vec<f64> = convert_to_f64_vec(batch.column(y_idx))?;
 
-        // Sort values chronologically
         let (sorted_x, sorted_y) = sort_by_date(&x_values, &y_values);
 
-        // Create trace with appropriate mode
+        // Use vibrant gradient color scheme
         let trace = if show_markers {
             Scatter::new(sorted_x, sorted_y)
                 .mode(Mode::LinesMarkers)
                 .name(&format!("{} vs {}", y_col, x_col))
                 .line(Line::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .width(2.0))
+                    .color(Rgb::new(0, 102, 51)) 
+                    .width(3.0)
+                    .shape(LineShape::Spline)) // Smooth curves
                 .marker(Marker::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .size(8))
+                    .color(Rgb::new(239, 85, 59)) // Coral/orange for contrast
+                    .size(10)
+                    .line(plotly::common::Line::new()
+                        .color(NamedColor::White)
+                        .width(2.0)))
         } else {
             Scatter::new(sorted_x, sorted_y)
                 .mode(Mode::Lines)
                 .name(&format!("{} vs {}", y_col, x_col))
                 .line(Line::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .width(2.0))
+                    .color(Rgb::new(0, 102, 51))
+                    .width(3.0)
+                    .shape(LineShape::Spline))
         };
             
         let mut plot = PlotlyPlot::new();
         plot.add_trace(trace);
         
-        // Check if x column is a date type and set axis accordingly
         let x_axis = if matches!(batch.column(x_idx).data_type(), ArrowDataType::Date32) {
             Axis::new()
                 .title(x_col.to_string())
@@ -199,7 +201,8 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             .y_axis(Axis::new()
                 .title(y_col.to_string())     
                 .grid_color(Rgb::new(229, 229, 229))
-                .show_grid(true));
+                .show_grid(true))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -236,23 +239,29 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         // Sort values chronologically
         let (sorted_x, sorted_y) = sort_by_date(&x_values, &y_values);
 
+        // Use vibrant gradient color scheme - same as line plot
         let trace = if show_markers {
             Scatter::new(sorted_x, sorted_y)
                 .mode(Mode::LinesMarkers)
                 .name(value_col)
                 .line(Line::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .width(2.0))
+                    .color(Rgb::new(0, 102, 51)) 
+                    .width(3.0)
+                    .shape(LineShape::Spline)) // Smooth curves
                 .marker(Marker::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .size(8))
+                    .color(Rgb::new(220, 38, 38)) // Deep red/coral for contrast
+                    .size(10)
+                    .line(plotly::common::Line::new()
+                        .color(NamedColor::White)
+                        .width(2.0)))
         } else {
             Scatter::new(sorted_x, sorted_y)
                 .mode(Mode::Lines)
                 .name(value_col)
                 .line(Line::new()
-                    .color(Rgb::new(55, 128, 191))
-                    .width(2.0))
+                    .color(Rgb::new(0, 102, 51))
+                    .width(3.0)
+                    .shape(LineShape::Spline)) // Smooth curves
         };
 
         let mut plot = PlotlyPlot::new();
@@ -268,7 +277,8 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             .y_axis(Axis::new()
                 .title(value_col.to_string())
                 .grid_color(Rgb::new(229, 229, 229))
-                .show_grid(true));
+                .show_grid(true))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -293,12 +303,18 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         let x_values: Vec<f64> = convert_to_f64_vec(batch.column(x_idx))?;
         let y_values: Vec<f64> = convert_to_f64_vec(batch.column(y_idx))?;
 
-        let trace = Scatter::new(x_values, y_values)
+        // Create gradient colors based on y-values
+        let trace = Scatter::new(x_values, y_values.clone())
             .mode(Mode::Markers)
             .name(&format!("{} vs {}", y_col, x_col))
             .marker(Marker::new()
-                .color(Rgb::new(55, 128, 191))
-                .size(marker_size.unwrap_or(8)));
+                .size(marker_size.unwrap_or(12))
+                .color_array(y_values) // Color by value
+                .color_scale(ColorScale::Palette(ColorScalePalette::Viridis))
+                .show_scale(true)
+                .line(plotly::common::Line::new()
+                    .color(NamedColor::White)
+                    .width(1.5)));
 
         let mut plot = PlotlyPlot::new();
         plot.add_trace(trace);
@@ -306,7 +322,8 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         let layout = Layout::new()
             .title(format!("Scatter Plot: {} vs {}", y_col, x_col))
             .x_axis(Axis::new().title(x_col.to_string()))
-            .y_axis(Axis::new().title(y_col.to_string()));
+            .y_axis(Axis::new().title(y_col.to_string()))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -335,16 +352,43 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             (convert_to_string_vec(batch.column(y_idx))?, convert_to_f64_vec(batch.column(x_idx))?)
         };
 
+        let colors = vec![
+            "rgb(60, 87, 214)",    // Darker purple-blue
+            "rgb(220, 38, 38)",    // Darker red/coral
+            "rgb(5, 135, 95)",     // Darker teal/emerald
+            "rgb(234, 88, 12)",    // Darker orange
+            "rgb(13, 149, 210)",   // Darker cyan/sky blue
+            "rgb(197, 35, 107)",   // Darker pink/rose
+            "rgb(31, 177, 85)",    // Darker green
+            "rgb(151, 77, 222)",   // Darker purple/violet
+            "rgb(221, 142, 10)",   // Darker amber/gold
+            "rgb(112, 52, 213)",   // Darker indigo
+        ];
+        // Repeat colors if we have more bars
+        let bar_colors: Vec<String> = (0..x_values.len())
+            .map(|i| colors[i % colors.len()].to_string())
+            .collect();
+
         let trace = match orientation.unwrap_or("v") {
             "h" => {
                 Bar::new(x_values.clone(), y_values.clone())
                     .orientation(Orientation::Horizontal)
                     .name(&format!("{} by {}", y_col, x_col))
+                    .marker(Marker::new()
+                        .color_array(bar_colors)
+                        .line(plotly::common::Line::new()
+                            .color(NamedColor::White)
+                            .width(1.5)))
             },
             _ => {
                 Bar::new(x_values, y_values)
                     .orientation(Orientation::Vertical)
                     .name(&format!("{} by {}", y_col, x_col))
+                    .marker(Marker::new()
+                        .color_array(bar_colors)
+                        .line(plotly::common::Line::new()
+                            .color(NamedColor::White)
+                            .width(1.5)))
             }
         };
 
@@ -354,7 +398,8 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         let layout = Layout::new()
             .title(title.unwrap_or(&format!("Bar Chart: {} by {}", y_col, x_col)))
             .x_axis(Axis::new().title(x_col.to_string()))
-            .y_axis(Axis::new().title(y_col.to_string()));
+            .y_axis(Axis::new().title(y_col.to_string()))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -378,15 +423,28 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
 
         let trace = Histogram::new(values)
             .name(col)
-            .n_bins_x(bins.unwrap_or(30));
+            .n_bins_x(bins.unwrap_or(30))
+            .marker(Marker::new()
+                .color(Rgba::new(0, 204, 102, 0.7)) 
+                .line(plotly::common::Line::new()
+                    .color(Rgb::new(0, 102, 51)) // Solid border
+                    .width(1.5)));
 
         let mut plot = PlotlyPlot::new();
         plot.add_trace(trace);
 
         let layout = Layout::new()
             .title(title.unwrap_or(&format!("Histogram of {}", col)))
-            .x_axis(Axis::new().title(col.to_string()))
-            .y_axis(Axis::new().title("Count".to_string()));
+            .x_axis(Axis::new()
+                .title(col.to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true))
+            .y_axis(Axis::new()
+                .title("Count".to_string())
+                .grid_color(Rgb::new(229, 229, 229))
+                .show_grid(true))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0))
+            .bar_mode(BarMode::Overlay); // Makes overlapping histograms look better
 
         plot.set_layout(layout);
         Ok(plot)
@@ -421,9 +479,29 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             BoxPlot::new(values)
                 .x(groups) // Groups on x-axis
                 .name(value_col)
+                .marker(Marker::new()
+                    .color(Rgb::new(0, 204, 102)) 
+                    .size(6)
+                    .line(plotly::common::Line::new()
+                        .color(Rgb::new(0, 204, 102))
+                        .width(1.0)))
+                .line(plotly::common::Line::new()
+                    .color(Rgb::new(0, 204, 102))
+                    .width(2.0))
+                .fill_color(Rgba::new(0, 204, 102, 0.7)) 
         } else {
             BoxPlot::new(values)
                 .name(value_col)
+                .marker(Marker::new()
+                    .color(Rgb::new(0, 204, 102)) 
+                    .size(6)
+                    .line(plotly::common::Line::new()
+                        .color(Rgb::new(0, 102, 51))
+                        .width(1.0)))
+                .line(plotly::common::Line::new()
+                    .color(Rgb::new(0, 204, 102))
+                    .width(2.0))
+                .fill_color(Rgba::new(0, 204, 102, 0.7)) 
         };
 
         let mut plot = PlotlyPlot::new();
@@ -434,19 +512,22 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             .y_axis(Axis::new()
                 .title(value_col.to_string())
                 .grid_color(Rgb::new(229, 229, 229))
-                .show_grid(true))
+                .show_grid(true)
+                .zero_line(true)
+                .zero_line_color(Rgb::new(200, 200, 200)))
             .x_axis(Axis::new()
                 .title(group_by_col.unwrap_or("").to_string())
                 .grid_color(Rgb::new(229, 229, 229))
-                .show_grid(true));
+                .show_grid(true))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
     }
 
-     /// Create a pie chart from two columns: labels and values
-     #[cfg(feature = "dashboard")]
-     pub async fn plot_piee(
+    /// Create a pie chart from two columns: labels and values
+    #[cfg(feature = "dashboard")]
+    pub async fn plot_piee(
         df: &CustomDataFrame,
         label_col: &str,
         value_col: &str,
@@ -465,11 +546,35 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         let labels = convert_to_string_vec(batch.column(label_idx))?;
         let values = convert_to_f64_vec(batch.column(value_idx))?;
 
-        // Create the pie chart trace
+        // Create vibrant color palette - same as bar chart
+        let colors = vec![
+            "rgb(99, 110, 250)",   // Purple-blue
+            "rgb(239, 85, 59)",    // Coral
+            "rgb(0, 204, 150)",    // Teal
+            "rgb(255, 161, 90)",   // Orange
+            "rgb(25, 211, 243)",   // Cyan
+            "rgb(255, 102, 146)",  // Pink
+            "rgb(182, 232, 128)",  // Light green
+            "rgb(255, 151, 255)",  // Magenta
+            "rgb(254, 203, 82)",   // Yellow
+            "rgb(155, 135, 245)",  // Light purple
+        ];
+        
+        // Repeat colors if we have more slices - exactly like bar chart
+        let slice_colors: Vec<String> = (0..labels.len())
+            .map(|i| colors[i % colors.len()].to_string())
+            .collect();
+
+        // Create the pie chart trace with custom colors
         let trace = Pie::new(values)
             .labels(labels)
             .name(value_col)
-            .hole(0.0);
+            .hole(0.0)
+            .marker(Marker::new()
+                .color_array(slice_colors)  // Same method as bar chart
+                .line(plotly::common::Line::new()
+                    .color(NamedColor::White)
+                    .width(2.0)));
 
         let mut plot = PlotlyPlot::new();
         plot.add_trace(trace);
@@ -477,7 +582,8 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         // Create layout
         let layout = Layout::new()
             .title(title.unwrap_or(&format!("Distribution of {}", value_col)))
-            .show_legend(true);
+            .show_legend(true)
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -490,7 +596,7 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         label_col: &str,
         value_col: &str,
         title: Option<&str>,
-        hole_size: Option<f64>, // Value between 0 and 1
+        hole_size: Option<f64>,
     ) -> ElusionResult<PlotlyPlot> {
         let batches = df.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
         let batch = &batches[0];
@@ -506,17 +612,112 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         // Ensure hole size is between 0 and 1
         let hole_size = hole_size.unwrap_or(0.5).max(0.0).min(1.0);
 
+        // Create vibrant color palette - same as bar and pie
+        let colors = vec![
+            "rgb(99, 110, 250)",   // Purple-blue
+            "rgb(239, 85, 59)",    // Coral
+            "rgb(0, 204, 150)",    // Teal
+            "rgb(255, 161, 90)",   // Orange
+            "rgb(25, 211, 243)",   // Cyan
+            "rgb(255, 102, 146)",  // Pink
+            "rgb(182, 232, 128)",  // Light green
+            "rgb(255, 151, 255)",  // Magenta
+            "rgb(254, 203, 82)",   // Yellow
+            "rgb(155, 135, 245)",  // Light purple
+        ];
+        
+        // Repeat colors if we have more slices - exactly like bar chart
+        let slice_colors: Vec<String> = (0..labels.len())
+            .map(|i| colors[i % colors.len()].to_string())
+            .collect();
+
         let trace = Pie::new(values)
             .labels(labels)
             .name(value_col)
-            .hole(hole_size); 
+            .hole(hole_size)
+            .marker(Marker::new()
+                .color_array(slice_colors)  // Same method as bar chart
+                .line(plotly::common::Line::new()
+                    .color(NamedColor::White)
+                    .width(2.0)));
 
         let mut plot = PlotlyPlot::new();
         plot.add_trace(trace);
 
         let layout = Layout::new()
             .title(title.unwrap_or(&format!("Distribution of {}", value_col)))
-            .show_legend(true);
+            .show_legend(true)
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
+
+        plot.set_layout(layout);
+        Ok(plot)
+    }
+
+    /// Create a waterfall-style chart using bars
+    #[cfg(feature = "dashboard")]
+    pub async fn plot_waterfall_impl(
+        df: &CustomDataFrame,
+        x_col: &str,
+        y_col: &str,
+        title: Option<&str>,
+    ) -> ElusionResult<PlotlyPlot> {
+        let batches = df.df.clone().collect().await.map_err(ElusionError::DataFusion)?;
+        let batch = &batches[0];
+
+        let x_idx = batch.schema().index_of(x_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", x_col, e)))?;
+        let y_idx = batch.schema().index_of(y_col)
+            .map_err(|e| ElusionError::Custom(format!("Column {} not found: {}", y_col, e)))?;
+
+        let x_values = convert_to_string_vec(batch.column(x_idx))?;
+        let y_values = convert_to_f64_vec(batch.column(y_idx))?;
+
+        // Calculate cumulative values for waterfall effect
+        let mut cumulative: Vec<f64> = Vec::new();
+        let mut running_total = 0.0;
+        
+        for &val in &y_values {
+            cumulative.push(running_total);
+            running_total += val;
+        }
+
+        // Create colors: green for positive, red for negative
+        let colors: Vec<String> = y_values.iter()
+            .map(|&v| {
+                if v >= 0.0 {
+                    "rgb(0, 204, 150)".to_string() // Green
+                } else {
+                    "rgb(239, 85, 59)".to_string()  // Red
+                }
+            })
+            .collect();
+
+        // Invisible base bars (to create waterfall effect)
+        let base_trace = Bar::new(x_values.clone(), cumulative.clone())
+            .name("Base")
+            .marker(Marker::new()
+                .color(Rgba::new(0, 0, 0, 0.0))) // Transparent
+            .show_legend(false);
+
+        // Visible change bars
+        let change_trace = Bar::new(x_values, y_values)
+            .name("Change")
+            .marker(Marker::new()
+                .color_array(colors)
+                .line(plotly::common::Line::new()
+                    .color(NamedColor::White)
+                    .width(2.0)));
+
+        let mut plot = PlotlyPlot::new();
+        plot.add_trace(base_trace);
+        plot.add_trace(change_trace);
+
+        let layout = Layout::new()
+            .title(title.unwrap_or("Waterfall Chart"))
+            .bar_mode(BarMode::Stack)
+            .x_axis(Axis::new().title(x_col.to_string()))
+            .y_axis(Axis::new().title(y_col.to_string()))
+            .plot_background_color(Rgba::new(248, 249, 250, 1.0));
 
         plot.set_layout(layout);
         Ok(plot)
@@ -1160,7 +1361,10 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 let container = format!(
                     r#"<div class="table-container">
                         <div class="table-title">{0}</div>
-                         <div id="grid_{1}"class="{2}"style="width:100%;height:{3}px;"data-table-title="{0}">
+                         <div id="grid_{1}" 
+                            class="{2}" 
+                            style="width:100%;height:{3}px;" 
+                            data-table-title="{0}">
                             <!-- AG Grid will be rendered here -->
                         </div>
                         <script>
@@ -1674,6 +1878,9 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             } else {
                 console.log('No date axis plots found, skipping date filter');
             }
+            
+            // Add category filter UI (always add, will show when categories selected)
+            addCategoryFilterUI();
 
             // Setup plot selection events
             setupPlotSelectionEvents();
@@ -1833,6 +2040,46 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
             });
         }
 
+        function addCategoryFilterUI() {
+            const filterContainer = document.createElement('div');
+            filterContainer.id = 'category-filter-container';
+            filterContainer.className = 'category-filter';
+            filterContainer.style.display = 'none'; // Hidden until categories are selected
+            filterContainer.innerHTML = `
+                <div style="padding: 15px; background: #fff3cd; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffc107;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3 style="margin: 0 0 5px 0;">Category Filter Active</h3>
+                            <p id="selected-categories-text" style="font-size: 14px; color: #666; margin: 0;">
+                                No categories selected
+                            </p>
+                        </div>
+                        <button onclick="clearCategoryFilter()" 
+                                style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Clear Category Filter
+                        </button>
+                    </div>
+                    <div id="selected-categories-list" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+                        <!-- Category badges will be added here -->
+                    </div>
+                </div>
+            `;
+            
+            const container = document.querySelector('.container');
+            const dateFilter = document.querySelector('.date-range-filter');
+            
+            if (container) {
+                if (dateFilter) {
+                    // Insert after date filter
+                    dateFilter.parentNode.insertBefore(filterContainer, dateFilter.nextSibling);
+                } else {
+                    // Insert after controls
+                    const controls = document.querySelector('.controls');
+                    container.insertBefore(filterContainer, controls.nextSibling);
+                }
+            }
+        }
+
         function setupPlotSelectionEvents() {
             document.querySelectorAll('.plot-container').forEach((container, index) => {
                 const plotDiv = container.querySelector(`[id^="plot_"]`);
@@ -1930,8 +2177,104 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         }
 
         function updateCategoryHighlights() {
-            // Placeholder for category highlighting logic
-            console.log('Category highlights updated');
+            // Update filter UI
+            updateCategoryFilterUI();
+            
+            document.querySelectorAll('.plot-container').forEach((container) => {
+                const plotDiv = container.querySelector(`[id^="plot_"]`);
+                if (!plotDiv || !plotDiv.data) return;
+                
+                const layout = JSON.parse(container.dataset.plotLayout);
+                
+                // Only apply to bar and pie charts
+                const isBarChart = plotDiv.data.some(trace => trace.type === 'bar');
+                const isPieChart = plotDiv.data.some(trace => trace.type === 'pie');
+                
+                if (!isBarChart && !isPieChart) return;
+                
+                if (globalFilters.selectedCategories.size === 0) {
+                    // No filter - reset to original
+                    const originalData = JSON.parse(container.dataset.plotData);
+                    Plotly.react(plotDiv, originalData, layout);
+                    container.classList.remove('has-selection');
+                    return;
+                }
+                
+                container.classList.add('has-selection');
+                
+                // Highlight selected categories
+                if (isBarChart) {
+                    const trace = plotDiv.data[0];
+                    const colors = trace.x.map((category) => {
+                        return globalFilters.selectedCategories.has(category) 
+                            ? 'rgb(55, 128, 191)'  // Selected - blue
+                            : 'rgba(55, 128, 191, 0.3)';  // Not selected - faded
+                    });
+                    
+                    Plotly.restyle(plotDiv, {'marker.color': [colors]}, [0]);
+                } else if (isPieChart) {
+                    const trace = plotDiv.data[0];
+                    const colors = trace.labels.map((label) => {
+                        return globalFilters.selectedCategories.has(label)
+                            ? undefined  // Use default color
+                            : 'rgba(200, 200, 200, 0.5)';  // Faded gray
+                    });
+                    
+                    Plotly.restyle(plotDiv, {'marker.colors': [colors]}, [0]);
+                }
+            });
+            
+            if (globalFilters.selectedCategories.size > 0) {
+                showNotification(`Filtered by ${globalFilters.selectedCategories.size} categor${globalFilters.selectedCategories.size === 1 ? 'y' : 'ies'}`, 'info');
+            }
+        }
+        
+        function updateCategoryFilterUI() {
+            const filterContainer = document.getElementById('category-filter-container');
+            if (!filterContainer) return;
+            
+            const categoriesText = document.getElementById('selected-categories-text');
+            const categoriesList = document.getElementById('selected-categories-list');
+            
+            if (globalFilters.selectedCategories.size === 0) {
+                filterContainer.style.display = 'none';
+            } else {
+                filterContainer.style.display = 'block';
+                
+                // Update text
+                const count = globalFilters.selectedCategories.size;
+                categoriesText.textContent = `${count} categor${count === 1 ? 'y' : 'ies'} selected`;
+                
+                // Update badges
+                categoriesList.innerHTML = '';
+                globalFilters.selectedCategories.forEach(category => {
+                    const badge = document.createElement('span');
+                    badge.style.cssText = `
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        padding: 4px 8px;
+                        background: #007bff;
+                        color: white;
+                        border-radius: 12px;
+                        font-size: 13px;
+                    `;
+                    badge.innerHTML = `
+                        ${category}
+                        <button onclick="removeCategoryFilter('${category.replace(/'/g, "\\'")}')" 
+                                style="background: none; border: none; color: white; cursor: pointer; font-size: 16px; padding: 0; line-height: 1;">
+                            \u00D7
+                        </button>
+                    `;
+                    categoriesList.appendChild(badge);
+                });
+            }
+        }
+        
+        function removeCategoryFilter(category) {
+            globalFilters.selectedCategories.delete(category);
+            updateCategoryHighlights();
+            filterTablesByCategories();
         }
 
         function filterTablesBySelection() {
@@ -1940,8 +2283,94 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
         }
 
         function filterTablesByCategories() {
-            // Placeholder for table filtering by categories
-            console.log('Tables filtered by categories');
+            if (globalFilters.selectedCategories.size === 0) {
+                clearTableFilters();
+                return;
+            }
+            
+            document.querySelectorAll('[id^="grid_"]').forEach(gridElement => {
+                if (!gridElement.gridOptions || !gridElement.gridOptions.api) return;
+                
+                const api = gridElement.gridOptions.api;
+                
+                // Detect categorical columns by analyzing the data
+                const categoryColumns = detectCategoricalColumns(api);
+                
+                if (categoryColumns.length === 0) return;
+                
+                // Apply filter to categorical columns
+                api.setFilterModel(
+                    categoryColumns.reduce((filters, colField) => {
+                        filters[colField] = {
+                            filterType: 'set',
+                            values: Array.from(globalFilters.selectedCategories)
+                        };
+                        return filters;
+                    }, {})
+                );
+                api.onFilterChanged();
+            });
+        }
+        
+        function detectCategoricalColumns(gridApi) {
+            const categoricalColumns = [];
+            const columnDefs = gridApi.getColumnDefs();
+            
+            // Get a sample of data to analyze
+            const sampleSize = Math.min(100, gridApi.getDisplayedRowCount());
+            const sampleData = [];
+            
+            for (let i = 0; i < sampleSize; i++) {
+                const rowNode = gridApi.getDisplayedRowAtIndex(i);
+                if (rowNode) {
+                    sampleData.push(rowNode.data);
+                }
+            }
+            
+            if (sampleData.length === 0) return categoricalColumns;
+            
+            // Analyze each column
+            columnDefs.forEach(colDef => {
+                const field = colDef.field;
+                if (!field) return;
+                
+                // Collect values for this column
+                const values = sampleData.map(row => row[field]).filter(v => v != null);
+                if (values.length === 0) return;
+                
+                // Check if it's categorical
+                const isCategorical = isColumnCategorical(values);
+                
+                if (isCategorical) {
+                    categoricalColumns.push(field);
+                    console.log(`Detected categorical column: ${field}`);
+                }
+            });
+            
+            return categoricalColumns;
+        }
+        
+        function isColumnCategorical(values) {
+            // Rule 1: If all values are strings, likely categorical
+            const allStrings = values.every(v => typeof v === 'string');
+            if (!allStrings) return false;
+            
+            // Rule 2: Check uniqueness ratio
+            const uniqueValues = new Set(values);
+            const uniqueRatio = uniqueValues.size / values.length;
+            
+            // If less than 50% unique values, it's likely categorical
+            // (e.g., 10 unique customer names out of 100 rows)
+            if (uniqueRatio < 0.5) return true;
+            
+            // Rule 3: If there are relatively few unique values (< 50), consider it categorical
+            if (uniqueValues.size < 50) return true;
+            
+            // Rule 4: Check if values look like categories (short strings, repeated patterns)
+            const avgLength = values.reduce((sum, v) => sum + v.length, 0) / values.length;
+            if (avgLength < 30 && uniqueValues.size < values.length * 0.8) return true;
+            
+            return false;
         }
 
         function setupTableFiltering() {
@@ -2377,6 +2806,21 @@ fn parse_date_string(date_str: &str) -> Option<chrono::NaiveDateTime> {
                 clearTableFilters();
                 
                 showNotification('All filters reset', 'info');
+            }
+        "#);
+
+        js.push_str(r#"
+            function clearCategoryFilter() {
+                globalFilters.selectedCategories.clear();
+                updateCategoryHighlights();
+                clearTableFilters();
+                
+                const filterContainer = document.getElementById('category-filter-container');
+                if (filterContainer) {
+                    filterContainer.style.display = 'none';
+                }
+                
+                showNotification('Category filter cleared', 'info');
             }
         "#);
 
