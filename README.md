@@ -3424,7 +3424,16 @@ CustomDataFrame::export_plot_to_png(
 ).await?;
 ```
 ### Dashboard Demo
-![Dash](./images/interactivedash3.gif)
+#### When you open you html report and you have Line plots or Timeseries plots you will automatically get Date Filtering options.
+![DashStart](./images/Dash1.PNG)
+#### When you filter based on Date, only Line and Timeseries plots change.
+![DashDateFilter](./images/DashDateFilter.PNG)
+#### When you click on Pie, Donut or Bar plots you will automatically get Categorical Filtering.
+![DashCategoryFilter](./images/DashCAtegoryFilter.PNG)
+#### If you have tables you will get EXPORT TABLES TO EXCEL button on top. Tables can be filtered by column values and dates.
+![DashTables](./images/DashPagtable.PNG)
+#### Some other plot options: Scatter, Box, Waterfall, Histogram
+![DashOtherPlots](./images/DashOTherPlots.PNG)
 ---
 
 # Contributing
