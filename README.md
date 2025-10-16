@@ -33,6 +33,7 @@ Tested for MacOS, Linux and Windows
     <img src="https://upload.wikimedia.org/wikipedia/commons/3/35/Tux.svg" alt="Linux" height="32">  
     <img src="https://cdn.freebiesupply.com/logos/large/2x/microsoft-windows-22-logo-svg-vector.svg" alt="Windows" height="32">
 </p>
+
 ## Fastest way to learn ELUSION
 [Elusion UDEMY Course](https://www.udemy.com/course/rust-data-engineering-analytics-elusion/)
 
