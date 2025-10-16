@@ -28,7 +28,7 @@ Elusion offers flexibility in constructing queries without enforcing specific pa
 
 ## Platform Compatibility
 Tested for MacOS, Linux and Windows
-<p align="center">
+<p align="left">
     <img src="https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg" alt="MacOS" height="32">  
     <img src="https://upload.wikimedia.org/wikipedia/commons/3/35/Tux.svg" alt="Linux" height="32">  
     <img src="https://cdn.freebiesupply.com/logos/large/2x/microsoft-windows-22-logo-svg-vector.svg" alt="Windows" height="32">
