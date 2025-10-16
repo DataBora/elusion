@@ -3424,9 +3424,9 @@ CustomDataFrame::export_plot_to_png(
 ).await?;
 ```
 ### Dashboard Demo
-#### When you open you html report and you have Line plots or Timeseries plots you will automatically get Date Filtering options.
+#### When you open your HTML report, if you have Line or Timeseries plots, you will automatically get Date Filtering options.
 ![DashStart](./images/Dash1.PNG)
-#### When you filter based on Date, only Line and Timeseries plots change.
+#### When you filter based on Date, only Line and Timeseries plots will change.
 ![DashDateFilter](./images/DashDateFilter.PNG)
 #### When you click on Pie, Donut or Bar plots you will automatically get Categorical Filtering.
 ![DashCategoryFilter](./images/DashCAtegoryFilter.PNG)
