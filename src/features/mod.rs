@@ -15,3 +15,4 @@ pub mod xml;
 pub mod fabric;
 pub mod ftp;
 pub mod copydata;
+pub mod raw_sql;
