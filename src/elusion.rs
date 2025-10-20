@@ -8454,12 +8454,7 @@ impl CustomDataFrame {
 
 
     // ================= RAW SQL ===============
-    /// Execute raw SQL - convenience wrapper for raw_sql module
-    /// 
-    /// Prefer using the `raw_sql!` macro for cleaner syntax:
-    /// ```rust
-    /// let result = raw_sql!("SELECT * FROM sales", "result", sales_df).await?;
-    /// 
+    /// Execute raw SQL
     pub async fn raw_sql(
         sql: &str,
         alias: &str,
