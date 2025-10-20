@@ -136,10 +136,6 @@ use crate::features::redis::invalidate_redis_cache_impl;
 use crate::features::xml::XmlProcessingMode;
 use crate::features::xml::load_xml_with_mode;
 
-// ===== raw sql
-use crate::features::raw_sql::execute_raw_sql;
-
-
 // ===== struct to manage ODBC DB connections
 #[derive(Debug, PartialEq, Clone)]
 pub enum DatabaseType {
@@ -8450,17 +8446,6 @@ impl CustomDataFrame {
         };
         
         temp_custom_df.write_to_parquet(mode, output_path, None).await
-    }
-
-
-    // ================= RAW SQL ===============
-    /// Execute raw SQL
-    pub async fn raw_sql(
-        sql: &str,
-        alias: &str,
-        dataframes: &[&CustomDataFrame],
-    ) -> ElusionResult<Self> {
-        execute_raw_sql(sql, alias, dataframes).await
     }
 
 }
