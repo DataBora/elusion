@@ -290,3 +290,8 @@ pub use crate::features::copydata::{
     copy_file_to_fabric,
     copy_file_to_fabric_with_sp
 };
+
+
+// RAW SQL
+pub use crate::sql;
+pub use crate::features::raw_sql::execute_raw_sql;

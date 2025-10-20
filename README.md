@@ -155,6 +155,14 @@ You can enable only the features you need, which helps reduce dependencies and c
 ### 🔗 **Fluent, Chainable API**
 Write data transformations that read like natural language:
 ```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv"; 
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
 sales_df
     .join_many([
         (customers_df, ["s.CustomerKey = c.CustomerKey"], "INNER"),
@@ -170,6 +178,50 @@ sales_df
     .drop_null(["c.CustomerKey"])
     .elusion("quarterly_report")
     .await?
+```
+
+### OR Write raw SQL 🚀  (PostgreSQL like syntax with small differences)
+#### MAKE SURE TO WRITE ALL COLUMN NAMES **LOWERCASE**
+```rust
+let sales = "C:\\Borivoj\\RUST\\Elusion\\SalesData2022.csv"; 
+let products = "C:\\Borivoj\\RUST\\Elusion\\Products.csv";
+let customers = "C:\\Borivoj\\RUST\\Elusion\\Customers.csv";
+
+let sales_df = CustomDataFrame::new(sales, "s").await?;
+let customers_df = CustomDataFrame::new(customers, "c").await?;
+let products_df = CustomDataFrame::new(products, "p").await?;
+
+let join_result = sql!(
+    r#"
+    SELECT 
+        c.customerkey,
+        c.firstname,
+        c.lastname,
+        p.productname,
+        SUM(s.orderquantity) AS total_quantity,
+        AVG(s.orderquantity) AS avg_quantity
+    FROM c
+    RIGHT JOIN s ON s.customerkey = c.customerkey
+    LEFT OUTER JOIN p ON s.productkey = p.productkey
+    GROUP BY 
+        c.customerkey,
+        c.firstname,
+        c.lastname,
+        p.productname
+    HAVING 
+        SUM(s.orderquantity) > 10
+        AND AVG(s.orderquantity) < 100
+    ORDER BY 
+        total_quantity ASC,
+        p.productname DESC
+    "#,
+    "sales_join",
+    sales_df,
+    customers_df,
+    products_df
+).await?;
+
+join_result.display().await?;
 ```
 ---
 **Ready to transform your data engineering workflow?** 
@@ -209,7 +261,7 @@ elusion = "8.0.0"
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "8.0.0", features = ["dashboard", "api", "fabric", "ftp"] }
+elusion = { version = "8.0.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
 ```
 
 - Using all features:
@@ -257,16 +309,9 @@ async fn main() -> ElusionResult<()> {
 - **JSON/NDJSON**
 - **Parquet**
 
-#### Supported sources:
-- **Local**
-
 #### Supported destination formats:
 - **CSV** (with configurable delimiters: comma, semicolon, pipe, tab)
 - **Parquet**
-
-#### Supported Destinations:
-- **Local**
-- **Fabric - OneLake**
 
 #### FILE TO FILE Copy
 ```rust

@@ -1,5 +1,5 @@
 pub mod prelude;
-mod features;
+pub mod features;
 mod helper_funcs;
 mod custom_error;
 mod normalizers;
@@ -136,11 +136,9 @@ use crate::features::redis::invalidate_redis_cache_impl;
 use crate::features::xml::XmlProcessingMode;
 use crate::features::xml::load_xml_with_mode;
 
-// ===== copy data
-// use crate::features::copydata::CopySource;
-// use crate::features::copydata::CopyConfig;
-// use crate::features::copydata::CopyDataEngine;
-// use crate::features::copydata::ParquetCompression;
+// ===== raw sql
+use crate::features::raw_sql::execute_raw_sql;
+
 
 // ===== struct to manage ODBC DB connections
 #[derive(Debug, PartialEq, Clone)]
@@ -8452,6 +8450,22 @@ impl CustomDataFrame {
         };
         
         temp_custom_df.write_to_parquet(mode, output_path, None).await
+    }
+
+
+    // ================= RAW SQL ===============
+    /// Execute raw SQL - convenience wrapper for raw_sql module
+    /// 
+    /// Prefer using the `raw_sql!` macro for cleaner syntax:
+    /// ```rust
+    /// let result = raw_sql!("SELECT * FROM sales", "result", sales_df).await?;
+    /// 
+    pub async fn raw_sql(
+        sql: &str,
+        alias: &str,
+        dataframes: &[&CustomDataFrame],
+    ) -> ElusionResult<Self> {
+        execute_raw_sql(sql, alias, dataframes).await
     }
 
 }
