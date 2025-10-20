@@ -1,3 +1,7 @@
+## [8.0.0] - 2025-10-19
+### Added
+- **COPY DATA** feature for continuous reading and writing for files bigger than RAM. Currenty source can be JSON, CSV and PARQUET, and destinations: CSV and PARQUET.
+
 ## [7.9.0] - 2025-10-12
 ### Added
 - **Dashboard Filtering Features** (requires `dashboard` feature flag)

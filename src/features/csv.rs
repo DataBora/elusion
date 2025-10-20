@@ -201,7 +201,7 @@ static NULL_VALUES: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(||
         Ok(column_samples)
     }
 
-    fn array_value_to_string(array: &dyn arrow::array::Array, index: usize) -> String {
+    pub fn array_value_to_string(array: &dyn arrow::array::Array, index: usize) -> String {
         use arrow::array::*;
         use arrow::datatypes::DataType;
         
