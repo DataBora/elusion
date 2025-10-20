@@ -560,7 +560,7 @@ impl OneLakeClient {
     }
 
     // Parse ABFSS path to extract workspace_id, lakehouse/warehouse_id, and path
-    fn parse_abfss_path(abfss_path: &str) -> ElusionResult<ParsedOneLakePath> {
+    pub fn parse_abfss_path(abfss_path: &str) -> ElusionResult<ParsedOneLakePath> {
         if !abfss_path.starts_with("abfss://") {
             return Err(ElusionError::Custom(
                 "Invalid ABFSS path format. Expected: abfss://workspace_id@onelake.dfs.fabric.microsoft.com/lakehouse_id/Files/...".to_string()

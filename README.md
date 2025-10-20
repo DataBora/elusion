@@ -82,6 +82,7 @@ You can enable only the features you need, which helps reduce dependencies and c
 | **MySQL** | MySQL Database connectivity | `features = ["mysql"]` |
 | **API** | HTTP API integration | `features = ["api"]` |
 | **Dashboard** | Data visualization and dashboards | `features = ["dashboard"]` |
+| **CopyData** | High-performance streaming data copy operations | `features = ["copydata"]` |
 
 ---
 
@@ -96,6 +97,14 @@ You can enable only the features you need, which helps reduce dependencies and c
 - Fabric - OneLake connectivity for reading and writing files to Lakehouses and Warehouses
 - FTP/FTPS: Server connectivity for Both standard FTP and secure FTPS (FTP over TLS/SSL)
 - REST API's: Create JSON files from REST API endpoints with Customizable Headers, Params, Date Ranges, Pagination...
+
+### ⚡ High-Performance Data Copy Operations
+- **Streaming Processing**: Handle files larger than available memory with zero-copy operations
+- **Format Conversion**: Convert between CSV, JSON, and Parquet without loading data into memory
+- **Configurable Batching**: Optimize performance with adjustable batch sizes (default 10K rows)
+- **Compression Support**: Snappy and Uncompressed Parquet output options
+- **Real-time Progress**: Monitor copy operations with detailed statistics and progress reporting
+- **CSV Delimiter Detection**: Auto-detect and configure delimiters (comma, semicolon, pipe, tab)
 
 ### 🚀 High-Performance DataFrame Query Operations
 - Seamless Data Loading: Easily load and process data from CSV, EXCEL, PARQUET, JSON, and DELTA table files.
@@ -154,11 +163,11 @@ sales_df
     .select(["c.name", "p.category", "s.amount"])
     .filter("s.amount > 1000")
     .string_functions(["SUBSTRING(s.DateTimeColumn, 7, 8) AS Date"])
-    .fill_null(["c.CustomerEmail"], "No Customer Email")
-    .drop_null(["c.CustomerKey"])
     .agg(["SUM(s.amount) AS total_revenue"])
     .group_by_all() 
     .order_by(["total_revenue"], ["DESC"])
+    .fill_null(["c.CustomerEmail"], "No Customer Email")
+    .drop_null(["c.CustomerKey"])
     .elusion("quarterly_report")
     .await?
 ```
@@ -170,15 +179,16 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 ---
 ## INSTALLATION
 
-To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
-
-```toml
-elusion = "7.9.0"
-tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
-```
 ## Rust version needed
 ```toml
 1.89.0
+```
+
+To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
+
+```toml
+elusion = "8.0.0"
+tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 
 Usage:
@@ -187,25 +197,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "7.9.0", features = ["fabric"] }
+elusion = { version = "8.0.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "7.9.0"
+elusion = "8.0.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "7.9.0", features = ["dashboard", "api", "fabric", "ftp"] }
+elusion = { version = "8.0.0", features = ["dashboard", "api", "fabric", "ftp"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "7.9.0", features = ["all"] }
+elusion = { version = "8.0.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -235,6 +245,123 @@ async fn main() -> ElusionResult<()> {
 
     Ok(())
 }
+```
+---
+# COPY DATA
+#### High-performance copy operations
+#### Convert between formats (CSV, JSON, Parquet) efficiently with configurable batch sizes, delimiter and compression
+#### Requires [`copydata`] feature flag
+
+#### Supported source formats:
+- **CSV** (with configurable delimiters: comma, semicolon, pipe, tab)
+- **JSON/NDJSON**
+- **Parquet**
+
+#### Supported sources:
+- **Local**
+
+#### Supported destination formats:
+- **CSV** (with configurable delimiters: comma, semicolon, pipe, tab)
+- **Parquet**
+
+#### Supported Destinations:
+- **Local**
+- **Fabric - OneLake**
+
+#### FILE TO FILE Copy
+```rust
+// Custom configuration for JSON to CSV 
+copy_data(  
+    CopySource::File {
+        path: "C:\\Borivoj\\RUST\\Elusion\\bigdata\\test.json".to_string(),
+        csv_delimiter: None,
+    },
+    CopyDestination::File {  
+        path: "C:\\Borivoj\\RUST\\Elusion\\CopyData\\test.csv".to_string(),
+    },
+    Some(CopyConfig {
+            batch_size: 500_000, 
+            compression: None,
+            csv_delimiter: Some(b','), 
+            infer_schema: true,  
+            output_format: OutputFormat::Csv,
+    }),
+).await?;
+
+// Custom configuration for CSV to PARQUET 
+copy_data(  
+    CopySource::File {
+        path: "C:\\Borivoj\\RUST\\Elusion\\bigdata\\test.csv",
+        csv_delimiter: Some(b','),
+    },
+    CopyDestination::File {  
+        path: "C:\\Borivoj\\RUST\\Elusion\\CopyData\\test.parquet",
+    },
+    Some(CopyConfig {
+            batch_size: 500_000, 
+            compression: Some(ParquetCompression::Snappy),
+            csv_delimiter: None,
+            infer_schema: true,  
+            output_format: OutputFormat::Parquet,
+    }),
+).await?;
+
+// Simplified helper for file conversion
+copy_file_to_parquet(
+    "input.json",
+    "output.parquet",
+    Some(ParquetCompression::Uncompressed), // or Snappy
+).await?;
+```
+#### FILE TO FABRIC - ONE LAKE Copy
+```rust
+// From CSV to CSV copy
+copy_data(
+    CopySource::File {
+        path: "C:\\Borivoj\\RUST\\Elusion\\bigdata\\data.csv",
+        csv_delimiter: Some(b','),
+    },
+    CopyDestination::FabricOneLake {
+        abfss_path: "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files/output",
+        file_path: "data.csv",
+        auth: FabricAuthMethod::AzureCLI,
+    },
+    Some(CopyConfig {
+        batch_size: 100_000, 
+        compression: None,
+        csv_delimiter: Some(b','),
+        infer_schema: true,  
+        output_format: OutputFormat::Csv,
+    }),
+).await?;
+
+// From CSV to PARQUET copy
+copy_data(
+    CopySource::File {
+        path: "C:\\Borivoj\\RUST\\Elusion\\bigdata\\data.csv",
+        csv_delimiter: Some(b','),
+    },
+    CopyDestination::FabricOneLake {
+        abfss_path: "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files/output",
+        file_path: "data.parquet".to_string(),
+        auth: FabricAuthMethod::AzureCLI, //or with ServicePrincipal {tenant_id: String, client_id: String, client_secret: String,}
+    },
+    Some(CopyConfig {
+        batch_size: 100_000, 
+        compression: Some(ParquetCompression::Snappy),
+        csv_delimiter: None,
+        infer_schema: true,  
+        output_format: OutputFormat::Parquet,
+    }),
+).await?;
+
+// Simplified helper for Copy files to Fabric - OneLake with abfss path
+copy_file_to_fabric(
+    "C:\\Borivoj\\RUST\\Elusion\\arhiva_2024.csv",
+    "abfss://here-goes-workspaceid@onelake.dfs.fabric.microsoft.com/here-goes-lakehouseid/Files",
+    "yild.parquet",
+    Some(ParquetCompression::Snappy), 
+).await?;
 ```
 ---
 # CREATING DATA FRAMES

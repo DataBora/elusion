@@ -255,3 +255,38 @@ impl FtpUtils {
         ))
     }
 }
+
+
+//===== CPY DATA
+#[cfg(feature = "copydata")]
+pub use crate::features::copydata::{
+    CopySource, 
+    CopyDestination,
+    CopyDataEngine, 
+    CopyConfig, 
+    ParquetCompression,
+    FabricAuthMethod,
+    OutputFormat,
+    copy_data,            
+    copy_file_to_parquet, 
+    copy_file_to_csv,
+    copy_file_to_fabric,
+    copy_file_to_fabric_with_sp
+};
+
+// Stubs for when feature is disabled
+#[cfg(not(feature = "copydata"))]
+pub use crate::features::copydata::{
+    CopySource, 
+    CopyDestination,
+    CopyDataEngine, 
+    CopyConfig, 
+    ParquetCompression,
+    FabricAuthMethod,
+    OutputFormat,
+    copy_data,           
+    copy_file_to_parquet,  
+    copy_file_to_csv,
+    copy_file_to_fabric,
+    copy_file_to_fabric_with_sp
+};

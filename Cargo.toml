@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "7.9.0"
+version = "8.0.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -64,7 +64,8 @@ excel = ["dep:rust_xlsxwriter"]
 sharepoint = ["dep:url", "dep:reqwest", "dep:urlencoding", "dep:azure_identity", "dep:azure_core"] 
 fabric = ["dep:reqwest", "dep:url", "dep:urlencoding", "dep:parquet", "dep:azure_identity", "dep:azure_core"]
 ftp = ["dep:suppaftp"]
-all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint", "fabric", "ftp"]
+copydata = ["dep:parquet"] 
+all = ["dashboard", "api", "azure", "postgres", "mysql", "excel", "sharepoint", "fabric", "ftp", "copydata"]
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
