@@ -1,3 +1,13 @@
+## [8.1.0] - 2025-11-12
+### Added
+- **Schema Loading Feature** - Load files with predefined schemas using `new_with_schema()` method
+- Support for custom schema definition via JSON specification with `schema_from_json()`
+- `SchemaBuilder` for ergonomic, programmatic schema construction without requiring manual `vec![]` declarations
+- `FileSchema::schema_builder()` convenience method for fluent schema building
+- Schema support for all file formats: CSV, Parquet, JSON, Excel, XML, and Delta Lake
+- `FileSchema` struct for schema representation and reuse
+- Exposed schema-loading APIs through `CustomDataFrame` wrappers (not direct imports in prelude)
+
 ## [8.0.0] - 2025-10-21
 ### Added
 - **COPY DATA** feature for continuous reading and writing for files bigger than RAM. Currenty source can be JSON, CSV and PARQUET, and destinations: CSV and PARQUET.

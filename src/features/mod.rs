@@ -16,3 +16,4 @@ pub mod fabric;
 pub mod ftp;
 pub mod copydata;
 pub mod raw_sql;
+pub mod with_schema;

@@ -239,7 +239,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "8.0.0"
+elusion = "8.1.0"
 tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
 ```
 
@@ -249,25 +249,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "8.0.0", features = ["fabric"] }
+elusion = { version = "8.1.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "8.0.0"
+elusion = "8.1.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "8.0.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
+elusion = { version = "8.1.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "8.0.0", features = ["all"] }
+elusion = { version = "8.1.0", features = ["all"] }
 ```
 
 ### Feature Implications
@@ -297,6 +297,94 @@ async fn main() -> ElusionResult<()> {
 
     Ok(())
 }
+```
+---
+# CREATING DATA FRAMES
+---
+### - Loading data into CustomDataFrame can be from:
+#### - Empty() DataFrames
+#### - In-Memory data formats: CSV, EXCEL, JSON, XML, PARQUET, DELTA 
+#### - FABRIC - OneLake
+#### - SharePoint
+#### - FTP/ FTPS
+#### - Azure Blob Storage endpoints (BLOB, DFS)
+#### - Postgres Database SQL Queries
+#### - MySQL Database Queries
+#### - REST API -> json -> DataFrame
+
+---
+### LOADING data from Files into CustomDataFrame (in-memory data formats)
+#### - File extensions are automatically recognized 
+#### - All you have to do is to provide path to your file
+
+## Creating CustomDataFrame
+#### 2 arguments needed:  **Path**, **Table Alias**
+#### File extensions are automatically recognized (csv, excel, json, parquet, delta)
+---
+## REGULAR LOADING
+---
+### LOADING data from CSV into CustomDataFrame
+#### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
+```rust
+let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
+let df = CustomDataFrame::new(csv_path, "csv_data").await?; 
+```
+### LOADING data from EXCEL into CustomDataFrame
+```rust
+let excel_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\excel_data.xlsx";
+let df = CustomDataFrame::new(excel_path, "xlsx_data").await?;
+```
+### LOADING data from PARQUET into CustomDataFrame
+```rust
+let parquet_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\prod_data.parquet";
+let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
+```
+### LOADING data from JSON into CustomDataFrame
+```rust
+let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
+let df = CustomDataFrame::new(json_path, "json_data").await?;
+```
+### LOADING data from XML into CustomDataFrame
+#### Automatically analyzes XML file structure and chooses the optimal processing strategy and data types for your data
+```rust
+let xml_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales.xml";
+let df = CustomDataFrame::new(xml_path, "xml_data").await?;
+```
+### LOADING data from DELTA table into CustomDataFrame
+```rust
+let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
+let df = CustomDataFrame::new(delta_path, "delta_data").await?;
+```
+---
+### LOADING data with PREDEFINED SCHEMA into CustomDataFrame
+#### Make sure to write column names LOWERCASE as DataFusion query engine requires it.
+
+#### Option 1: Using SchemaBuilder (Fluent API)
+```rust
+// Build schema using the builder
+let schema = CustomDataFrame::schema_builder()
+    .field("id", ArrowDataType::Int64, false)  // column name, datatype, nullable
+    .field("name", ArrowDataType::Utf8, true)
+    .field("amount", ArrowDataType::Float64, true)
+    .build();
+
+// Load any file with the predefined schema (CSV, Parquet, JSON, Excel, XML, Delta)
+let df = CustomDataFrame::new_with_schema("data.csv", schema, "my_table").await?;
+```
+
+#### Option 2: Using JSON Schema Definition
+```rust
+// Define a custom schema as JSON
+let schema = CustomDataFrame::schema_from_json(r#"{
+    "fields": [
+        {"name": "id", "type": "int64", "nullable": false},
+        {"name": "name", "type": "string", "nullable": true},
+        {"name": "amount", "type": "float64", "nullable": true}
+    ]
+}"#)?;
+
+// Load any file with the predefined schema
+let df = CustomDataFrame::new_with_schema("data.csv", schema, "my_table").await?;
 ```
 ---
 # COPY DATA
@@ -407,63 +495,6 @@ copy_file_to_fabric(
     "yild.parquet",
     Some(ParquetCompression::Snappy), 
 ).await?;
-```
----
-# CREATING DATA FRAMES
----
-### - Loading data into CustomDataFrame can be from:
-#### - Empty() DataFrames
-#### - In-Memory data formats: CSV, EXCEL, JSON, XML, PARQUET, DELTA 
-#### - FABRIC - OneLake
-#### - SharePoint
-#### - FTP/ FTPS
-#### - Azure Blob Storage endpoints (BLOB, DFS)
-#### - Postgres Database SQL Queries
-#### - MySQL Database Queries
-#### - REST API -> json -> DataFrame
-
----
-### LOADING data from Files into CustomDataFrame (in-memory data formats)
-#### - File extensions are automatically recognized 
-#### - All you have to do is to provide path to your file
-
-## Creating CustomDataFrame
-#### 2 arguments needed:  **Path**, **Table Alias**
-#### File extensions are automatically recognized (csv, excel, json, parquet, delta)
----
-## REGULAR LOADING
----
-### LOADING data from CSV into CustomDataFrame
-#### Delimiters are auto-detected: b'\t' => "tab (TSV)", b',' => "comma (CSV)", b';' => "semicolon", b'|' => "pipe"
-```rust
-let csv_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\csv_data.csv";
-let df = CustomDataFrame::new(csv_path, "csv_data").await?; 
-```
-### LOADING data from EXCEL into CustomDataFrame
-```rust
-let excel_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\excel_data.xlsx";
-let df = CustomDataFrame::new(excel_path, "xlsx_data").await?;
-```
-### LOADING data from PARQUET into CustomDataFrame
-```rust
-let parquet_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\prod_data.parquet";
-let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
-```
-### LOADING data from JSON into CustomDataFrame
-```rust
-let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
-let df = CustomDataFrame::new(json_path, "json_data").await?;
-```
-### LOADING data from XML into CustomDataFrame
-#### Automatically analyzes XML file structure and chooses the optimal processing strategy and data types for your data
-```rust
-let xml_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\sales.xml";
-let df = CustomDataFrame::new(xml_path, "xml_data").await?;
-```
-### LOADING data from DELTA table into CustomDataFrame
-```rust
-let delta_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\agg_sales"; // for DELTA you just specify folder name without extension
-let df = CustomDataFrame::new(delta_path, "delta_data").await?;
 ```
 ---
 ### LOADING data from LOCAL FOLDER into CustomDataFrame
