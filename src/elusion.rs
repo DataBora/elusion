@@ -271,8 +271,8 @@ pub struct ColumnErrorContext {
 
 // Auxiliary struct to hold aliased DataFrame
 pub struct AliasedDataFrame {
-    dataframe: DataFrame,
-    alias: String,
+    pub dataframe: DataFrame,
+    pub alias: String,
 }
 
 impl CustomDataFrame {
@@ -394,6 +394,70 @@ impl CustomDataFrame {
             include_period_ranges, 
             week_start_day
         ).await
+    }
+
+    // ========= SCHEMA LOADING
+    /// Load a file with a predefined schema - supports multiple file formats
+    /// 
+    /// # Arguments
+    /// * `file_path` - Path to the file to load
+    /// * `schema` - The predefined schema to apply
+    /// * `alias` - Table alias for the loaded data
+    /// 
+    /// # Supported Formats
+    /// - CSV (.csv)
+    /// - Parquet (.parquet)
+    /// - JSON (.json)
+    /// - Excel (.xlsx)
+    /// - XML (.xml)
+    /// - Delta (.delta or directories)
+    pub async fn new_with_schema(
+        file_path: &str,
+        schema: crate::features::with_schema::FileSchema,
+        alias: &str,
+    ) -> ElusionResult<Self> {
+        let aliased_df = crate::features::with_schema::load_with_schema(file_path, schema, alias).await?;
+
+        Ok(CustomDataFrame {
+            df: aliased_df.dataframe,
+            table_alias: aliased_df.alias.clone(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
+    }
+
+    /// Helper function to create a schema from a JSON 
+    pub fn schema_from_json(json_spec: &str) -> ElusionResult<crate::features::with_schema::FileSchema> {
+        crate::features::with_schema::schema_from_json(json_spec)
+    }
+
+    /// Create a new schema builder
+    pub fn schema_builder() -> crate::features::with_schema::SchemaBuilder {
+        crate::features::with_schema::FileSchema::builder()
     }
     
       /// Create a materialized view from the current DataFrame state

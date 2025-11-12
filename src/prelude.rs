@@ -295,3 +295,8 @@ pub use crate::features::copydata::{
 // RAW SQL
 pub use crate::sql;
 pub use crate::features::raw_sql::execute_raw_sql;
+
+
+// WITH SCHEMA
+pub use crate::features::with_schema::FileSchema;
+pub use crate::features::with_schema::SchemaBuilder;
