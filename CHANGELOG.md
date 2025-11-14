@@ -1,3 +1,7 @@
+## [8.1.1] - 2025-11-14
+### FIXED
+-- Warnings for rust v1.91.1
+
 ## [8.1.0] - 2025-11-12
 ### Added
 - **Schema Loading Feature** - Load files with predefined schemas using `new_with_schema()` method
