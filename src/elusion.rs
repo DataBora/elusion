@@ -225,6 +225,7 @@ impl Clone for CustomDataFrame {
 
 // =================== JSON heler functions
 
+#[allow(dead_code)]
 #[derive(Deserialize, Serialize, Debug)]
 struct GenericJson {
     #[serde(flatten)]

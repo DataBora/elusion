@@ -108,9 +108,12 @@ static NULL_VALUES: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(||
 
         let delimiter = detect_delimiter(file_path).await?;
         let delimiter_char = delimiter as char;
-        println!("🔍 Auto-detected delimiter: '{}' ({})", 
-            if delimiter == b'\t' { "TAB" } else { &delimiter_char.to_string() }, 
-            delimiter);
+        let delimiter_display = if delimiter == b'\t' {
+            "TAB".to_string()
+        } else {
+            delimiter_char.to_string()
+        };
+        println!("🔍 Auto-detected delimiter: '{}' ({})", delimiter_display, delimiter);
 
         let read_start = std::time::Instant::now();
 
