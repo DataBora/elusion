@@ -240,7 +240,7 @@ To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust pro
 
 ```toml
 elusion = "8.1.1"
-tokio = { version = "1.45.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
 ```
 
 Usage:
