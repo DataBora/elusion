@@ -5,13 +5,13 @@ use datafusion::arrow::csv::ReaderBuilder as CsvReaderBuilder;
 #[cfg(feature = "copydata")]
 use datafusion::arrow::json::ReaderBuilder as JsonReaderBuilder;
 #[cfg(feature = "copydata")]
-use parquet::arrow::ArrowWriter;
+use datafusion::parquet::arrow::ArrowWriter;
 #[cfg(feature = "copydata")]
-use parquet::file::properties::{WriterProperties, WriterVersion};
+use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
 #[cfg(feature = "copydata")]
-use parquet::basic::Compression;
+use datafusion::parquet::basic::Compression;
 #[cfg(feature = "copydata")]
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use datafusion::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 #[cfg(feature = "copydata")]
 use std::pin::Pin;
 #[cfg(feature = "copydata")]
@@ -231,7 +231,7 @@ impl DataWriter {
 pub fn stream_json_array_batches(
     path: &str,
     batch_size: usize,
-    schema: SchemaRef,
+    schema: DeltaSchemaRef,
 ) -> ElusionResult<impl Stream<Item = ElusionResult<RecordBatch>>> {
     let file = File::open(path)
         .map_err(|e| ElusionError::Custom(format!("Failed to open JSON file: {}", e)))?;

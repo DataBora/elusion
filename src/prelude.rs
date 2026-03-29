@@ -24,13 +24,17 @@ pub use datafusion::error::DataFusionError;
 pub use futures::future::BoxFuture;
 pub use datafusion::datasource::MemTable;
 pub use std::sync::Arc;
-pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
+//pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
+pub use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef as DeltaSchemaRef, TimeUnit};
 pub use chrono::NaiveDate;
-pub use arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array, Date32Builder, TimestampMillisecondBuilder};
+//pub use datafusion::arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array, Date32Builder, TimestampMillisecondBuilder};
+pub use datafusion::arrow::array::{StringBuilder, ArrayRef,  ArrayBuilder, Float64Builder, Int64Builder, UInt64Builder,Array, Float64Array,Int64Array,Int32Array,TimestampNanosecondArray, Date64Array,Date32Array, Date32Builder, TimestampMillisecondBuilder};
 
-pub use arrow::record_batch::RecordBatch;
+//pub use arrow::record_batch::RecordBatch;
+pub use datafusion::arrow::record_batch::RecordBatch;
 pub use ArrowDataType::*;
-pub use arrow::csv::writer::WriterBuilder;
+//pub use arrow::csv::writer::WriterBuilder;
+pub use datafusion::arrow::csv::writer::WriterBuilder;
 
 // ========= CSV 
 pub use std::fs::{self, File, OpenOptions};
@@ -44,22 +48,27 @@ pub use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 pub use serde_json::{json, Map, Value};
 pub use serde::{Deserialize, Serialize};
 pub use std::collections::{HashMap, HashSet};
-pub use arrow::error::Result as ArrowResult;    
-pub use datafusion::arrow::datatypes::TimeUnit;
+//pub use arrow::error::Result as ArrowResult; 
+pub use datafusion::arrow::error::Result as ArrowResult;   
 //---json writer
-pub use arrow::array::{ListArray,TimestampMicrosecondArray,TimestampMillisecondArray,TimestampSecondArray,LargeBinaryArray,BinaryArray,LargeStringArray,Float32Array,UInt64Array,UInt32Array,BooleanArray};
+//pub use arrow::array::{ListArray,TimestampMicrosecondArray,TimestampMillisecondArray,TimestampSecondArray,LargeBinaryArray,BinaryArray,LargeStringArray,Float32Array,UInt64Array,UInt32Array,BooleanArray};
+pub use datafusion::arrow::array::{ListArray,TimestampMicrosecondArray,TimestampMillisecondArray,TimestampSecondArray,LargeBinaryArray,BinaryArray,LargeStringArray,Float32Array,UInt64Array,UInt32Array,BooleanArray};
 
 //delta
 pub use std::result::Result;
 pub use std::path::{Path as LocalPath, PathBuf};
+#[allow(deprecated)]
 pub use deltalake::operations::DeltaOps;
 pub use deltalake::writer::{RecordBatchWriter, WriteMode, DeltaWriter};
 pub use deltalake::{open_table, DeltaTableBuilder, DeltaTableError, ObjectStore, Path as DeltaPath};
+pub use deltalake::DeltaTable;
 pub use deltalake::protocol::SaveMode;
 pub use deltalake::kernel::{DataType as DeltaType, Metadata, Protocol, StructType};
 pub use deltalake::kernel::StructField;
 pub use futures::StreamExt;
-pub use deltalake::storage::object_store::local::LocalFileSystem;
+//pub use deltalake::storage::object_store::local::LocalFileSystem;
+//pub use object_store::local::LocalFileSystem;
+pub use deltalake::logstore::object_store::local::LocalFileSystem;
 // use object_store::path::Path as ObjectStorePath;
 
 // =========== ERRROR
@@ -70,8 +79,10 @@ pub use std::error::Error;
 pub use crate::custom_error::cust_error::ElusionError;
 pub use crate::custom_error::cust_error::ElusionResult;
 // PIVOT
-pub use arrow::compute;
-pub use arrow::array::StringArray;
+//pub use arrow::compute;
+pub use datafusion::arrow::compute;
+//pub use arrow::array::StringArray;
+pub use datafusion::arrow::array::StringArray;
 
 //PLOTTING
 #[cfg(feature = "dashboard")]
@@ -183,33 +194,37 @@ pub use std::sync::Mutex;
 pub use lazy_static::lazy_static;
 
 // =========== DATE TABLE BUILDER
-pub use arrow::array::Int32Builder;
-pub use arrow::array::BooleanBuilder;
+//pub use arrow::array::Int32Builder;
+//pub use arrow::array::BooleanBuilder;
+pub use datafusion::arrow::array::{Int32Builder, BooleanBuilder};
 pub use chrono::{Datelike, Weekday, Duration, NaiveDateTime, NaiveTime};
 
 // =========EXCEL
 #[cfg(feature = "excel")]
 pub use rust_xlsxwriter::{Format, Workbook, ExcelDateTime};
 #[cfg(feature = "excel")]
-pub use arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
+pub use datafusion::arrow::array::{Int8Array, Int16Array,UInt8Array, UInt16Array};
 
-pub use calamine::DataType as CalamineDataType;
+//pub use calamine::DataType as CalamineDataType;
+pub use calamine::Data as CalamineDataType;
 pub use calamine::{Reader, Xlsx, open_workbook};
 
 //========== SHARE POINT
 #[cfg(feature = "sharepoint")]
 pub use reqwest;
-#[cfg(feature = "sharepoint")]
+
 pub use url;
 
 // ------ OPTIMIZATIONS
 pub use std::borrow::Cow;
 pub use once_cell::sync::Lazy;
-pub use arrow::util::display::array_value_to_string as any_other_array_value_to_string;
+//pub use arrow::util::display::array_value_to_string as any_other_array_value_to_string;
+pub use datafusion::arrow::util::display::array_value_to_string as any_other_array_value_to_string;
 
 // ----- Stream
 pub use datafusion::physical_plan::SendableRecordBatchStream;
-pub use arrow::util::pretty::pretty_format_batches;
+//pub use arrow::util::pretty::pretty_format_batches;
+pub use datafusion::arrow::util::pretty::pretty_format_batches;
 
 //====== REDIS
 pub use crate::features::redis::{

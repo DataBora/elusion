@@ -530,27 +530,21 @@ enum DetectedType {
                         
                         CalamineDataType::Bool(b) => Value::Bool(*b),
                         
-                        CalamineDataType::DateTime(dt) => {
-                            let fractional = dt.fract();
-                            if fractional > 0.0 {
-                                excel_datetime_to_naive_datetime(*dt)
-                                    .map(|ndt| Value::String(ndt.format("%Y-%m-%d %H:%M:%S").to_string()))
-                                    .unwrap_or(Value::Null)
-                            } else {
-                                excel_date_to_naive_date(*dt)
-                                    .map(|nd| Value::String(nd.format("%Y-%m-%d").to_string()))
-                                    .unwrap_or(Value::Null)
-                            }
-                        },
+                       CalamineDataType::DateTime(dt) => {
+                        let f = dt.as_f64();
+                        match excel_datetime_to_naive_datetime(f) {
+                            Some(naive_dt) => Value::String(naive_dt.to_string()),
+                            None => Value::Null,
+                        }
+}
+                        CalamineDataType::DateTimeIso(s) => Value::String(s.clone()),
                         
-                        CalamineDataType::Duration(d) => {
-                            let hours = (d * 24.0) as i64;
-                            let minutes = ((d * 24.0 * 60.0) % 60.0) as i64;
-                            let seconds = ((d * 24.0 * 60.0 * 60.0) % 60.0) as i64;
-                            Value::String(format!("{}h {}m {}s", hours, minutes, seconds))
-                        },
-                        
-                        CalamineDataType::DateTimeIso(dt_iso) => Value::String(dt_iso.clone()),
+                        // CalamineDataType::Duration(d) => {
+                        //     let hours = (d * 24.0) as i64;
+                        //     let minutes = ((d * 24.0 * 60.0) % 60.0) as i64;
+                        //     let seconds = ((d * 24.0 * 60.0 * 60.0) % 60.0) as i64;
+                        //     Value::String(format!("{}h {}m {}s", hours, minutes, seconds))
+                        // },
                         
                         CalamineDataType::DurationIso(d_iso) => Value::String(d_iso.clone()),
                         

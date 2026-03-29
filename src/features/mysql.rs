@@ -207,7 +207,7 @@ impl From<mysql_async::Error> for ElusionError {
                 // MySQL Date format: YYYY-MM-DD
                 Some(Ok(MySqlValue::Date(_, _, _, _, _, _, _))) => ArrowDataType::Date32,
                 // MySQL Time format: HH:MM:SS
-                Some(Ok(MySqlValue::Time(_, _, _, _, _, _))) => ArrowDataType::Time64(arrow::datatypes::TimeUnit::Microsecond),
+                Some(Ok(MySqlValue::Time(_, _, _, _, _, _))) => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond),
                 _ => ArrowDataType::Utf8, // Default to string for any other type
             };
             

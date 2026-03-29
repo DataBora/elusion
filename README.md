@@ -233,14 +233,14 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 
 ## Rust version needed
 ```toml
-1.91.1
+1.94.1
 ```
 
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "8.1.1"
-tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
+elusion = "8.2.0"
+tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 ```
 
 Usage:
@@ -249,25 +249,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "8.1.1", features = ["fabric"] }
+elusion = { version = "8.2.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "8.1.1"
+elusion = "8.2.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "8.1.1", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
+elusion = { version = "8.2.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "8.1.1", features = ["all"] }
+elusion = { version = "8.2.0", features = ["all"] }
 ```
 
 ### Feature Implications

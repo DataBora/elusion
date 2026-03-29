@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 /// Function to infer schema from rows
-pub fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> SchemaRef {
+pub fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> DeltaSchemaRef {
     let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
     let mut keys_set: HashSet<String> = HashSet::new();
 

@@ -1,3 +1,35 @@
+## [8.2.0] - 2026-03-29
+### Updated
+- Major dependency upgrades for long-term compatibility:
+  - `tokio` from `1.48.0` to `1.50.0`
+  - `datafusion` from `43.0.0` to `46.0.1`
+  - `deltalake` from `0.23.0` to `0.31.0`
+  - `arrow` from `53.2.0` to `57.x` (now sourced via `datafusion::arrow` to avoid dual-version conflicts)
+  - `chrono` from `=0.4.38` (pinned) to `0.4.44` (unpinned)
+  - `reqwest` from `0.12.x` to `0.13.2` (feature `rustls-tls` renamed to `rustls`)
+  - `parquet` from `53.x` to `58.1.0`
+  - `calamine` updated with `chrono` feature enabled for proper `ExcelDateTime` handling
+  - `url` promoted from optional to required dependency
+
+### Fixed
+- Resolved `arrow-arith` trait clash with `chrono >= 0.4.40` (`quarter()` function ambiguity)
+- Removed dual `arrow` crate conflict between `deltalake` (arrow 57) and `datafusion` (arrow 54) by routing all arrow imports through `datafusion::arrow`
+- Fixed `deltalake` 0.31 breaking API changes:
+  - `from_uri()` → `from_url()` (now requires `Url` instead of `&str`)
+  - `try_from_uri()` → `try_from_url()`
+  - `StructType::new()` → `StructType::try_new()`
+  - `Metadata` fields made private, now accessed via methods (`id()`, `name()`, `description()`, etc.)
+  - `Protocol::new()` → `Protocol::default()`
+  - `LocalFileSystem` now sourced from `deltalake::logstore::object_store::local`
+  - `table.version()` now returns `Option<i64>`
+  - `open_table()` now requires `Url` instead of `&str`
+- Fixed `calamine` breaking API changes:
+  - `DataType` trait renamed to `Data` enum
+  - `Duration` variant removed, mapped to `Null`
+  - `ExcelDateTime` serial value conversion updated
+- Fixed `object_store` dual-version conflict (0.12 vs 0.13)
+- Fixed `RecordBatch` and `Schema` type mismatches across delta, redis, calendar, xml, excel, and with_schema modules via IPC round-trip conversion
+
 ## [8.1.1] - 2025-11-14
 ### FIXED
 -- Warnings for rust v1.91.1

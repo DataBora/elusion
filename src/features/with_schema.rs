@@ -3,7 +3,7 @@ use std::path::Path as LocalPathCheck;
 use std::sync::Arc;
 use datafusion::prelude::{SessionContext, CsvReadOptions, ParquetReadOptions};
 use datafusion::datasource::MemTable;
-use arrow::datatypes::{DataType as ArrowDataType, Field, Schema, SchemaRef, TimeUnit};
+use datafusion::arrow::datatypes::{DataType as ArrowDataType, Field, Schema, SchemaRef, TimeUnit};
 use serde_json;
 
 use crate::custom_error::cust_error::{ElusionError, ElusionResult};
@@ -300,8 +300,11 @@ async fn load_delta_with_schema(
     let ctx = SessionContext::new();
     let path_manager = DeltaPathManager::new(file_path);
 
-    // Open the Delta table
-    let mut table = DeltaTableBuilder::from_uri(&path_manager.table_path())
+    let url = path_manager.table_url()
+        .map_err(|e| ElusionError::Custom(format!("Invalid Delta path: {}", e)))?;
+
+    let mut table = DeltaTableBuilder::from_url(url)
+        .map_err(|e| ElusionError::Custom(format!("Failed to build Delta table: {}", e)))?
         .build()
         .map_err(|e| ElusionError::Custom(format!("Failed to build Delta table: {}", e)))?;
 
@@ -309,12 +312,11 @@ async fn load_delta_with_schema(
         .await
         .map_err(|e| ElusionError::Custom(format!("Failed to load Delta table: {}", e)))?;
 
-    // Get file URIs and read as parquet
     let raw_uris = table.get_file_uris()
         .map_err(|e| ElusionError::Custom(format!("Failed to get file URIs: {}", e)))?;
 
     let file_paths: Vec<String> = raw_uris
-        .map(|uri| path_manager.normalize_uri(&uri))
+        .map(|uri: String| path_manager.normalize_uri(&uri))
         .collect();
 
     let schema_ref = schema.schema_ref();

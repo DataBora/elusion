@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "8.1.1"
+version = "8.2.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -13,65 +13,64 @@ keywords = ["data", "engineering", "dataframe", "analysis"]
 categories = ["data-structures"]
 
 [dependencies]
-datafusion = "43.0.0"
-deltalake = "0.23.0"
-arrow = { version = "53.2.0", features = ["ipc"] }
-chrono = { version = "=0.4.38", features = [
+datafusion = "46.0.1"
+deltalake = "0.31.0"
+chrono = { version = "0.4.44", features = [
     "serde",
-] } #arrow-arith has same Quarter function
-tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
+] }
+tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 futures = "0.3.31"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
 serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.134"
-object_store = "0.11.2"
+serde_json = "1.0.149"
+object_store = "0.13.2"
 plotly = { version = "0.12.1", optional = true }
 lazy_static = "1.5.0"
 azure_storage_blobs = { version = "0.21.0", optional = true }
 azure_storage = { version = "0.21.0", optional = true }
-azure_identity = { version = "0.28.0", optional = true }
-azure_core = { version = "0.28.0", optional = true }
+azure_identity = { version = "0.33.0", optional = true }
+azure_core = { version = "0.33.0", optional = true }
 base64 = "0.22.1"
-csv = "1.1"
+csv = "1.4.0"
 tokio-cron-scheduler = "0.13.0"
 bytes = "1.10.0"
-num_cpus = "1.0"
-reqwest = { version = "0.12", features = [
+num_cpus = "1.17.0"
+reqwest = { version = "0.13.2", features = [
     "json",
-    "rustls-tls",
+    "rustls",
 ], default-features = false, optional = true }
 urlencoding = { version = "2.1.3", optional = true }
-tempfile = "3.16.0"
-ring = "0.17.12"
-tokio-postgres = { version = "0.7.13", features = [
+tempfile = "3.27.0"
+ring = "0.17.13"
+tokio-postgres = { version = "0.7.16", features = [
     "with-chrono-0_4",
 ], optional = true }
-rust_decimal = { version = "1.32", features = ["db-postgres"], optional = true }
-mysql_async = { version = "0.32.2", default-features = false, features = [
+rust_decimal = { version = "1.41.0", features = [
+    "db-postgres",
+], optional = true }
+mysql_async = { version = "0.36.1", default-features = false, features = [
     "minimal",
 ], optional = true }
-rust_xlsxwriter = { version = "0.87.0", optional = true }
-calamine = "0.23.1"
-url = { version = "2.5", optional = true }
+rust_xlsxwriter = { version = "0.94.0", optional = true }
+calamine = "0.34.0"
+url = { version = "2.5" }
 once_cell = "1.21.3"
 redis = { version = "0.32.5", features = ["tokio-comp", "connection-manager"] }
 xml = "1.0.0"
-parquet = { version = "53.0.0", optional = true }
-suppaftp = { version = "7.0.4", features = ["native-tls"], optional = true }
-headless_chrome = { version = "1.0.18", optional = true }
-uuid = { version = "1.18.1", features = ["v4"], optional = true }
+suppaftp = { version = "8.0.2", features = ["native-tls"], optional = true }
+headless_chrome = { version = "1.0.21", optional = true }
+uuid = { version = "1.18.1", features = ["v4"] }
 
 [features]
 default = []
-dashboard = ["dep:plotly", "headless_chrome", "dep:uuid"]
+dashboard = ["dep:plotly", "headless_chrome"]
 api = ["dep:reqwest", "dep:urlencoding"]
 azure = ["dep:azure_storage_blobs", "dep:azure_storage", "dep:reqwest"]
 postgres = ["dep:tokio-postgres", "dep:rust_decimal"]
 mysql = ["dep:mysql_async"]
 excel = ["dep:rust_xlsxwriter"]
 sharepoint = [
-    "dep:url",
     "dep:reqwest",
     "dep:urlencoding",
     "dep:azure_identity",
@@ -79,14 +78,12 @@ sharepoint = [
 ]
 fabric = [
     "dep:reqwest",
-    "dep:url",
     "dep:urlencoding",
-    "dep:parquet",
     "dep:azure_identity",
     "dep:azure_core",
 ]
 ftp = ["dep:suppaftp"]
-copydata = ["dep:parquet"]
+copydata = []
 all = [
     "dashboard",
     "api",

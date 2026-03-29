@@ -9,13 +9,13 @@ use crate::CustomDataFrame;
 #[cfg(feature = "fabric")]
 use reqwest;
 #[cfg(feature = "fabric")]
-use arrow::record_batch::RecordBatch;
+use datafusion::arrow::record_batch::RecordBatch;
 #[cfg(feature = "fabric")]
-use parquet::arrow::ArrowWriter;
+use datafusion::parquet::arrow::ArrowWriter;
 #[cfg(feature = "fabric")]
-use parquet::file::properties::{WriterProperties, WriterVersion};
+use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
 #[cfg(feature = "fabric")]
-use parquet::basic::Compression;
+use datafusion::parquet::basic::Compression;
 #[cfg(feature = "fabric")]
 use azure_identity::{ClientSecretCredential, ClientSecretCredentialOptions};
 #[cfg(feature = "fabric")]
@@ -750,8 +750,8 @@ pub async fn write_parquet_to_fabric_abfss_impl(
 
     let mut buffer = Vec::new();
     {
-        let schema = df.df.schema();
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
+        let schema: datafusion::arrow::datatypes::SchemaRef = df.df.schema().inner().clone();
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, Some(props))
             .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
 
         for batch in batches {
@@ -916,7 +916,7 @@ pub async fn write_parquet_to_fabric_abfss_with_service_principal_impl(
 
     let mut buffer = Vec::new();
     {
-        let schema = df.df.schema();
+        let schema: datafusion::arrow::datatypes::SchemaRef = df.df.schema().inner().clone();
         let mut writer = ArrowWriter::try_new(&mut buffer, schema.clone().into(), Some(props))
             .map_err(|e| ElusionError::Custom(format!("Failed to create Parquet writer: {}", e)))?;
 

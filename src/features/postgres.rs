@@ -268,7 +268,7 @@ impl From<tokio_postgres::error::Error> for ElusionError {
                 Type::NUMERIC => ArrowDataType::Float64, 
                 Type::TIMESTAMP | Type::TIMESTAMPTZ => ArrowDataType::Utf8, //ArrowDataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
                 Type::DATE => ArrowDataType::Date32,
-                Type::TIME | Type::TIMETZ => ArrowDataType::Time64(arrow::datatypes::TimeUnit::Microsecond),
+                Type::TIME | Type::TIMETZ => ArrowDataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond),
                 Type::UUID | Type::JSON | Type::JSONB => ArrowDataType::Utf8, 
                 
                 _ => ArrowDataType::Utf8, // Fallback for unsupported types

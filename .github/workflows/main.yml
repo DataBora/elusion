@@ -8,51 +8,86 @@ on:
 
 jobs:
   test:
+    name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [stable]
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Setup Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: ${{ matrix.rust }}
-        override: true
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Install ODBC (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y unixodbc-dev
+      - name: Setup Rust (${{ matrix.rust }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
 
-    - name: Install ODBC (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        brew install unixodbc
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    - name: Build
-      run: cargo build --verbose
+      - name: Install ODBC (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unixodbc-dev
 
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Install ODBC (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install unixodbc
 
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
   security-audit:
+    name: Security Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
     steps:
-    - uses: actions/checkout@v2
-    - name: Run security audit
-      run: |
-        cargo install cargo-audit
-        cargo audit --deny warnings --ignore RUSTSEC-2024-0384 --ignore RUSTSEC-2025-0004 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2023-0055 --ignore RUSTSEC-2023-0086
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit Rust dependencies
+        uses: actions-rust-lang/audit@v1
+        with:
+          ignore: >-
+            RUSTSEC-2024-0384,
+            RUSTSEC-2025-0004,
+            RUSTSEC-2024-0436,
+            RUSTSEC-2023-0055,
+            RUSTSEC-2023-0086
+          # Note: after running `cargo audit` locally post-upgrade,
+          # replace the IDs above with the exact current advisory IDs
+          # for the 6 vulnerabilities listed in the README security section.
 
   tls-check:
+    name: HTTPS Check
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v2
-    - name: Check HTTPS usage
-      run: |
-        ! grep -r "http://" src/ || exit 1
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check no plain HTTP URLs in source
+        run: |
+          if grep -rn "http://" src/ --include="*.rs"; then
+            echo "❌ Plain HTTP URLs found in source. Use HTTPS instead."
+            exit 1
+          fi
+          echo "✅ No plain HTTP URLs found."

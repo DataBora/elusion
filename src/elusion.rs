@@ -12,11 +12,11 @@ use datafusion::prelude::*;
 use futures::future::BoxFuture;
 use datafusion::datasource::MemTable;
 use std::sync::Arc;
-use arrow::datatypes::{DataType as ArrowDataType};
-use arrow::array::{ArrayRef, Array, Float64Array,Int64Array};
+use datafusion::arrow::datatypes::{DataType as ArrowDataType};
+use datafusion::arrow::array::{ArrayRef, Array, Float64Array,Int64Array};
  
-use arrow::record_batch::RecordBatch;
-use arrow::csv::writer::WriterBuilder;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::csv::writer::WriterBuilder;
 
 // ========= CSV
 use std::fs::{self, File, OpenOptions};
@@ -37,6 +37,7 @@ use std::result::Result;
 use std::path::Path as LocalPath;
 use deltalake::writer::WriteMode;
 use deltalake::open_table; 
+use url::Url;
 
 //============== Features
 use crate::features::delta::write_to_delta_impl;
@@ -59,8 +60,8 @@ use crate::custom_error::cust_error::extract_window_function_name;
 use crate::custom_error::cust_error::extract_window_function_columns;
 
 // ======== PIVOT
-use arrow::compute;
-use arrow::array::StringArray;
+use datafusion::arrow::compute;
+use datafusion::arrow::array::StringArray;
 
 // ======= Dash
 pub use features::dashboard::{ReportLayout, TableOptions};
@@ -120,7 +121,7 @@ use crate::sqlbuilder::sqlbuild::SqlBuilder;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use futures::StreamExt;
 use crate::features::csv::load_csv_smart;
-use arrow::util::pretty::pretty_format_batches;
+use datafusion::arrow::util::pretty::pretty_format_batches;
 
 //cache redis
 use crate::features::redis::RedisCacheConnection;
@@ -2275,7 +2276,7 @@ impl CustomDataFrame {
                 
                 if let Some(fill_idx) = fill_column_indices.iter().position(|&idx| idx == col_idx) {
                     // This is a fill-down column - process it
-                    let string_array = array.as_any().downcast_ref::<arrow::array::StringArray>()
+                    let string_array = array.as_any().downcast_ref::<StringArray>()
                         .ok_or_else(|| ElusionError::Custom("Expected string array".to_string()))?;
                     
                     let mut new_values = Vec::new();
@@ -2294,7 +2295,7 @@ impl CustomDataFrame {
                         }
                     }
                     
-                    let new_array = arrow::array::StringArray::from(new_values);
+                    let new_array = StringArray::from(new_values);
                     new_columns.push(Arc::new(new_array) as ArrayRef);
                 } else {
                     // Regular column - keep as is
@@ -4543,14 +4544,14 @@ impl CustomDataFrame {
         
         for (index, field) in schema.fields().iter().enumerate() {
             let data_type = match field.data_type() {
-                arrow::datatypes::DataType::Utf8 => "String",
-                arrow::datatypes::DataType::Int32 => "Int32",
-                arrow::datatypes::DataType::Int64 => "Int64", 
-                arrow::datatypes::DataType::Float32 => "Float32",
-                arrow::datatypes::DataType::Float64 => "Float64",
-                arrow::datatypes::DataType::Boolean => "Boolean",
-                arrow::datatypes::DataType::Date32 => "Date",
-                arrow::datatypes::DataType::Timestamp(_, _) => "Timestamp",
+                datafusion::arrow::datatypes::DataType::Utf8 => "String",
+                datafusion::arrow::datatypes::DataType::Int32 => "Int32",
+                datafusion::arrow::datatypes::DataType::Int64 => "Int64", 
+                datafusion::arrow::datatypes::DataType::Float32 => "Float32",
+                datafusion::arrow::datatypes::DataType::Float64 => "Float64",
+                datafusion::arrow::datatypes::DataType::Boolean => "Boolean",
+                datafusion::arrow::datatypes::DataType::Date32 => "Date",
+                datafusion::arrow::datatypes::DataType::Timestamp(_, _) => "Timestamp",
                 _ => "Other"
             };
             
@@ -6617,19 +6618,24 @@ impl CustomDataFrame {
             println!("🔄 Opening Delta table and reading metadata...");
             let table_start = std::time::Instant::now();
             // Open Delta table using path manager
-            let table = open_table(&path_manager.table_path())
-            .await
-            .map_err(|e| ElusionError::InvalidOperation {
-                operation: "Delta Table Opening".to_string(),
-                reason: e.to_string(),
-                suggestion: "💡 Ensure the path points to a valid Delta table".to_string(),
-            })?;
+           let table_url = Url::from_file_path(&path_manager.table_path())
+                .map_err(|_| ElusionError::InvalidOperation {
+                    operation: "Delta Table Opening".to_string(),
+                    reason: format!("Invalid path: {}", path_manager.table_path()),
+                    suggestion: "💡 Ensure the path is absolute".to_string(),
+                })?;
+            let table = open_table(table_url).await
+                .map_err(|e| ElusionError::InvalidOperation {
+                    operation: "Delta Table Opening".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Ensure the path points to a valid Delta table".to_string(),
+                })?;
+
+            let version = table.version();
+            println!("📊 Delta table version: {}", version.unwrap_or(-1));
 
             let table_elapsed = table_start.elapsed();
             println!("✅ Delta table opened successfully in {:?}", table_elapsed);
- 
-            let version = table.version();
-            println!("📊 Delta table version: {}", version);
 
             println!("🔍 Discovering Delta table files...");
             let files_start = std::time::Instant::now();

@@ -204,9 +204,9 @@ static NULL_VALUES: Lazy<std::collections::HashSet<&'static str>> = Lazy::new(||
         Ok(column_samples)
     }
 
-    pub fn array_value_to_string(array: &dyn arrow::array::Array, index: usize) -> String {
-        use arrow::array::*;
-        use arrow::datatypes::DataType;
+    pub fn array_value_to_string(array: &dyn datafusion::arrow::array::Array, index: usize) -> String {
+        use datafusion::arrow::array::*;
+        use datafusion::arrow::datatypes::DataType;
         
         if array.is_null(index) {
             return String::new();
@@ -1466,7 +1466,7 @@ mod tests {
             println!("🔍 Regular - neto_vrednost type: {:?}", neto_vrednost_field.data_type());
             
 
-            assert!(matches!(neto_cena_field.data_type(), arrow::datatypes::DataType::Float64), 
+            assert!(matches!(neto_cena_field.data_type(), datafusion::arrow::datatypes::DataType::Float64), 
                 "neto_cena should be Float64, got {:?}", neto_cena_field.data_type());
         }
     }
@@ -1815,7 +1815,7 @@ mod cross_platform_tests {
             
             if let Ok(field) = mesto_field {
                 match field.data_type() {
-                    arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8 => {
+                    datafusion::arrow::datatypes::DataType::Utf8 | datafusion::arrow::datatypes::DataType::LargeUtf8 => {
                         println!("✅ Mesto column correctly typed as string");
                     },
                     other => panic!("Mesto should be string type, got {:?}", other)
@@ -1920,7 +1920,7 @@ mod cross_platform_tests {
             
             let mesto_field = schema.field_with_name(None, "mesto").unwrap();
             assert!(matches!(mesto_field.data_type(), 
-                arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8),
+                datafusion::arrow::datatypes::DataType::Utf8 | datafusion::arrow::datatypes::DataType::LargeUtf8),
                 "Mesto should be string type, got {:?}", mesto_field.data_type());
             
             println!("✅ Comprehensive test passed in {:?}", load_time);

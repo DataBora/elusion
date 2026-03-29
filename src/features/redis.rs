@@ -221,7 +221,7 @@ fn generate_cache_key(query: &str) -> String {
 }
 
 /// Generate schema fingerprint
-fn generate_schema_fingerprint(schema: &arrow::datatypes::SchemaRef) -> String {
+fn generate_schema_fingerprint(schema: &datafusion::arrow::datatypes::SchemaRef) -> String {
     let mut hasher = DefaultHasher::new();
     for field in schema.fields() {
         field.name().hash(&mut hasher);
@@ -373,7 +373,7 @@ async fn get_cached_result_from_redis(
     
     // Deserialize Arrow IPC data
     let cursor = std::io::Cursor::new(buffer);
-    let mut reader = arrow::ipc::reader::StreamReader::try_new(cursor, None)
+    let mut reader = datafusion::arrow::ipc::reader::StreamReader::try_new(cursor, None)
         .map_err(|e| crate::ElusionError::Custom(format!("Failed to read cached Arrow data: {}", e)))?;
     
     let mut batches = Vec::new();
@@ -407,7 +407,7 @@ async fn cache_result_in_redis(
     // Serialize to Arrow IPC format
     let mut buffer = Vec::new();
     {
-        let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &schema)
+        let mut writer = datafusion::arrow::ipc::writer::StreamWriter::try_new(&mut buffer, &schema)
             .map_err(|e| crate::ElusionError::Custom(format!("Failed to create Arrow writer: {}", e)))?;
         
         for batch in batches {
