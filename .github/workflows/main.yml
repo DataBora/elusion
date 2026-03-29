@@ -52,63 +52,39 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
-
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Audit Rust dependencies
-        uses: actions-rust-lang/audit@v1
-        with:
-          # ── Advisories ignored because they are in transitive deps
-          # that Elusion does not control and that do not affect
-          # Elusion's own code paths.
-          #
-          # RUSTSEC-2026-0041: lz4_flex uninitialized memory (high)
-          # — pulled in by parquet 54.3.1 via datafusion 46.
-          # Fix: wait for datafusion to bump lz4_flex >= 0.11.6
-          #
-          # RUSTSEC-2026-0037: quinn-proto DoS (high)
-          # — pulled in by reqwest 0.12/0.13 via object_store/azure_core.
-          # Elusion does not use QUIC transport directly.
-          # Fix: wait for reqwest/object_store to bump quinn-proto >= 0.11.14
-          #
-          # RUSTSEC-2026-0049: rustls-webpki CRL matching (moderate)
-          # — pulled in by reqwest 0.13 via rustls-platform-verifier.
-          # Fix: wait for reqwest to bump rustls-webpki >= 0.103.10
-          #
-          # RUSTSEC-2026-0002: lru IterMut Stacked Borrows (low)
-          # — pulled in by mysql_async 0.36.1 (optional mysql feature).
-          # Theoretical soundness issue, no known exploit path via Elusion.
-          # Fix: wait for mysql_async to bump lru
-          #
-          # RUSTSEC-2024-0384: instant unmaintained (warning)
-          # — pulled in by azure_core 0.21 via http-types/futures-lite.
-          # Informational only, no vulnerability.
-          #
-          # RUSTSEC-2024-0436: paste unmaintained (warning)
-          # — pulled in by parquet 54/57 via datafusion/deltalake.
-          # Informational only, no vulnerability.
-          #
-          # RUSTSEC-2025-0134: rustls-pemfile unmaintained (warning)
-          # — pulled in by object_store 0.12 via deltalake.
-          # Informational only, no vulnerability.
-          ignore: >-
-            RUSTSEC-2026-0041,
-            RUSTSEC-2026-0037,
-            RUSTSEC-2026-0049,
-            RUSTSEC-2026-0002,
-            RUSTSEC-2024-0384,
-            RUSTSEC-2024-0436,
-            RUSTSEC-2025-0134
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
 
+      - name: Audit Rust dependencies
+        # Ignored advisories — all transitive deps Elusion cannot control:
+        # RUSTSEC-2026-0041: lz4_flex — datafusion/parquet dep
+        # RUSTSEC-2026-0037: quinn-proto — reqwest/object_store dep
+        # RUSTSEC-2026-0049: rustls-webpki — reqwest/rustls dep
+        # RUSTSEC-2026-0002: lru IterMut — mysql_async dep (low severity)
+        # RUSTSEC-2024-0384: instant — azure_core dep (unmaintained warning)
+        # RUSTSEC-2024-0436: paste — parquet/datafusion dep (unmaintained warning)
+        # RUSTSEC-2025-0134: rustls-pemfile — object_store dep (unmaintained warning)
+        run: |
+          cargo audit \
+            --ignore RUSTSEC-2026-0041 \
+            --ignore RUSTSEC-2026-0037 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2026-0002 \
+            --ignore RUSTSEC-2024-0384 \
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2025-0134
+
+  # ─────────────────────────────────────────────
+  # HTTPS-only check — ensure no plain HTTP URLs
+  # ─────────────────────────────────────────────
   tls-check:
     name: HTTPS Check
     runs-on: ubuntu-latest
