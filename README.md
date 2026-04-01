@@ -229,6 +229,138 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 
 *Join thousands of developers building the future of data engineering with Elusion.*
 ---
+---
+
+## 🏗️ Elusion Project — Medallion Architecture Pipeline Framework
+
+Elusion Project is a built-in pipeline framework following the **Bronze / Silver / Gold** medallion architecture used in **Microsoft Fabric**, **Databricks**, and **Azure Data Lake**. No external orchestration tools needed — pure Rust, single binary, Docker-ready.
+
+**Key capabilities:**
+- DAG-based execution with automatic topological sort
+- Parallel execution — independent nodes run concurrently
+- Automatic materialization — each layer written to Parquet or Delta before next layer starts
+- Config-driven — sources and output paths in TOML files, secrets via env vars
+- Fail-fast validation — missing files and unresolved env vars caught at startup
+
+### Project Structure
+```
+my_pipeline/
+├── Cargo.toml
+├── elusion.toml          # materialization config and output paths
+├── connections.toml      # source file/connection declarations
+├── .env                  # secrets — never commit to git
+└── src/
+    ├── main.rs           # wiring only
+    ├── bronze/
+    │   ├── mod.rs
+    │   └── brz_sales.rs
+    ├── silver/
+    │   ├── mod.rs
+    │   └── slv_sales_enriched.rs
+    └── gold/
+        ├── mod.rs
+        └── fct_sales_summary.rs
+```
+
+### Configuration Files
+
+**`elusion.toml`:**
+```toml
+[project]
+name = "sales_pipeline"
+version = "1.0"
+
+[materialization]
+bronze = "parquet"
+silver = "parquet"
+gold = "parquet"  # or "delta"
+
+[output]
+destination = "local"  # or "fabric"
+
+[output.local]
+bronze_path = "C:\\Data\\output\\bronze"
+silver_path = "C:\\Data\\output\\silver"
+gold_path = "C:\\Data\\output\\gold"
+```
+
+**`connections.toml`:**
+```toml
+[sources.raw_sales]
+type = "csv"
+path = "C:\\Data\\SalesData2022.csv"
+
+[sources.raw_fabric_orders]
+type = "fabric"
+abfss_path = "abfss://container@account.dfs.core.windows.net"
+file_path = "bronze/orders.parquet"
+tenant_id = "TENANT_ID"         # resolved from .env or system env vars
+client_id = "CLIENT_ID"
+client_secret = "CLIENT_SECRET"
+```
+
+### Model Files
+
+Each model is a separate file that exports `DEPS` and either a `model` function or a `SQL` constant:
+
+**DataFrame API — `src/bronze/brz_sales.rs`:**
+```rust
+use elusion::prelude::*;
+
+pub const DEPS: &[&str] = &["raw_sales"];
+
+pub async fn model(ctx: NodeRegistry) -> ElusionResult<CustomDataFrame> {
+    ctx.ref_source("raw_sales")?
+        .select(["customerkey", "productkey", "orderquantity"])
+        .filter("orderquantity > 0")
+        .elusion("brz_sales")
+        .await
+}
+```
+
+**Raw SQL — `src/gold/fct_sales_summary.rs`:**
+```rust
+pub const DEPS: &[&str] = &["slv_sales_enriched"];
+
+pub const SQL: &str = r#"
+    SELECT
+        customerkey,
+        productname,
+        SUM(orderquantity) AS total_quantity
+    FROM slv_sales_enriched
+    GROUP BY customerkey, productname
+    ORDER BY total_quantity DESC
+"#;
+```
+
+### `main.rs` — wiring only
+```rust
+use elusion::prelude::*;
+
+mod bronze;
+mod silver;
+mod gold;
+
+#[tokio::main]
+async fn main() -> ElusionResult<()> {
+    ElusionProject::from_config("elusion.toml", "connections.toml")
+        .await?
+        .source("raw_sales")
+        .source("raw_customers")
+        .source("raw_products")
+        .bronze_slice("brz_sales", bronze::brz_sales::DEPS, bronze::brz_sales::model)
+        .bronze_slice("brz_customers", bronze::brz_customers::DEPS, bronze::brz_customers::model)
+        .silver_slice("slv_sales_enriched",
+            silver::slv_sales_enriched::DEPS,
+            silver::slv_sales_enriched::model)
+        .gold_sql_slice("fct_sales_summary",
+            gold::fct_sales_summary::DEPS,
+            gold::fct_sales_summary::SQL)
+        .run()
+        .await
+}
+```
+---
 ## INSTALLATION
 
 ## Rust version needed
@@ -239,7 +371,7 @@ Elusion combines the **performance of Rust**, the **flexibility of modern DataFr
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "8.2.0"
+elusion = "8.3.0"
 tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 ```
 
@@ -249,25 +381,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "8.2.0", features = ["fabric"] }
+elusion = { version = "8.3.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "8.2.0"
+elusion = "8.3.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "8.2.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
+elusion = { version = "8.3.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "8.2.0", features = ["all"] }
+elusion = { version = "8.3.0", features = ["all"] }
 ```
 
 ### Feature Implications

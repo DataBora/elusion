@@ -1,1 +1,43 @@
 /target
+
+# Test data files
+*.csv
+*.xlsx
+*.xls
+*.json
+*.parquet
+*.xml
+
+# Local development config
+elusion.toml
+connections.toml
+.env
+
+# Test output folders
+output/
+bronze/
+silver/
+gold/
+stage/
+intermediate/
+marts/
+
+# Main entry point (library users create their own)
+src/main.rs
+
+# Test model folders
+src/bronze/
+src/silver/
+src/gold/
+src/stage/
+src/intermediate/
+src/marts/
+
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,3 +1,82 @@
+## [8.3.0] - 2026-04-01
+### Added - Elusion Project (Medallion Architecture Pipeline Framework)
+- New `ElusionProject` struct — declarative, config-driven data pipeline framework inspired by medallion architecture (Bronze/Silver/Gold) used in Microsoft Fabric, Databricks, and Azure Data Lake
+- DAG-based execution engine with topological sort — correct execution order guaranteed regardless of registration order
+- Parallel execution via level-based DAG grouping — independent nodes run concurrently with `tokio`, dependent nodes wait automatically
+- Config-driven setup via `elusion.toml` (project config) and `connections.toml` (source declarations)
+- Fail-fast source validation at startup — missing files, paths, or unresolved env vars caught before execution begins
+- Env var resolution via `dotenvy` — supports both `.env` files (local dev) and system environment variables (Docker/CI/CD)
+- Materialization per layer — automatic write to Parquet or Delta after each node completes, before next layer starts
+- Local and Microsoft Fabric/OneLake output destinations supported
+- Per-model materialization overrides in `elusion.toml` — override layer defaults for specific models
+- Execution plan printed before run — shows all nodes, layers, and materialization type per node
+- Execution summary table printed after completion — model name, layer, row count, and timing per node
+
+### Medallion Layer Naming (Bronze / Silver / Gold)
+- `NodeLayer` enum uses `Bronze`, `Silver`, `Gold` naming aligned with Microsoft Fabric and Databricks medallion architecture
+- `Bronze` — raw ingestion layer (replaces Stage)
+- `Silver` — cleaned and enriched layer (replaces Intermediate)  
+- `Gold` — aggregated business-ready layer (replaces Marts)
+- `NodeRegistry` exposes `ref_source()`, `ref_bronze()`, `ref_silver()`, `ref_gold()` for accessing resolved DataFrames between layers
+
+### Source connectivity
+- `connections.toml` source declarations supporting: CSV, Parquet, Delta, Fabric Service Principal, Fabric SAS token
+- `.source("name")` — loads source automatically from `connections.toml`
+- `.source_fn("name", closure)` — manual source loading without config files for quick prototyping
+
+### Layer registration — three API styles supported
+- **DataFrame API**: `.bronze()`, `.silver()`, `.gold()` — chainable Elusion DataFrame operations inside async closures
+- **Raw SQL API**: `.bronze_sql()`, `.silver_sql()`, `.gold_sql()` — write SQL directly against registered table names from the registry
+- **Slice deps API**: `.bronze_slice()`, `.silver_slice()`, `.gold_slice()`, `.bronze_sql_slice()`, `.silver_sql_slice()`, `.gold_sql_slice()` — for use with `DEPS: &[&str]` constants declared in separate model files
+
+### Const generics support
+- All layer registration methods accept `[&str; N]` const generic arrays instead of `Vec` — no `vec![]` required
+- Slice variants accept `&[&str]` for use with `pub const DEPS: &[&str]` in model files
+
+### Separated model files (medallion-style)
+- Models organized in separate files per layer: `src/bronze/`, `src/silver/`, `src/gold/`
+- Each model file exports `pub const DEPS: &[&str]` and either a `pub async fn model(ctx: NodeRegistry)` or a `pub const SQL: &str`
+- `main.rs` becomes minimal wiring only — one line per model
+- Adding a new model means creating one file and adding one line to `main.rs`
+
+### `elusion.toml` configuration
+```toml
+[project]
+name = "my_pipeline"
+version = "1.0"
+
+[materialization]
+bronze = "parquet"
+silver = "parquet"
+gold = "parquet" -- or delta
+
+[output]
+destination = "local"
+
+[output.local]
+bronze_path = "C:\\Data\\output\\bronze"
+silver_path = "C:\\Data\\output\\silver"
+gold_path = "C:\\Data\\output\\gold"
+```
+
+### `connections.toml` configuration
+```toml
+[sources.raw_sales]
+type = "csv"
+path = "C:\\Data\\SalesData2022.csv"
+
+[sources.raw_fabric_orders]
+type = "fabric"
+abfss_path = "abfss://container@account.dfs.core.windows.net"
+file_path = "bronze/orders.parquet"
+tenant_id = "TENANT_ID"
+client_id = "CLIENT_ID"
+client_secret = "CLIENT_SECRET"
+```
+
+### Fixed
+- `drop_null()` now correctly handles non-string columns — previously applied `TRIM()` to `Int64`/`Float64` columns causing DataFusion `btrim` function errors. Non-string columns now use `IS NOT NULL` only, string columns retain full null string detection (`''`, `'NULL'`, `'NA'`, `'N/A'`, `'NONE'`, `'-'`, `'?'`, `'NaN'`)
+
 ## [8.2.0] - 2026-03-29
 ### Updated
 - Major dependency upgrades for long-term compatibility:

@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "8.2.0"
+version = "8.3.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -61,6 +61,9 @@ xml = "1.0.0"
 suppaftp = { version = "8.0.2", features = ["native-tls"], optional = true }
 headless_chrome = { version = "1.0.21", optional = true }
 uuid = { version = "1.18.1", features = ["v4"] }
+toml = { version = "0.8" }
+toml_edit = { version = "0.19" }
+dotenvy = "0.15"
 
 [features]
 default = []

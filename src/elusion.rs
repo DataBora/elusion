@@ -5,6 +5,7 @@ mod custom_error;
 mod normalizers;
 mod csvwrite;
 mod sqlbuilder;
+mod project;
 
 // =========== DF
 use regex::Regex;
@@ -2675,24 +2676,44 @@ impl CustomDataFrame {
     fn handle_drop_null_operation(&self, columns_str: &str, base_sql: String) -> String {
         let columns: Vec<&str> = columns_str.split(',').collect();
         
+        // Get schema to check column types
+        let schema = self.df.schema();
+        
         let where_conditions: Vec<String> = columns
             .iter()
             .map(|&col| {
                 let normalized_col = col.trim().replace(" ", "_").to_lowercase();
                 let quoted_col = format!("\"{}\"", normalized_col);
-                format!(
-                    r#"({0} IS NOT NULL AND 
-                       TRIM({0}) != '' AND 
-                       UPPER(TRIM({0})) != 'NULL' AND
-                       UPPER(TRIM({0})) != 'NA' AND
-                       UPPER(TRIM({0})) != 'N/A' AND
-                       UPPER(TRIM({0})) != 'NONE' AND
-                       TRIM({0}) != '-' AND
-                       TRIM({0}) != '?' AND
-                       TRIM({0}) != 'NaN' AND
-                       UPPER(TRIM({0})) != 'NAN')"#,
-                    quoted_col
-                )
+                
+                // Check if column is a string type
+                let is_string = schema.fields().iter().any(|f| {
+                    f.name().to_lowercase() == normalized_col
+                        && matches!(
+                            f.data_type(),
+                            datafusion::arrow::datatypes::DataType::Utf8
+                                | datafusion::arrow::datatypes::DataType::LargeUtf8
+                        )
+                });
+
+                if is_string {
+                    // Full string null check including empty strings, "null", "na" etc.
+                    format!(
+                        r#"({0} IS NOT NULL AND 
+                        TRIM({0}) != '' AND 
+                        UPPER(TRIM({0})) != 'NULL' AND
+                        UPPER(TRIM({0})) != 'NA' AND
+                        UPPER(TRIM({0})) != 'N/A' AND
+                        UPPER(TRIM({0})) != 'NONE' AND
+                        TRIM({0}) != '-' AND
+                        TRIM({0}) != '?' AND
+                        TRIM({0}) != 'NaN' AND
+                        UPPER(TRIM({0})) != 'NAN')"#,
+                        quoted_col
+                    )
+                } else {
+                    // Non-string types — only check IS NOT NULL
+                    format!("({} IS NOT NULL)", quoted_col)
+                }
             })
             .collect();
         

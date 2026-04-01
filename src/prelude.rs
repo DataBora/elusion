@@ -24,6 +24,7 @@ pub use datafusion::error::DataFusionError;
 pub use futures::future::BoxFuture;
 pub use datafusion::datasource::MemTable;
 pub use std::sync::Arc;
+pub use std::pin::Pin;
 //pub use arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef};
 pub use datafusion::arrow::datatypes::{Field, DataType as ArrowDataType, Schema, SchemaRef as DeltaSchemaRef, TimeUnit};
 pub use chrono::NaiveDate;
@@ -47,7 +48,7 @@ pub use datafusion::dataframe::{DataFrame,DataFrameWriteOptions};
 // ========= JSON   
 pub use serde_json::{json, Map, Value};
 pub use serde::{Deserialize, Serialize};
-pub use std::collections::{HashMap, HashSet};
+pub use std::collections::{HashMap, HashSet, VecDeque};
 //pub use arrow::error::Result as ArrowResult; 
 pub use datafusion::arrow::error::Result as ArrowResult;   
 //---json writer
@@ -315,3 +316,19 @@ pub use crate::features::raw_sql::execute_raw_sql;
 // WITH SCHEMA
 pub use crate::features::with_schema::FileSchema;
 pub use crate::features::with_schema::SchemaBuilder;
+
+
+// PROJECT
+pub use crate::project::elusion_project::ElusionProject;
+pub use crate::project::node::{Node, NodeLayer, NodeName, NodeFn, ResolvedNode};
+pub use crate::project::dag::topological_sort;
+pub use crate::project::context::NodeRegistry;
+// PROJECT CONFIG
+pub use crate::project::config::connections_config::{ConnectionsFile, SourceConfig};
+pub use crate::project::config::project_config::{ProjectFile, MaterializationType, OutputDestination};
+pub use crate::project::config::env_resolver::resolve_env_value;
+// PROJECT SOURCES
+pub use crate::project::sources::source_loader::load_source;
+// PROJECT MATERIALIZATION
+pub use crate::project::materialization::materializer::materialize;
+pub use crate::project::sql_runner::run_sql;
