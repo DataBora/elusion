@@ -328,7 +328,7 @@ pub use crate::project::config::connections_config::{ConnectionsFile, SourceConf
 pub use crate::project::config::project_config::{ProjectFile, MaterializationType, OutputDestination};
 pub use crate::project::config::env_resolver::resolve_env_value;
 // PROJECT SOURCES
-pub use crate::project::sources::source_loader::load_source;
+pub use crate::project::sources::source_loader::load_source_owned;
 // PROJECT MATERIALIZATION
 pub use crate::project::materialization::materializer::materialize;
 pub use crate::project::sql_runner::run_sql;

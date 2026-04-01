@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use super::sources::source_loader::load_source_owned;
 pub struct ElusionProject {
     nodes: HashMap<NodeName, Node>,
     connections: Option<ConnectionsFile>,
@@ -63,7 +64,7 @@ impl ElusionProject {
             let name_clone = name_owned.clone();
             let config_clone = source_config.clone();
             Box::pin(async move {
-                load_source(&name_clone, &config_clone).await
+                load_source_owned(name_clone, config_clone).await
             })
         });
 

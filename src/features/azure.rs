@@ -881,22 +881,23 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
 
             let mut all_data = Vec::new(); 
 
-            let concurrency_limit = num_cpus::get() * 16; 
-            let client_ref = &client;
-            let results = stream::iter(blobs.iter())
-                .map(|blob_name| async move {
-                    let blob_client = client_ref.blob_client(blob_name);
-                    let content = blob_client
-                        .get_content()
-                        .await
-                        .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
+            let concurrency_limit = num_cpus::get() * 16;
+            let results = stream::iter(blobs.into_iter())
+                .map(|blob_name| {
+                    let blob_client = client.blob_client(&blob_name);
+                    async move {
+                        let content = blob_client
+                            .get_content()
+                            .await
+                            .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
 
-                    println!("Got content for blob: {} ({} bytes)", blob_name, content.len());
-                    
-                    if blob_name.ends_with(".json") {
-                        process_json_content(&content)
-                    } else {
-                        process_csv_content(blob_name, content).await
+                        println!("Got content for blob: {} ({} bytes)", blob_name, content.len());
+
+                        if blob_name.ends_with(".json") {
+                            process_json_content(&content)
+                        } else {
+                            process_csv_content(&blob_name, content).await
+                        }
                     }
                 })
                 .buffer_unordered(concurrency_limit);

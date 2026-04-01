@@ -21,8 +21,9 @@ use datafusion::arrow::csv::reader::Format;
 #[cfg(feature = "fabric")]
 pub use crate::features::fabric::FabricAuthMethod;
 #[cfg(feature = "fabric")]
+#[cfg(all(feature = "copydata", feature = "fabric"))]
 use crate::features::fabric::OneLakeClient;
-#[cfg(feature = "fabric")]
+#[cfg(all(feature = "copydata", feature = "fabric"))]
 use crate::features::fabric::OneLakeConfig;
 #[cfg(feature = "copydata")]
 use crate::helper_funcs::infer_schema_json::infer_schema_from_json;
