@@ -259,8 +259,6 @@ my_pipeline/
     ├── silver/
     │   ├── mod.rs
     │   └── slv_sales_enriched.rs
-    │   └── slv_customer_enriched.rs
-    │   └── slv_products_enriched.rs
     └── gold/
         ├── mod.rs
         └── fct_sales_summary.rs
