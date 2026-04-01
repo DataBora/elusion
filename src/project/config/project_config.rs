@@ -172,3 +172,133 @@ impl ProjectFile {
         )))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_toml_parsing() {
+        let toml_str = r#"
+            [project]
+            name = "test_pipeline"
+            version = "1.0"
+
+            [materialization]
+            bronze = "parquet"
+            silver = "parquet"
+            gold = "delta"
+
+            [output]
+            destination = "local"
+
+            [output.local]
+            bronze_path = "C:\\Data\\bronze"
+            silver_path = "C:\\Data\\silver"
+            gold_path = "C:\\Data\\gold"
+        "#;
+
+        let result: Result<ProjectFile, _> = toml::from_str(toml_str);
+        assert!(result.is_ok());
+
+        let file = result.unwrap();
+        assert_eq!(file.project.name, "test_pipeline");
+        assert_eq!(file.project.version, "1.0");
+    }
+
+    #[test]
+    fn test_materialization_type_detection() {
+        let toml_str = r#"
+            [project]
+            name = "test"
+            version = "1.0"
+
+            [materialization]
+            bronze = "parquet"
+            silver = "parquet"
+            gold = "delta"
+
+            [output]
+            destination = "local"
+
+            [output.local]
+            bronze_path = "C:\\Data\\bronze"
+            silver_path = "C:\\Data\\silver"
+            gold_path = "C:\\Data\\gold"
+        "#;
+
+        let file: ProjectFile = toml::from_str(toml_str).unwrap();
+
+        assert!(matches!(
+            file.get_materialization("brz_sales"),
+            MaterializationType::Parquet
+        ));
+        assert!(matches!(
+            file.get_materialization("slv_enriched"),
+            MaterializationType::Parquet
+        ));
+        assert!(matches!(
+            file.get_materialization("fct_revenue"),
+            MaterializationType::Delta
+        ));
+    }
+
+    #[test]
+    fn test_output_path_detection() {
+        let toml_str = r#"
+            [project]
+            name = "test"
+            version = "1.0"
+
+            [materialization]
+            bronze = "parquet"
+            silver = "parquet"
+            gold = "delta"
+
+            [output]
+            destination = "local"
+
+            [output.local]
+            bronze_path = "C:\\Data\\bronze"
+            silver_path = "C:\\Data\\silver"
+            gold_path = "C:\\Data\\gold"
+        "#;
+
+        let file: ProjectFile = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(
+            file.get_output_path("brz_sales").unwrap(),
+            "C:\\Data\\bronze"
+        );
+        assert_eq!(
+            file.get_output_path("slv_enriched").unwrap(),
+            "C:\\Data\\silver"
+        );
+        assert_eq!(
+            file.get_output_path("fct_revenue").unwrap(),
+            "C:\\Data\\gold"
+        );
+    }
+
+    #[test]
+    fn test_missing_local_config_fails() {
+        let toml_str = r#"
+            [project]
+            name = "test"
+            version = "1.0"
+
+            [materialization]
+            bronze = "parquet"
+            silver = "parquet"
+            gold = "delta"
+
+            [output]
+            destination = "local"
+        "#;
+        let result: Result<ProjectFile, _> = toml::from_str(toml_str);
+
+        assert!(result.is_ok()); 
+        let file = result.unwrap();
+        assert!(file.output.local.is_none()); 
+    }
+}

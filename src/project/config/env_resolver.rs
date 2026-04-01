@@ -32,3 +32,36 @@ pub fn resolve_required(key: &str, value: &str) -> ElusionResult<String> {
     }
     Ok(resolved)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_literal_value_returned_as_is() {
+        let result = resolve_env_value("some_literal_value").unwrap();
+        assert_eq!(result, "some_literal_value");
+    }
+
+    #[test]
+    fn test_env_var_resolved() {
+        std::env::set_var("TEST_ELUSION_KEY", "my_secret_value");
+        let result = resolve_env_value("TEST_ELUSION_KEY").unwrap();
+        assert_eq!(result, "my_secret_value");
+        std::env::remove_var("TEST_ELUSION_KEY");
+    }
+
+    #[test]
+    fn test_required_fails_on_empty_string() {
+        let result = resolve_required("my_key", "");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_required_returns_value_when_set() {
+        std::env::set_var("TEST_REQUIRED_KEY", "real_value");
+        let result = resolve_required("TEST_REQUIRED_KEY", "TEST_REQUIRED_KEY").unwrap();
+        assert_eq!(result, "real_value");
+        std::env::remove_var("TEST_REQUIRED_KEY");
+    }
+}
