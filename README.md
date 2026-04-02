@@ -363,6 +363,9 @@ async fn main() -> ElusionResult<()> {
 }
 ```
 ---
+## PROJECT STARTER TEMPLATE 🚀
+[Download Git Repository with Project Template](https://github.com/DataBora/elusion-project-startup)
+---
 ## INSTALLATION
 
 ## Rust version needed
