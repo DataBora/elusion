@@ -225,7 +225,8 @@ impl Clone for CustomDataFrame {
     }
 }
 
-// Column operations (with_columns, drop_columns, rename, cast) are stored in set_operations with this prefix
+// Result operations (with_columns, drop_columns, rename, cast, with_row_index, sample, fill_null_strategy)
+// are stored in set_operations with this prefix
 // and applied to the executed query result
 const COLUMN_OP_PREFIX: &str = "COLUMN_OP:";
 const COLUMN_OP_SEP: &str = "\u{1f}";
@@ -2799,6 +2800,41 @@ impl CustomDataFrame {
         )
     }
 
+    /// Add a row number column as the first column, starting at `offset` (similar to Polars with_row_index())
+    /// Numbers follow the current row order, use .order_by() before it for a stable order
+    pub fn with_row_index(self, name: &str, offset: u64) -> Self {
+        self.push_column_operation("ROW_INDEX", vec![name.to_string(), offset.to_string()])
+    }
+
+    /// Random sample of `n` rows (similar to Polars sample(n=...)); returns all rows if there are fewer than `n`
+    /// Rows are different on every run
+    pub fn sample(self, n: u64) -> Self {
+        self.push_column_operation("SAMPLE_N", vec![n.to_string()])
+    }
+
+    /// Random sample of about `fraction` of the rows, between 0.0 and 1.0 (similar to Polars sample(fraction=...))
+    /// Rows and their exact number are different on every run
+    pub fn sample_fraction(self, fraction: f64) -> Self {
+        self.push_column_operation("SAMPLE_FRACTION", vec![fraction.to_string()])
+    }
+
+    /// Fill nulls using a strategy (similar to Polars fill_null(strategy=...)):
+    /// "forward", "backward", "mean", "median", "min", "max", "zero"
+    /// forward / backward also treat empty text as null, same as fill_down()
+    pub fn fill_null_strategy<const N: usize>(self, columns: [&str; N], strategy: &str) -> Self {
+        self.fill_null_strategy_vec(columns.to_vec(), strategy)
+    }
+
+    /// Fill nulls using a strategy for a Vec of columns
+    pub fn fill_null_strategy_vec(self, columns: Vec<&str>, strategy: &str) -> Self {
+        if columns.is_empty() {
+            return self;
+        }
+        let mut args = vec![strategy.trim().to_lowercase()];
+        args.extend(columns.iter().map(|c| c.to_string()));
+        self.push_column_operation("FILL_STRATEGY", args)
+    }
+
     fn push_column_operation(mut self, kind: &str, args: Vec<String>) -> Self {
         if args.is_empty() {
             return self;
@@ -2825,8 +2861,43 @@ impl CustomDataFrame {
             })
     }
 
+    // Replace a column in place (or add it at the end) with one projection. Unlike DataFrame::with_column,
+    // window expressions (ROW_NUMBER, LAST_VALUE...) don't leave their helper column behind
+    fn set_column(df: DataFrame, name: &str, expr: Expr) -> datafusion::error::Result<DataFrame> {
+        let mut replaced = false;
+        let mut exprs: Vec<Expr> = df.schema()
+            .iter()
+            .map(|(qualifier, field)| {
+                if field.name() == name {
+                    replaced = true;
+                    expr.clone().alias(name)
+                } else {
+                    Expr::Column(datafusion::common::Column::from((qualifier, field)))
+                }
+            })
+            .collect();
+        if !replaced {
+            exprs.push(expr.alias(name));
+        }
+        df.select(exprs)
+    }
+
+    // Single value of an aggregate over the whole column (e.g. MEDIAN("price")), used as a fill value
+    async fn column_aggregate(df: &DataFrame, sql_expr: &str) -> ElusionResult<ScalarValue> {
+        let agg = df.parse_sql_expr(sql_expr)
+            .map_err(|e| ElusionError::Custom(format!("Invalid aggregate '{}': {}", sql_expr, e)))?;
+        let batches = df.clone().aggregate(vec![], vec![agg.alias("fill_value")])
+            .map_err(|e| ElusionError::Custom(format!("Failed to compute '{}': {}", sql_expr, e)))?
+            .collect().await
+            .map_err(|e| ElusionError::Custom(format!("Failed to compute '{}': {}", sql_expr, e)))?;
+        let batch = batches.iter().find(|b| b.num_rows() > 0)
+            .ok_or_else(|| ElusionError::Custom(format!("No result for '{}'", sql_expr)))?;
+        ScalarValue::try_from_array(batch.column(0), 0)
+            .map_err(|e| ElusionError::Custom(format!("Failed to read '{}': {}", sql_expr, e)))
+    }
+
     /// Apply with_columns / drop_columns / rename / cast to the executed query result, in call order
-    fn apply_column_operations(&self, mut df: DataFrame) -> ElusionResult<DataFrame> {
+    async fn apply_column_operations(&self, mut df: DataFrame) -> ElusionResult<DataFrame> {
         for operation in &self.set_operations {
             let Some(column_op) = operation.strip_prefix(COLUMN_OP_PREFIX) else { continue };
             let mut parts = column_op.split(COLUMN_OP_SEP);
@@ -2849,7 +2920,7 @@ impl CustomDataFrame {
                             reason: format!("Invalid expression '{}': {}", sql_expr, e),
                             suggestion: "💡 Use SQL expressions with existing column names, e.g. \"quantity * price AS revenue\"".to_string(),
                         })?;
-                        df = df.with_column(&column_name, expr).map_err(|e| ElusionError::InvalidOperation {
+                        df = Self::set_column(df, &column_name, expr).map_err(|e| ElusionError::InvalidOperation {
                             operation: "with_columns".to_string(),
                             reason: format!("Failed to add column '{}': {}", column_name, e),
                             suggestion: "💡 Check that the expression only uses columns from the query result".to_string(),
@@ -2898,10 +2969,110 @@ impl CustomDataFrame {
                             reason: format!("Invalid type '{}' for column '{}': {}", data_type, column, e),
                             suggestion: "💡 Use SQL type names: INT, BIGINT, DOUBLE, DECIMAL(10,2), VARCHAR, BOOLEAN, DATE, TIMESTAMP".to_string(),
                         })?;
-                        df = df.with_column(&column, expr).map_err(|e| ElusionError::InvalidOperation {
+                        df = Self::set_column(df, &column, expr).map_err(|e| ElusionError::InvalidOperation {
                             operation: "cast".to_string(),
                             reason: format!("Failed to cast '{}' to {}: {}", column, data_type, e),
                             suggestion: "💡 Check that the column values can be converted to the target type".to_string(),
+                        })?;
+                    }
+                }
+                "ROW_INDEX" => {
+                    let name = args.first().copied().unwrap_or_default().trim().trim_matches('"').to_lowercase();
+                    let offset = args.get(1).copied().unwrap_or("0");
+                    if name.is_empty() {
+                        return Err(ElusionError::InvalidOperation {
+                            operation: "with_row_index".to_string(),
+                            reason: "Row index column name is empty".to_string(),
+                            suggestion: "💡 Use .with_row_index(\"row_nr\", 0)".to_string(),
+                        });
+                    }
+
+                    let expr = df.parse_sql_expr(&format!("CAST(ROW_NUMBER() OVER () - 1 + {} AS BIGINT)", offset))
+                        .map_err(|e| ElusionError::Custom(format!("Failed to build row index: {}", e)))?;
+                    df = Self::set_column(df, &name, expr).map_err(|e| ElusionError::InvalidOperation {
+                        operation: "with_row_index".to_string(),
+                        reason: format!("Failed to add row index '{}': {}", name, e),
+                        suggestion: "💡 Use a column name that doesn't exist yet".to_string(),
+                    })?;
+
+                    // Move the index to the front like Polars
+                    let mut ordered = vec![name.clone()];
+                    ordered.extend(df.schema().fields().iter().map(|f| f.name().clone()).filter(|c| c != &name));
+                    let ordered: Vec<&str> = ordered.iter().map(|c| c.as_str()).collect();
+                    df = df.select_columns(&ordered).map_err(|e| ElusionError::Custom(format!("Failed to reorder columns: {}", e)))?;
+                }
+                "SAMPLE_N" => {
+                    let n: usize = args.first().and_then(|n| n.parse().ok()).filter(|n| *n > 0).ok_or_else(|| ElusionError::InvalidOperation {
+                        operation: "sample".to_string(),
+                        reason: "Sample size must be a positive number".to_string(),
+                        suggestion: "💡 Use .sample(100)".to_string(),
+                    })?;
+                    let random = df.parse_sql_expr("random()")
+                        .map_err(|e| ElusionError::Custom(format!("Failed to build sample: {}", e)))?;
+                    df = df.sort(vec![random.sort(true, false)])
+                        .and_then(|df| df.limit(0, Some(n)))
+                        .map_err(|e| ElusionError::Custom(format!("Failed to sample rows: {}", e)))?;
+                }
+                "SAMPLE_FRACTION" => {
+                    let fraction: f64 = args.first().and_then(|f| f.parse().ok()).filter(|f| *f > 0.0 && *f <= 1.0).ok_or_else(|| ElusionError::InvalidOperation {
+                        operation: "sample_fraction".to_string(),
+                        reason: format!("Fraction must be greater than 0.0 and at most 1.0, got {}", args.first().copied().unwrap_or_default()),
+                        suggestion: "💡 Use .sample_fraction(0.1) for about 10% of the rows".to_string(),
+                    })?;
+                    let condition = df.parse_sql_expr(&format!("random() < {}", fraction))
+                        .map_err(|e| ElusionError::Custom(format!("Failed to build sample: {}", e)))?;
+                    df = df.filter(condition)
+                        .map_err(|e| ElusionError::Custom(format!("Failed to sample rows: {}", e)))?;
+                }
+                "FILL_STRATEGY" => {
+                    let strategy = args.first().copied().unwrap_or_default();
+                    for column in args.iter().skip(1) {
+                        let column = Self::resolve_column_name(&df, column)?;
+                        let is_text = matches!(
+                            df.schema().field_with_unqualified_name(&column).map(|f| f.data_type().clone()),
+                            Ok(ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Utf8View)
+                        );
+                        // Empty text counts as null for forward / backward, same as fill_down()
+                        let value = if is_text { format!("NULLIF(TRIM(\"{}\"), '')", column) } else { format!("\"{}\"", column) };
+                        let build_error = |e: String| ElusionError::InvalidOperation {
+                            operation: "fill_null_strategy".to_string(),
+                            reason: format!("Failed to build '{}' fill for column '{}': {}", strategy, column, e),
+                            suggestion: "💡 mean / median need numeric columns".to_string(),
+                        };
+
+                        let expr = match strategy {
+                            "forward" => df.parse_sql_expr(&format!(
+                                "LAST_VALUE({}) IGNORE NULLS OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)", value
+                            )).map_err(|e| build_error(e.to_string()))?,
+                            "backward" => df.parse_sql_expr(&format!(
+                                "FIRST_VALUE({}) IGNORE NULLS OVER (ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)", value
+                            )).map_err(|e| build_error(e.to_string()))?,
+                            "mean" | "median" | "min" | "max" => {
+                                // Compute the fill value once, then COALESCE it into the column
+                                let function = if strategy == "mean" { "AVG" } else { strategy };
+                                let fill_value = Self::column_aggregate(&df, &format!("{}(\"{}\")", function.to_uppercase(), column))
+                                    .await
+                                    .map_err(|e| build_error(e.to_string()))?;
+                                let column_expr = df.parse_sql_expr(&format!("\"{}\"", column)).map_err(|e| build_error(e.to_string()))?;
+                                datafusion::functions::core::expr_fn::coalesce(vec![column_expr, lit(fill_value)])
+                            }
+                            "zero" if !is_text => df.parse_sql_expr(&format!("COALESCE(\"{}\", 0)", column))
+                                .map_err(|e| build_error(e.to_string()))?,
+                            "zero" => return Err(ElusionError::InvalidOperation {
+                                operation: "fill_null_strategy".to_string(),
+                                reason: format!("Strategy 'zero' needs a numeric column, '{}' is text", column),
+                                suggestion: "💡 Use .fill_null([\"column\"], \"0\") for text columns".to_string(),
+                            }),
+                            other => return Err(ElusionError::InvalidOperation {
+                                operation: "fill_null_strategy".to_string(),
+                                reason: format!("Unknown strategy '{}'", other),
+                                suggestion: "💡 Use one of: forward, backward, mean, median, min, max, zero".to_string(),
+                            }),
+                        };
+                        df = Self::set_column(df, &column, expr).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "fill_null_strategy".to_string(),
+                            reason: format!("Failed to fill nulls in '{}' with '{}': {}", column, strategy, e),
+                            suggestion: "💡 mean / median need numeric columns".to_string(),
                         })?;
                     }
                 }
@@ -4152,7 +4323,7 @@ impl CustomDataFrame {
             }
         })?;
 
-        let df = self.apply_column_operations(df)?;
+        let df = self.apply_column_operations(df).await?;
 
         let (batches, schema) = if self.is_large_result_expected() {
             let df_clone = df.clone();
@@ -5489,6 +5660,81 @@ impl CustomDataFrame {
             println!("✅ Wrote {} rows to JSON file", rows_written);
         }
 
+        Ok(())
+    }
+
+    /// Write the DataFrame as NDJSON / JSON Lines: one JSON object per line (overwrites existing file)
+    /// Values and nulls are written the same way as write_to_json()
+    pub async fn write_to_ndjson(&self, path: &str) -> ElusionResult<()> {
+        if !path.ends_with(".ndjson") && !path.ends_with(".jsonl") {
+            return Err(ElusionError::Custom(
+                "❌ Invalid file extension. NDJSON files must end with '.ndjson' or '.jsonl'".to_string()
+            ));
+        }
+
+        if let Some(parent) = LocalPath::new(path).parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| ElusionError::WriteError {
+                    path: parent.display().to_string(),
+                    operation: "create_directory".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check if you have permissions to create directories".to_string(),
+                })?;
+            }
+        }
+
+        let batches = self.df.clone().collect().await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "Data Collection".to_string(),
+            reason: format!("Failed to collect DataFrame: {}", e),
+            suggestion: "💡 Verify DataFrame is not empty and contains valid data".to_string(),
+        })?;
+
+        let file = File::create(path).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "create_file".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check file permissions and path validity".to_string(),
+        })?;
+        let mut writer = BufWriter::new(file);
+        let mut rows_written = 0;
+
+        for batch in batches.iter() {
+            let column_names: Vec<String> = batch.schema().fields().iter()
+                .map(|f| f.name().to_string())
+                .collect();
+
+            for row_idx in 0..batch.num_rows() {
+                let mut row_obj = serde_json::Map::new();
+                for (col_idx, col_name) in column_names.iter().enumerate() {
+                    let json_value = array_value_to_json(batch.column(col_idx), row_idx)?;
+                    row_obj.insert(col_name.clone(), json_value);
+                }
+
+                serde_json::to_writer(&mut writer, &serde_json::Value::Object(row_obj))
+                    .map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: format!("write_row_{}", rows_written),
+                        reason: format!("JSON serialization error: {}", e),
+                        suggestion: "💡 Check if row contains valid JSON data".to_string(),
+                    })?;
+                writeln!(writer).map_err(|e| ElusionError::WriteError {
+                    path: path.to_string(),
+                    operation: "write_newline".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check disk space and permissions".to_string(),
+                })?;
+                rows_written += 1;
+            }
+        }
+
+        writer.flush().map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "flush".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Failed to flush data to file".to_string(),
+        })?;
+
+        println!("✅ Wrote {} rows to NDJSON file '{}'", rows_written, path);
         Ok(())
     }
 
@@ -7229,19 +7475,19 @@ impl CustomDataFrame {
 
         let aliased_df = match ext.as_str() {
             "csv" => Self::load_csv(file_path, alias).await?,
-            "json" => Self::load_json(file_path, alias).await?,
+            "json" | "ndjson" | "jsonl" => Self::load_json(file_path, alias).await?,
             "parquet" => Self::load_parquet(file_path, alias).await?,
             "xml" => Self::load_xml(file_path, alias).await?,
             "xlsx" | "xls" => crate::features::excel::load_excel(file_path, alias).await?,
             "" => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Directory is not a Delta table and has no recognized extension: {file_path}"),
-                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .parquet, .xlsx, .xls, .xml) or a valid Delta table directory".to_string(),
+                suggestion: "💡 Provide a file with a supported extension (.csv, .json, .ndjson, .jsonl, .parquet, .xlsx, .xls, .xml) or a valid Delta table directory".to_string(),
             }),
             other => return Err(ElusionError::InvalidOperation {
                 operation: "File Loading".to_string(),
                 reason: format!("Unsupported file extension: {other}"),
-                suggestion: "💡 Use one of the supported file types: .csv, .json, .parquet, .xlsx, .xls, .xml or Delta table".to_string(),
+                suggestion: "💡 Use one of the supported file types: .csv, .json, .ndjson, .jsonl, .parquet, .xlsx, .xls, .xml or Delta table".to_string(),
             }),
         };
 
@@ -7480,7 +7726,7 @@ impl CustomDataFrame {
                         }
                     }
                 },
-                "json" => {
+                "json" | "ndjson" | "jsonl" => {
                     match Self::load_json(file_path_str, "local_data").await {
                         Ok(aliased_df) => {
                             println!("✅ Loaded JSON: {}", file_name);
@@ -7988,7 +8234,7 @@ impl CustomDataFrame {
                         }
                     }
                 },
-                "json" => {
+                "json" | "ndjson" | "jsonl" => {
                     match Self::load_json(file_path_str, "local_data").await {
                         Ok(aliased_df) => {
                             println!("✅ Loaded JSON: {}", file_name);
@@ -8684,7 +8930,7 @@ impl CustomDataFrame {
                 suggestion: "💡 Check SQL syntax, table aliases, and column names".to_string()
             }
         })?;
-        let df = self.apply_column_operations(df)?;
+        let df = self.apply_column_operations(df).await?;
 
         println!("✅ Query parsed successfully, creating execution stream...");
         

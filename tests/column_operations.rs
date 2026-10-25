@@ -249,3 +249,181 @@ async fn test_partitioned_parquet_errors() {
     let missing_folder = temp_dir.path().join("does_not_exist");
     assert!(CustomDataFrame::load_parquet_partitioned(missing_folder.to_str().unwrap(), "x").await.is_err());
 }
+
+// ---------------- fill_null_strategy, with_row_index, sample, NDJSON, JSON nulls, COUNT(DISTINCT)
+
+const GAPS_CSV: &str = "Seq,Site,Amount
+1,Alpha,10
+2,,20
+3,,
+4,Beta,40
+5,,
+";
+
+async fn load_gaps(temp_dir: &TempDir, alias: &str) -> CustomDataFrame {
+    let path = create_test_csv(GAPS_CSV, &format!("{}.csv", alias), temp_dir);
+    CustomDataFrame::new(&path, alias).await.unwrap()
+}
+
+async fn sorted_values(df: &CustomDataFrame, column: &str, alias: &str) -> Vec<String> {
+    let sorted = df.clone().order_by(["seq"], ["ASC"]).elusion(alias).await.unwrap();
+    let mut values = Vec::new();
+    for i in 0..sorted.count_rows().await.unwrap() {
+        values.push(extract_value_from_df(&sorted, column, i).await.unwrap());
+    }
+    values
+}
+
+#[tokio::test]
+async fn test_fill_null_strategy_forward_backward() {
+    let temp_dir = TempDir::new().unwrap();
+    let gaps = load_gaps(&temp_dir, "ffb_gaps").await;
+
+    let forward = gaps.clone().order_by(["seq"], ["ASC"]).elusion("ffb_sorted").await.unwrap()
+        .fill_null_strategy(["site"], "forward").elusion("ffb_fwd").await.unwrap();
+    assert_eq!(sorted_values(&forward, "site", "ffb_fwd_s").await, vec!["Alpha", "Alpha", "Alpha", "Beta", "Beta"]);
+
+    let backward = gaps.clone().order_by(["seq"], ["ASC"]).elusion("ffb_sorted2").await.unwrap()
+        .fill_null_strategy(["site"], "backward").elusion("ffb_bwd").await.unwrap();
+    // nothing after the last row, so it stays empty
+    assert_eq!(sorted_values(&backward, "site", "ffb_bwd_s").await, vec!["Alpha", "Beta", "Beta", "Beta", ""]);
+
+    // no helper window column is left behind
+    assert_eq!(forward.columns(), vec!["seq", "site", "amount"]);
+}
+
+#[tokio::test]
+async fn test_fill_null_strategy_numeric() {
+    let temp_dir = TempDir::new().unwrap();
+    let gaps = load_gaps(&temp_dir, "fnum_gaps").await;
+
+    let expected = [
+        ("mean", "23.333333333333332"),
+        ("median", "20"),
+        ("min", "10"),
+        ("max", "40"),
+        ("zero", "0"),
+    ];
+    for (strategy, value) in expected {
+        let filled = gaps.clone().fill_null_strategy(["amount"], strategy).elusion(&format!("fnum_{}", strategy)).await.unwrap();
+        let nulls = filled.clone().filter("amount IS NULL").elusion(&format!("fnum_n_{}", strategy)).await.unwrap();
+        assert_eq!(nulls.count_rows().await.unwrap(), 0, "strategy {}", strategy);
+        let row3 = filled.clone().filter("seq = 3").elusion(&format!("fnum_r_{}", strategy)).await.unwrap();
+        assert_eq!(extract_value_from_df(&row3, "amount", 0).await.unwrap(), value, "strategy {}", strategy);
+    }
+
+    let zero_on_text = gaps.clone().fill_null_strategy(["site"], "zero").elusion("fnum_e1").await;
+    assert!(matches!(zero_on_text, Err(ElusionError::InvalidOperation { .. })));
+    let unknown = gaps.clone().fill_null_strategy(["amount"], "average").elusion("fnum_e2").await;
+    assert!(matches!(unknown, Err(ElusionError::InvalidOperation { .. })));
+    let missing = gaps.clone().fill_null_strategy(["nope"], "mean").elusion("fnum_e3").await;
+    assert!(matches!(missing, Err(ElusionError::MissingColumn { .. })));
+}
+
+#[tokio::test]
+async fn test_with_row_index() {
+    let temp_dir = TempDir::new().unwrap();
+    let sales = load_sales(&temp_dir, "ri_sales").await;
+
+    let indexed = sales.clone().with_row_index("row_nr", 0).elusion("ri_0").await.unwrap();
+    assert_eq!(indexed.columns().first().unwrap(), "row_nr");
+    assert_eq!(indexed.columns().len(), 7);
+    let stats = indexed.select(["MIN(row_nr) AS lo", "MAX(row_nr) AS hi", "COUNT(DISTINCT row_nr) AS n"]).elusion("ri_stats").await.unwrap();
+    assert_eq!(extract_value_from_df(&stats, "lo", 0).await.unwrap(), "0");
+    assert_eq!(extract_value_from_df(&stats, "hi", 0).await.unwrap(), "4");
+    assert_eq!(extract_value_from_df(&stats, "n", 0).await.unwrap(), "5");
+
+    let from_one = sales.clone().with_row_index("nr", 1).elusion("ri_1").await.unwrap();
+    let stats1 = from_one.select(["MIN(nr) AS lo", "MAX(nr) AS hi"]).elusion("ri_stats1").await.unwrap();
+    assert_eq!(extract_value_from_df(&stats1, "lo", 0).await.unwrap(), "1");
+    assert_eq!(extract_value_from_df(&stats1, "hi", 0).await.unwrap(), "5");
+
+    assert!(sales.clone().with_row_index(" ", 0).elusion("ri_err").await.is_err());
+}
+
+#[tokio::test]
+async fn test_sample() {
+    let temp_dir = TempDir::new().unwrap();
+    let sales = load_sales(&temp_dir, "smp_sales").await;
+
+    let three = sales.clone().sample(3).elusion("smp_3").await.unwrap();
+    assert_eq!(three.count_rows().await.unwrap(), 3);
+    assert_eq!(three.columns().len(), 6);
+
+    let more_than_rows = sales.clone().sample(100).elusion("smp_100").await.unwrap();
+    assert_eq!(more_than_rows.count_rows().await.unwrap(), 5);
+
+    let all = sales.clone().sample_fraction(1.0).elusion("smp_all").await.unwrap();
+    assert_eq!(all.count_rows().await.unwrap(), 5);
+
+    assert!(sales.clone().sample(0).elusion("smp_e1").await.is_err());
+    assert!(sales.clone().sample_fraction(0.0).elusion("smp_e2").await.is_err());
+    assert!(sales.clone().sample_fraction(1.5).elusion("smp_e3").await.is_err());
+}
+
+#[tokio::test]
+async fn test_ndjson_round_trip_keeps_nulls_and_integers() {
+    let temp_dir = TempDir::new().unwrap();
+    let gaps = load_gaps(&temp_dir, "nd_gaps").await;
+
+    let path = temp_dir.path().join("gaps.jsonl");
+    let path = path.to_str().unwrap();
+    gaps.write_to_ndjson(path).await.unwrap();
+
+    let text = std::fs::read_to_string(path).unwrap();
+    assert_eq!(text.lines().count(), 5);
+    assert!(text.contains("\"seq\":1,"), "integers must stay integers: {}", text);
+    assert!(text.contains("\"amount\":null"), "nulls must be written as null: {}", text);
+
+    let back = CustomDataFrame::new(path, "nd_back").await.unwrap();
+    assert_eq!(back.columns(), vec!["seq", "site", "amount"]);
+    assert_eq!(back.count_rows().await.unwrap(), 5);
+    let nulls = back.clone().filter("amount IS NULL").elusion("nd_nulls").await.unwrap();
+    assert_eq!(nulls.count_rows().await.unwrap(), 2);
+    assert_eq!(column_type(&back, "amount"), ArrowDataType::Int64);
+
+    let ndjson_ext = temp_dir.path().join("gaps.ndjson");
+    gaps.write_to_ndjson(ndjson_ext.to_str().unwrap()).await.unwrap();
+    assert_eq!(CustomDataFrame::new(ndjson_ext.to_str().unwrap(), "nd_back2").await.unwrap().count_rows().await.unwrap(), 5);
+
+    assert!(gaps.write_to_ndjson(temp_dir.path().join("x.json").to_str().unwrap()).await.is_err());
+}
+
+#[tokio::test]
+async fn test_json_nulls_and_mixed_numbers() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = create_test_csv(
+        r#"[{"id": 1, "price": 1, "note": null}, {"id": 2, "price": 1.5, "note": "ok"}, {"id": 3, "price": null, "note": null}]"#,
+        "mixed.json",
+        &temp_dir,
+    );
+    let df = CustomDataFrame::new(&path, "mixed").await.unwrap();
+
+    assert_eq!(column_type(&df, "id"), ArrowDataType::Int64);
+    // whole and decimal numbers in one column -> Float64, nulls don't turn it into text
+    assert_eq!(column_type(&df, "price"), ArrowDataType::Float64);
+    let null_notes = df.clone().filter("note IS NULL").elusion("mixed_nn").await.unwrap();
+    assert_eq!(null_notes.count_rows().await.unwrap(), 2);
+    let null_prices = df.clone().filter("price IS NULL").elusion("mixed_np").await.unwrap();
+    assert_eq!(null_prices.count_rows().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn test_count_distinct_in_select_and_agg() {
+    let temp_dir = TempDir::new().unwrap();
+    let sales = load_sales(&temp_dir, "cd_sales").await;
+
+    let in_select = sales.clone().select(["COUNT(DISTINCT region) AS regions"]).elusion("cd_1").await.unwrap();
+    assert_eq!(extract_value_from_df(&in_select, "regions", 0).await.unwrap(), "3");
+
+    let in_agg = sales.clone().agg(["count(distinct product) AS products"]).elusion("cd_2").await.unwrap();
+    assert_eq!(extract_value_from_df(&in_agg, "products", 0).await.unwrap(), "3");
+
+    let grouped = sales.clone()
+        .select(["region"])
+        .agg(["COUNT(DISTINCT product) AS products"])
+        .group_by(["region"])
+        .filter("region = 'North'")
+        .elusion("cd_3").await.unwrap();
+    assert_eq!(extract_value_from_df(&grouped, "products", 0).await.unwrap(), "2");
+}

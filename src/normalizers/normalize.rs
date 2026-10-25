@@ -328,10 +328,24 @@ pub static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::n
 
     /// Enhanced simple expression normalization with better function handling
     // Add this debug version to your normalize_simple_expression to trace the issue:
+    // "DISTINCT col" inside an aggregate like COUNT(DISTINCT col) -> Some("col")
+    fn strip_distinct_prefix(arg: &str) -> Option<&str> {
+        let trimmed = arg.trim();
+        if trimmed.len() > 9 && trimmed[..9].eq_ignore_ascii_case("DISTINCT ") {
+            Some(trimmed[9..].trim())
+        } else {
+            None
+        }
+    }
+
     pub fn normalize_simple_expression(expr: &str, table_alias: &str) -> String {
       //  println!("Input: '{}'", expr);
-        
+
         let expr_trimmed = expr.trim();
+
+        if let Some(rest) = strip_distinct_prefix(expr_trimmed) {
+            return format!("DISTINCT {}", normalize_simple_expression(rest, table_alias));
+        }
        // println!("After trim: '{}'", expr_trimmed);
         
         let expr_with_standard_cast = normalize_postgres_casting(expr_trimmed);
@@ -464,8 +478,10 @@ pub static SQL_KEYWORDS: Lazy<std::collections::HashSet<&'static str>> = Lazy::n
             for (_i, arg) in arg_parts.iter().enumerate() {
                 let arg_trimmed = arg.trim();
               //  println!("Processing argument {}: '{}'", i, arg_trimmed);
-                
-                if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
+
+                if let Some(rest) = strip_distinct_prefix(arg_trimmed) {
+                    normalized_args.push(format!("DISTINCT {}", normalize_simple_expression(rest, table_alias)));
+                } else if arg_trimmed.starts_with('\'') && arg_trimmed.ends_with('\'') {
                 //println!("  -> String literal, preserving as-is");
                     normalized_args.push(arg_trimmed.to_string());
                 } else if arg_trimmed.starts_with('"') && arg_trimmed.ends_with('"') {

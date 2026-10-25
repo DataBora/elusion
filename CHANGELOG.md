@@ -11,11 +11,16 @@
 - `value_counts("column", "alias")` — frequency of each value in a column, most frequent first
 - `write_to_parquet_partitioned(mode, path, &["col1", "col2"])` — Hive-style partitioned Parquet output (`path/col1=value/col2=value/*.parquet`) with `overwrite` and `append` modes, the standard layout for Fabric, Databricks and Spark
 - `load_parquet_partitioned(path, alias)` — load a Hive-partitioned Parquet folder; partition columns are detected from folder names
+- `fill_null_strategy(["col"], strategy)` (+ `_vec`) — fill nulls with `forward`, `backward`, `mean`, `median`, `min`, `max` or `zero`. `forward` gives the same result as `fill_down()`
+- `with_row_index("name", offset)` — row number as the first column
+- `sample(n)` and `sample_fraction(f)` — random rows for quick looks at large files
+- NDJSON / JSON Lines: `.ndjson` and `.jsonl` files load with `CustomDataFrame::new()` and folder loaders, `write_to_ndjson(path)` writes one JSON object per line
 
 ### ⚠️ Breaking Changes
 - **Azure SDK migration**: Azure Blob support now uses the official `azure_storage_blob` 1.1 crate instead of the deprecated `azure_storage` / `azure_storage_blobs` 0.21 crates
 - `elusion::prelude` no longer re-exports the old Azure SDK types: `azure_storage_blobs::prelude::*`, `StorageCredentials`, `CloudLocation`, `BlockList`, `BlobBlockType`. If you used them directly, add `azure_storage_blob` to your own `Cargo.toml`
 - Elusion's Azure functions are **unchanged** — `from_azure_with_sas_token()`, `write_parquet_to_azure_with_sas()` and `write_json_to_azure_with_sas()` keep the same signatures and behavior
+- **JSON nulls**: `null` values in JSON / NDJSON files are now loaded as real nulls instead of the text `"null"`, and no longer turn a numeric column into a text column. A column with whole and decimal numbers (`1` and `1.5`) is now `Float64` instead of text. If your code compared JSON values to the string `'null'`, use `IS NULL` instead
 - Elusion now enables the `preserve_order` feature of `serde_json`. Because Cargo unifies features, `serde_json::Map` in your project will also keep insertion order instead of sorting keys alphabetically
 
 ### Security
@@ -34,8 +39,11 @@
 - "Column Not Found" error suggested a non-existent `.display_schema()` — now points to `.df_schema()`
 - `extract_value_from_df()` and `extract_row_from_df()` returned Arrow debug text for non-string columns (e.g. `"PrimitiveArray<Int64>\n[\n  10,\n]"` instead of `"10"`). All types (numbers, dates, booleans, Parquet `Utf8View` strings) are now returned as plain values; nulls stay empty strings
 
+- `COUNT(DISTINCT col)` in `.select()` and `.agg()` failed with "Column Not Found" — `DISTINCT` was treated as part of the column name
+- `write_to_json()` wrote whole numbers as decimals (`478.0` instead of `478`) and lost precision for integers above 2^53
+
 ### Tests
-- New integration tests in `tests/column_operations.rs` for column operations, `value_counts`, DataFrame info, cache keys and partitioned Parquet round-trips
+- New integration tests in `tests/column_operations.rs` (18) for column operations, `fill_null_strategy`, `with_row_index`, `sample`, `value_counts`, DataFrame info, cache keys, partitioned Parquet and NDJSON round-trips, JSON nulls and `COUNT(DISTINCT)`
 
 ### Changed
 - Azure uploads and downloads are partitioned and parallelized by the SDK — the manual block upload for files over 1 GB was removed

@@ -86,10 +86,12 @@ pub fn build_record_batch(
                         .expect("Expected StringBuilder");
 
                     match value {
+                        // JSON null is a real null, not the text "null"
+                        Some(Value::Null) | None => builder.append_null(),
                         Some(v) => {
                             // Comprehensive string conversion for ANY JSON value
                             let string_val = match v {
-                                Value::Null => "null".to_string(),
+                                Value::Null => String::new(), // handled above
                                 Value::Bool(b) => b.to_string(),
                                 Value::Number(n) => {
                                     if n.is_f64() {
@@ -137,7 +139,6 @@ pub fn build_record_batch(
                             // Ensure the string is valid UTF-8
                             builder.append_value(&string_val);
                         },
-                        None => builder.append_null(),
                     }
                 },
             }

@@ -33,15 +33,8 @@ pub fn array_value_to_json(array: &Arc<dyn Array>, index: usize) -> ElusionResul
                     reason: "Failed to convert Int64 array".to_string(),
                     suggestion: "💡 This is an internal error, please report it".to_string(),
                 })?;
-            // Convert i64 to serde_json::Number
-            let n = array.value(index);
-            serde_json::Number::from_f64(n as f64)
-                .map(serde_json::Value::Number)
-                .ok_or_else(|| ElusionError::InvalidOperation {
-                    operation: "Type Conversion".to_string(),
-                    reason: format!("Cannot represent i64 value {} as JSON number", n),
-                    suggestion: "💡 Consider using string representation for large integers".to_string(),
-                })
+            // Exact whole number, no float conversion
+            Ok(serde_json::Value::Number(serde_json::Number::from(array.value(index))))
         },
         ArrowDataType::UInt8 | ArrowDataType::UInt16 | ArrowDataType::UInt32 => {
             let array = array.as_any().downcast_ref::<UInt32Array>()
@@ -59,15 +52,8 @@ pub fn array_value_to_json(array: &Arc<dyn Array>, index: usize) -> ElusionResul
                     reason: "Failed to convert UInt64 array".to_string(),
                     suggestion: "💡 This is an internal error, please report it".to_string(),
                 })?;
-            // Convert u64 to serde_json::Number
-            let n = array.value(index);
-            serde_json::Number::from_f64(n as f64)
-                .map(serde_json::Value::Number)
-                .ok_or_else(|| ElusionError::InvalidOperation {
-                    operation: "Type Conversion".to_string(),
-                    reason: format!("Cannot represent u64 value {} as JSON number", n),
-                    suggestion: "💡 Consider using string representation for large integers".to_string(),
-                })
+            // Exact whole number, no float conversion
+            Ok(serde_json::Value::Number(serde_json::Number::from(array.value(index))))
         },
         ArrowDataType::Float32 => {
             let array = array.as_any().downcast_ref::<Float32Array>()

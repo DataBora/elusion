@@ -2,14 +2,19 @@ use crate::prelude::*;
 
 /// Function to infer schema from rows
 /// Columns keep the order in which keys first appear in the source data
+/// Nulls don't decide the column type; a column with only nulls becomes Utf8
 pub fn infer_schema_from_json(rows: &[Map<String, Value>]) -> DeltaSchemaRef {
     let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
     let mut ordered_keys: Vec<String> = Vec::new();
+    let mut seen_keys: HashSet<String> = HashSet::new();
 
     for row in rows {
         for (k, v) in row {
-            if !fields_map.contains_key(k) {
+            if seen_keys.insert(k.clone()) {
                 ordered_keys.push(k.clone());
+            }
+            if v.is_null() {
+                continue;
             }
             let inferred_type = infer_arrow_type(v);
             // If the key already exists, ensure the type is compatible 
@@ -64,6 +69,11 @@ fn promote_types(a: ArrowDataType, b: ArrowDataType) -> ArrowDataType {
         (Int64, Int64) => Int64,
         (UInt64, UInt64) => UInt64,
         (Float64, Float64) => Float64,
+
+        // Whole and decimal numbers in one column (e.g. 1 and 1.5) become Float64
+        (Int64, Float64) | (Float64, Int64) | (UInt64, Float64) | (Float64, UInt64) => Float64,
+        // Large positive whole numbers next to regular ones
+        (Int64, UInt64) | (UInt64, Int64) => Int64,
         
         // Any other combination defaults to Utf8
         _ => Utf8,

@@ -480,6 +480,9 @@ let df = CustomDataFrame::new(parquet_path, "parq_data").await?;
 ```rust
 let json_path = "C:\\BorivojGrujicic\\RUST\\Elusion\\mongo_data.json";
 let df = CustomDataFrame::new(json_path, "json_data").await?;
+
+// NDJSON / JSON Lines (one object per line) - .ndjson or .jsonl
+let logs = CustomDataFrame::new("C:\\Data\\events.jsonl", "events").await?;
 ```
 ### LOADING data from XML into CustomDataFrame
 #### Automatically analyzes XML file structure and chooses the optimal processing strategy and data types for your data
@@ -1556,6 +1559,17 @@ df.write_to_json(
 ).await?;
 ```
 ---
+## Writing to NDJSON / JSON Lines File
+#### One JSON object per line - common format for logs, API exports and streaming tools. Overwrites existing file
+#### 1 argument needed: Path ending with .ndjson or .jsonl
+```rust
+df.write_to_ndjson("C:\\Borivoj\\RUST\\Elusion\\sales.jsonl").await?;
+
+// {"orderdate":"4.6.2022","ordernumber":"SO72154","productkey":478,"orderquantity":2}
+// {"orderdate":"4.6.2022","ordernumber":"SO72167","productkey":484,"orderquantity":null}
+```
+#### Reading NDJSON works the same as any other file: CustomDataFrame::new("data.jsonl", "alias")
+---
 ## Writing to DELTA table / lake 
 #### We can write to delta in 2 modes **Overwrite** and **Append**
 #### Partitioning column is OPTIONAL and if you decide to use column for partitioning, make sure that you don't need that column as you won't be able to read it back to dataframe
@@ -1918,6 +1932,19 @@ let processed_df = df
     .elusion("processed_data").await?;
 ```
 ---
+### FILL NULL VALUES WITH STRATEGY - fill_null_strategy()
+#### 2 arguments needed: Columns, Strategy
+#### Strategies: "forward" (value from the row above), "backward" (value from the row below), "mean", "median", "min", "max", "zero"
+#### forward / backward also treat empty text as null (same as fill_down()); mean / median / min / max are computed once over the whole column
+```rust
+let cleaned = df
+    .fill_null_strategy(["site", "location"], "forward")
+    .fill_null_strategy(["annual_income"], "median")
+    .fill_null_strategy(["discount"], "zero")
+    .elusion("cleaned").await?;
+```
+#### forward / backward follow the current row order - use .order_by() and .elusion() before it if order matters
+---
 ### DROP NULL VALUES
 #### Remove rows that contain null-like values in specified columns
 #### 1 argument needed: Array of Column Names
@@ -2068,6 +2095,19 @@ let result = sales
 #### with_columns(): every expression needs an alias (AS). An existing column keeps its position, a new column goes to the end
 #### cast(): use SQL type names: INT, BIGINT, DOUBLE, DECIMAL(10,2), VARCHAR, BOOLEAN, DATE, TIMESTAMP
 #### Vec versions for dynamic column lists: with_columns_vec(), drop_columns_vec(), rename_vec(), cast_vec()
+---
+## ROW INDEX AND SAMPLING: WITH_ROW_INDEX(), SAMPLE(), SAMPLE_FRACTION()
+```rust
+// row number as the first column, starting at 0 (or any offset)
+let numbered = df.with_row_index("row_nr", 1).elusion("numbered").await?;
+
+// random 100 rows (all rows if there are fewer)
+let preview = df.sample(100).elusion("preview").await?;
+
+// about 10% of the rows
+let ten_percent = df.sample_fraction(0.1).elusion("ten_percent").await?;
+```
+#### Samples are different on every run. with_row_index() follows the current row order - use .order_by() and .elusion() before it for a stable order
 #### Columns created with with_columns() can be used in .filter() / .group_by() in the next step, after .elusion()
 ---
 ## SELECT
