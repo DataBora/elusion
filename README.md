@@ -1484,6 +1484,34 @@ df.write_to_parquet(
 .await?;
 ```
 ---
+## Writing Partitioned Parquet (Hive-style folders)
+#### Splits data into folders by column values: `path/year=2025/month=01/*.parquet` — the standard layout for Data Lakes (Fabric, Databricks, Spark)
+#### 3 arguments needed: Mode ("overwrite" or "append"), Folder Path, Partition Columns
+#### Partition columns are stored in the folder names, not inside the files
+```rust
+// overwrite: replaces the whole folder
+df.write_to_parquet_partitioned(
+    "overwrite",
+    "C:\\Path\\To\\Your\\sales",
+    &["order_year", "order_month"]
+).await?;
+
+// append: adds new files next to the existing ones
+df.write_to_parquet_partitioned(
+    "append",
+    "C:\\Path\\To\\Your\\sales",
+    &["order_year", "order_month"]
+).await?;
+```
+#### Reading partitioned data back - partition columns are detected from folder names and added back as String columns
+```rust
+let sales = CustomDataFrame::load_parquet_partitioned("C:\\Path\\To\\Your\\sales", "sales").await?;
+
+let june = sales
+    .filter("order_month = '06'")
+    .elusion("june_sales").await?;
+```
+---
 ## Writing to CSV File
 
 #### CSV Writing options are **mandatory**
@@ -1729,6 +1757,31 @@ df.peek(3).await?;
 
 // Show Column names and their types
 df_arhiva.df_schema();
+```
+---
+### DATAFRAME INFO: COLUMNS(), COUNT_ROWS(), SHAPE()
+```rust
+let df = CustomDataFrame::new(csv_path, "sales").await?;
+
+let columns: Vec<String> = df.columns();   // ["orderdate", "ordernumber", "productkey", ...]
+let rows: usize = df.count_rows().await?;   // 29481
+let (rows, cols) = df.shape().await?;       // (29481, 8)
+```
+---
+### VALUE_COUNTS() - how many times each value appears in a column, most frequent first
+#### 2 arguments needed: Column Name, Result Alias
+```rust
+let territory_counts = df.value_counts("territorykey", "territory_counts").await?;
+territory_counts.display().await?;
+
++--------------+-------+
+| territorykey | count |
++--------------+-------+
+| 9            | 6315  |
+| 4            | 6122  |
+| 1            | 4420  |
+| 6            | 3672  |
++--------------+-------+
 ```
 ---
 ### SQL GENERATED INFO (for debuging purposes)
@@ -1992,6 +2045,30 @@ let processed_df = df
 ```
 ---
 # DATAFRAME WRANGLING
+---
+## COLUMN OPERATIONS: WITH_COLUMNS(), DROP_COLUMNS(), RENAME(), CAST()
+#### Work with a few columns without listing all of them in .select() - all other columns are kept
+#### Column operations run in the order you call them, on the result of the query (after select, filter, group_by, joins...)
+#### New column names are lowercased, same as aliases in .select()
+```rust
+let sales = CustomDataFrame::new("C:\\Data\\SalesData2022.csv", "sales").await?;
+
+let result = sales
+    .filter("territorykey = 1")
+    .with_columns([
+        "SPLIT_PART(orderdate, '.', 3) AS order_year",        // new column, added at the end
+        "orderquantity * 10 AS orderquantity",                // existing column, replaced in place
+        "CONCAT(ordernumber, '-', orderlineitem) AS line_id",
+    ])
+    .drop_columns(["stockdate"])
+    .rename([("customerkey", "customer_id")])
+    .cast([("productkey", "VARCHAR"), ("order_year", "INT")])
+    .elusion("result").await?;
+```
+#### with_columns(): every expression needs an alias (AS). An existing column keeps its position, a new column goes to the end
+#### cast(): use SQL type names: INT, BIGINT, DOUBLE, DECIMAL(10,2), VARCHAR, BOOLEAN, DATE, TIMESTAMP
+#### Vec versions for dynamic column lists: with_columns_vec(), drop_columns_vec(), rename_vec(), cast_vec()
+#### Columns created with with_columns() can be used in .filter() / .group_by() in the next step, after .elusion()
 ---
 ## SELECT
 ### ALIAS column names in SELECT() function (AS is case insensitive)

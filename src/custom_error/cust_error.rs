@@ -123,7 +123,7 @@ impl fmt::Display for ElusionError {
                 let suggestion = suggest_similar_column(column, available_columns);
                 write!(
                     f,
-                    "🔍 Column Not Found: '{}' 📋 Available columns are: {} 💡 Did you mean '{}'? 🔧 Check for typos or use .display_schema() to see all available columns.",
+                    "🔍 Column Not Found: '{}' 📋 Available columns are: {} 💡 Did you mean '{}'? 🔧 Check for typos or use .df_schema() to see all available columns.",
                     column,
                     available_columns.join(", "),
                     suggestion

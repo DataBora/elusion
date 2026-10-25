@@ -1,4 +1,16 @@
 ## [9.0.0] - 2026-10-25
+### Added - Polars-style column operations and Data Lake partitioning
+- `with_columns([...])` — add new columns or replace existing ones while keeping all other columns, no need to list every column in `.select()`. Existing columns keep their position, new ones are added at the end
+- `drop_columns([...])` — remove columns by name
+- `rename([("old", "new")])` — rename columns
+- `cast([("column", "SQL_TYPE")])` — change column types (`INT`, `DOUBLE`, `DECIMAL(10,2)`, `VARCHAR`, `DATE`...)
+- Vec versions for dynamic column lists: `with_columns_vec()`, `drop_columns_vec()`, `rename_vec()`, `cast_vec()`
+- Column operations chain with the existing builder and run in call order on the query result. Missing columns return a clear error with the list of available columns
+- `columns()`, `count_rows()`, `shape()` — column names, row count and (rows, columns) of a DataFrame
+- `value_counts("column", "alias")` — frequency of each value in a column, most frequent first
+- `write_to_parquet_partitioned(mode, path, &["col1", "col2"])` — Hive-style partitioned Parquet output (`path/col1=value/col2=value/*.parquet`) with `overwrite` and `append` modes, the standard layout for Fabric, Databricks and Spark
+- `load_parquet_partitioned(path, alias)` — load a Hive-partitioned Parquet folder; partition columns are detected from folder names
+
 ### ⚠️ Breaking Changes
 - **Azure SDK migration**: Azure Blob support now uses the official `azure_storage_blob` 1.1 crate instead of the deprecated `azure_storage` / `azure_storage_blobs` 0.21 crates
 - `elusion::prelude` no longer re-exports the old Azure SDK types: `azure_storage_blobs::prelude::*`, `StorageCredentials`, `CloudLocation`, `BlockList`, `BlobBlockType`. If you used them directly, add `azure_storage_blob` to your own `Cargo.toml`
@@ -18,6 +30,7 @@
 - **Cross-platform paths** in `ElusionProject` local materialization — Parquet and Delta output paths are now built with `Path::join` instead of a hardcoded `\` separator, so Linux and macOS write to the correct location
 - **JSON column order**: columns loaded from JSON (local files, FTP, Azure, CopyData) now keep the order they have in the source file instead of a random order on every run. Azure CSV blobs keep their header order too. JSON written with `write_to_json()` keeps the DataFrame column order. Loading large JSON files is also slightly faster (228 MB file: 18.6s → 17.2s)
 - `df_schema()` now shows `String` for all string types (`Utf8View`, `LargeUtf8`) and the real type name instead of `Other` for everything else
+- "Column Not Found" error suggested a non-existent `.display_schema()` — now points to `.df_schema()`
 
 ### Changed
 - Azure uploads and downloads are partitioned and parallelized by the SDK — the manual block upload for files over 1 GB was removed

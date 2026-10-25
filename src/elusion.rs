@@ -225,6 +225,12 @@ impl Clone for CustomDataFrame {
     }
 }
 
+// Column operations (with_columns, drop_columns, rename, cast) are stored in set_operations with this prefix
+// and applied to the executed query result
+const COLUMN_OP_PREFIX: &str = "COLUMN_OP:";
+const COLUMN_OP_SEP: &str = "\u{1f}";
+const COLUMN_PAIR_SEP: &str = "\u{1e}";
+
 // =================== JSON heler functions
 
 #[allow(dead_code)]
@@ -469,6 +475,15 @@ impl CustomDataFrame {
           view_name: &str,
           ttl_seconds: Option<u64>,
       ) -> ElusionResult<()> {
+          // Views store SQL only, column operations run on the query result
+          if self.set_operations.iter().any(|op| op.starts_with(COLUMN_OP_PREFIX)) {
+              return Err(ElusionError::InvalidOperation {
+                  operation: "create_view".to_string(),
+                  reason: "with_columns / drop_columns / rename / cast can't be stored in a view".to_string(),
+                  suggestion: "💡 Call .elusion(\"alias\") first, then create the view from the result".to_string(),
+              });
+          }
+
           // Get the SQL that would be executed for this DataFrame
           let sql = self.construct_sql();
           
@@ -2359,7 +2374,12 @@ impl CustomDataFrame {
         } else if let Some(columns_str) = operation.strip_prefix("FILL_DOWN:") {
             self.handle_fill_down_operation(columns_str, base_sql)
         } else if let Some(skip_count) = operation.strip_prefix("SKIP_ROWS:") {
-            self.handle_skip_rows_operation(skip_count, base_sql)  
+            self.handle_skip_rows_operation(skip_count, base_sql)
+        } else if let Some(column_op) = operation.strip_prefix(COLUMN_OP_PREFIX) {
+            // Column operations run on the query result in elusion();
+            // the comment keeps cache keys distinct and shows the operation in display_query()
+            let readable = column_op.replace(COLUMN_OP_SEP, " | ").replace(COLUMN_PAIR_SEP, " -> ").replace("*/", "* /");
+            format!("{}\n/* elusion {} */", base_sql, readable)
         } else if operation.starts_with("UNION") {
             base_sql
         } else {
@@ -2727,6 +2747,270 @@ impl CustomDataFrame {
             base_sql,
             where_conditions.join(" AND ")
         )
+    }
+
+    // =============== COLUMN OPERATIONS (Polars-style)
+
+    /// Add new columns or replace existing ones, keeping all other columns (similar to Polars with_columns())
+    /// Each expression needs an alias: `["price * 1.2 AS price_eur", "UPPER(firstname) AS firstname"]`
+    /// An existing column keeps its position, a new column is added at the end
+    pub fn with_columns<const N: usize>(self, expressions: [&str; N]) -> Self {
+        self.with_columns_vec(expressions.to_vec())
+    }
+
+    /// Add new columns or replace existing ones from a Vec of expressions
+    pub fn with_columns_vec(self, expressions: Vec<&str>) -> Self {
+        self.push_column_operation("WITH_COLUMNS", expressions.iter().map(|e| e.to_string()).collect())
+    }
+
+    /// Remove columns by name (similar to Polars drop())
+    pub fn drop_columns<const N: usize>(self, columns: [&str; N]) -> Self {
+        self.drop_columns_vec(columns.to_vec())
+    }
+
+    /// Remove columns by name from a Vec
+    pub fn drop_columns_vec(self, columns: Vec<&str>) -> Self {
+        self.push_column_operation("DROP_COLUMNS", columns.iter().map(|c| c.to_string()).collect())
+    }
+
+    /// Rename columns: `[("old_name", "new_name")]` (similar to Polars rename())
+    pub fn rename<const N: usize>(self, columns: [(&str, &str); N]) -> Self {
+        self.rename_vec(columns.to_vec())
+    }
+
+    /// Rename columns from a Vec of (old_name, new_name) pairs
+    pub fn rename_vec(self, columns: Vec<(&str, &str)>) -> Self {
+        self.push_column_operation(
+            "RENAME",
+            columns.iter().map(|(old, new)| format!("{}{}{}", old, COLUMN_PAIR_SEP, new)).collect(),
+        )
+    }
+
+    /// Change column types with SQL type names: `[("price", "DOUBLE"), ("order_date", "DATE")]` (similar to Polars cast())
+    pub fn cast<const N: usize>(self, columns: [(&str, &str); N]) -> Self {
+        self.cast_vec(columns.to_vec())
+    }
+
+    /// Change column types from a Vec of (column, SQL type) pairs
+    pub fn cast_vec(self, columns: Vec<(&str, &str)>) -> Self {
+        self.push_column_operation(
+            "CAST",
+            columns.iter().map(|(column, data_type)| format!("{}{}{}", column, COLUMN_PAIR_SEP, data_type)).collect(),
+        )
+    }
+
+    fn push_column_operation(mut self, kind: &str, args: Vec<String>) -> Self {
+        if args.is_empty() {
+            return self;
+        }
+        let mut parts = vec![kind.to_string()];
+        parts.extend(args);
+        self.set_operations.push(format!("{}{}", COLUMN_OP_PREFIX, parts.join(COLUMN_OP_SEP)));
+        self
+    }
+
+    /// Find the real column name in the DataFrame, ignoring case and quotes
+    fn resolve_column_name(df: &DataFrame, name: &str) -> ElusionResult<String> {
+        let wanted = name.trim().trim_matches('"');
+        let available: Vec<String> = df.schema().fields().iter().map(|f| f.name().clone()).collect();
+
+        available
+            .iter()
+            .find(|c| c.as_str() == wanted)
+            .or_else(|| available.iter().find(|c| c.eq_ignore_ascii_case(wanted)))
+            .cloned()
+            .ok_or_else(|| ElusionError::MissingColumn {
+                column: wanted.to_string(),
+                available_columns: available.clone(),
+            })
+    }
+
+    /// Apply with_columns / drop_columns / rename / cast to the executed query result, in call order
+    fn apply_column_operations(&self, mut df: DataFrame) -> ElusionResult<DataFrame> {
+        for operation in &self.set_operations {
+            let Some(column_op) = operation.strip_prefix(COLUMN_OP_PREFIX) else { continue };
+            let mut parts = column_op.split(COLUMN_OP_SEP);
+            let kind = parts.next().unwrap_or_default();
+            let args: Vec<&str> = parts.collect();
+
+            match kind {
+                "WITH_COLUMNS" => {
+                    for expression in args {
+                        let as_pos = Self::find_alias_position(expression).ok_or_else(|| ElusionError::InvalidOperation {
+                            operation: "with_columns".to_string(),
+                            reason: format!("Expression '{}' has no alias", expression),
+                            suggestion: "💡 Name every new column with AS, e.g. .with_columns([\"price * 1.2 AS price_eur\"])".to_string(),
+                        })?;
+                        let column_name = expression[as_pos + 4..].trim().trim_matches('"').to_lowercase();
+                        let sql_expr = expression[..as_pos].trim();
+
+                        let expr = df.parse_sql_expr(sql_expr).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "with_columns".to_string(),
+                            reason: format!("Invalid expression '{}': {}", sql_expr, e),
+                            suggestion: "💡 Use SQL expressions with existing column names, e.g. \"quantity * price AS revenue\"".to_string(),
+                        })?;
+                        df = df.with_column(&column_name, expr).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "with_columns".to_string(),
+                            reason: format!("Failed to add column '{}': {}", column_name, e),
+                            suggestion: "💡 Check that the expression only uses columns from the query result".to_string(),
+                        })?;
+                    }
+                }
+                "DROP_COLUMNS" => {
+                    let resolved = args
+                        .iter()
+                        .map(|name| Self::resolve_column_name(&df, name))
+                        .collect::<ElusionResult<Vec<String>>>()?;
+                    let to_drop: Vec<&str> = resolved.iter().map(|s| s.as_str()).collect();
+                    df = df.drop_columns(&to_drop).map_err(|e| ElusionError::InvalidOperation {
+                        operation: "drop_columns".to_string(),
+                        reason: format!("Failed to drop columns: {}", e),
+                        suggestion: "💡 Check column names with .df_schema()".to_string(),
+                    })?;
+                }
+                "RENAME" => {
+                    for pair in args {
+                        let (old_name, new_name) = pair.split_once(COLUMN_PAIR_SEP).unwrap_or((pair, ""));
+                        let new_name = new_name.trim().trim_matches('"').to_lowercase();
+                        if new_name.is_empty() {
+                            return Err(ElusionError::InvalidOperation {
+                                operation: "rename".to_string(),
+                                reason: format!("New name for column '{}' is empty", old_name),
+                                suggestion: "💡 Use .rename([(\"old_name\", \"new_name\")])".to_string(),
+                            });
+                        }
+                        let old_name = Self::resolve_column_name(&df, old_name)?;
+                        df = df.with_column_renamed(&old_name, &new_name).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "rename".to_string(),
+                            reason: format!("Failed to rename '{}' to '{}': {}", old_name, new_name, e),
+                            suggestion: "💡 Make sure the new name is not already used by another column".to_string(),
+                        })?;
+                    }
+                }
+                "CAST" => {
+                    for pair in args {
+                        let (column, data_type) = pair.split_once(COLUMN_PAIR_SEP).unwrap_or((pair, ""));
+                        let column = Self::resolve_column_name(&df, column)?;
+                        let sql_expr = format!("CAST(\"{}\" AS {})", column, data_type.trim());
+
+                        let expr = df.parse_sql_expr(&sql_expr).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "cast".to_string(),
+                            reason: format!("Invalid type '{}' for column '{}': {}", data_type, column, e),
+                            suggestion: "💡 Use SQL type names: INT, BIGINT, DOUBLE, DECIMAL(10,2), VARCHAR, BOOLEAN, DATE, TIMESTAMP".to_string(),
+                        })?;
+                        df = df.with_column(&column, expr).map_err(|e| ElusionError::InvalidOperation {
+                            operation: "cast".to_string(),
+                            reason: format!("Failed to cast '{}' to {}: {}", column, data_type, e),
+                            suggestion: "💡 Check that the column values can be converted to the target type".to_string(),
+                        })?;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(df)
+    }
+
+    /// Column names of the DataFrame (similar to Polars df.columns)
+    pub fn columns(&self) -> Vec<String> {
+        self.df.schema().fields().iter().map(|f| f.name().clone()).collect()
+    }
+
+    /// Number of rows in the DataFrame (similar to Polars df.height)
+    pub async fn count_rows(&self) -> ElusionResult<usize> {
+        self.df.clone().count().await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "count_rows".to_string(),
+            reason: format!("Failed to count rows: {}", e),
+            suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+        })
+    }
+
+    /// (rows, columns) of the DataFrame (similar to Polars df.shape)
+    pub async fn shape(&self) -> ElusionResult<(usize, usize)> {
+        let rows = self.count_rows().await?;
+        Ok((rows, self.df.schema().fields().len()))
+    }
+
+    /// Count how many times each value appears in a column, most frequent first (similar to Polars value_counts())
+    /// Returns a DataFrame with the column and a `count` column
+    pub async fn value_counts(&self, column: &str, alias: &str) -> ElusionResult<Self> {
+        let column = Self::resolve_column_name(&self.df, column)?;
+
+        let ctx = SessionContext::new();
+        register_df_as_table(&ctx, &self.table_alias, &self.df).await?;
+
+        let sql = format!(
+            "SELECT \"{0}\", COUNT(*) AS \"count\" FROM {1} GROUP BY \"{0}\" ORDER BY \"count\" DESC, \"{0}\"",
+            column,
+            normalize_alias(&self.table_alias)
+        );
+
+        let counts_df = ctx.sql(&sql).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "value_counts".to_string(),
+                reason: format!("Failed to execute value_counts query: {}", e),
+                suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+            })?;
+
+        let batches = counts_df.clone().collect().await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "value_counts".to_string(),
+                reason: format!("Failed to collect value_counts results: {}", e),
+                suggestion: "💡 Verify DataFrame contains data".to_string(),
+            })?;
+
+        let mem_table = MemTable::try_new(counts_df.schema().clone().into(), vec![batches])
+            .map_err(|e| ElusionError::SchemaError {
+                message: format!("Failed to create value_counts result table: {}", e),
+                schema: Some(counts_df.schema().to_string()),
+                suggestion: "💡 Check schema compatibility".to_string(),
+            })?;
+
+        ctx.register_table(alias, Arc::new(mem_table))
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "value_counts".to_string(),
+                reason: format!("Failed to register value_counts result: {}", e),
+                suggestion: "💡 Try using a different result alias".to_string(),
+            })?;
+
+        let result_df = ctx.table(alias).await
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "value_counts".to_string(),
+                reason: format!("Failed to create value_counts DataFrame: {}", e),
+                suggestion: "💡 Verify table registration succeeded".to_string(),
+            })?;
+
+        Ok(CustomDataFrame {
+            df: result_df,
+            table_alias: alias.to_string(),
+            from_table: alias.to_string(),
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: sql,
+            aggregated_df: Some(counts_df),
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
     }
 
     /// Head funciton that returns the first n rows of the DataFrame
@@ -3862,6 +4146,8 @@ impl CustomDataFrame {
                 }
             }
         })?;
+
+        let df = self.apply_column_operations(df)?;
 
         let (batches, schema) = if self.is_large_result_expected() {
             let df_clone = df.clone();
@@ -5393,8 +5679,184 @@ impl CustomDataFrame {
             "append" => println!("✅ Data successfully appended to '{}'", path),
             _ => unreachable!(),
         }
-        
+
         Ok(())
+    }
+
+    /// Write the DataFrame as a Hive-partitioned Parquet dataset (similar to Polars write_parquet(partition_by=...))
+    /// Creates `path/col1=value/col2=value/*.parquet`; partition columns are stored in folder names, not in the files
+    /// "overwrite" replaces the whole folder, "append" adds new files next to the existing ones
+    pub async fn write_to_parquet_partitioned(
+        &self,
+        mode: &str,
+        path: &str,
+        partition_by: &[&str],
+    ) -> ElusionResult<()> {
+        if path.ends_with(".parquet") {
+            return Err(ElusionError::Custom(
+                "❌ Partitioned output is a folder. Use a folder path without '.parquet', e.g. 'C:\\data\\sales'".to_string()
+            ));
+        }
+
+        if partition_by.is_empty() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "write_to_parquet_partitioned".to_string(),
+                reason: "No partition columns given".to_string(),
+                suggestion: "💡 Pass at least one column, e.g. &[\"year\", \"month\"], or use write_to_parquet()".to_string(),
+            });
+        }
+
+        let partition_columns = partition_by
+            .iter()
+            .map(|name| Self::resolve_column_name(&self.df, name))
+            .collect::<ElusionResult<Vec<String>>>()?;
+
+        if partition_columns.len() == self.df.schema().fields().len() {
+            return Err(ElusionError::InvalidOperation {
+                operation: "write_to_parquet_partitioned".to_string(),
+                reason: "All columns are partition columns, no data would be left in the files".to_string(),
+                suggestion: "💡 Partition by a few low-cardinality columns like year, month or country".to_string(),
+            });
+        }
+
+        match mode {
+            "overwrite" => {
+                if fs::metadata(path).is_ok() {
+                    fs::remove_dir_all(path).or_else(|_| fs::remove_file(path)).map_err(|e| ElusionError::WriteError {
+                        path: path.to_string(),
+                        operation: "overwrite".to_string(),
+                        reason: format!("❌ Failed to delete existing folder: {}", e),
+                        suggestion: "💡 Check folder permissions and ensure no other process is using the files".to_string(),
+                    })?;
+                }
+            }
+            "append" => {}
+            _ => return Err(ElusionError::InvalidOperation {
+                operation: mode.to_string(),
+                reason: "Invalid write mode".to_string(),
+                suggestion: "💡 Use 'overwrite' or 'append'".to_string(),
+            }),
+        }
+
+        std::fs::create_dir_all(path).map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "create_directory".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Check if you have permissions to create directories".to_string(),
+        })?;
+
+        let write_options = DataFrameWriteOptions::new().with_partition_by(partition_columns.clone());
+
+        self.df.clone().write_parquet(path, write_options, None).await
+            .map_err(|e| ElusionError::WriteError {
+                path: path.to_string(),
+                operation: mode.to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Check folder permissions and path validity".to_string(),
+            })?;
+
+        match mode {
+            "overwrite" => println!("✅ Partitioned data written to '{}' (partitioned by: {})", path, partition_columns.join(", ")),
+            _ => println!("✅ Partitioned data appended to '{}' (partitioned by: {})", path, partition_columns.join(", ")),
+        }
+
+        Ok(())
+    }
+
+    /// Load a Hive-partitioned Parquet folder written by write_to_parquet_partitioned() (or Spark, Fabric, Databricks)
+    /// Partition columns are detected from folder names (`col=value`) and added back as String columns
+    pub async fn load_parquet_partitioned(path: &str, alias: &str) -> ElusionResult<Self> {
+        let root = LocalPath::new(path);
+        if !root.is_dir() {
+            return Err(ElusionError::WriteError {
+                path: path.to_string(),
+                operation: "read".to_string(),
+                reason: "Folder not found".to_string(),
+                suggestion: "💡 Pass the root folder of the partitioned dataset".to_string(),
+            });
+        }
+
+        // Follow the first `key=value` folder at each level to find the partition columns
+        let mut partition_columns: Vec<(String, ArrowDataType)> = Vec::new();
+        let mut current = root.to_path_buf();
+        loop {
+            let next = std::fs::read_dir(&current)
+                .map_err(|e| ElusionError::WriteError {
+                    path: current.display().to_string(),
+                    operation: "read_directory".to_string(),
+                    reason: e.to_string(),
+                    suggestion: "💡 Check folder permissions".to_string(),
+                })?
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .find(|p| p.is_dir() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains('=')));
+
+            let Some(dir) = next else { break };
+            let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let key = name.split('=').next().unwrap_or_default().to_string();
+            partition_columns.push((key, ArrowDataType::Utf8));
+            current = dir;
+        }
+
+        let ctx = SessionContext::new();
+        let read_options = ParquetReadOptions::default().table_partition_cols(partition_columns.clone());
+        let df = ctx.read_parquet(path, read_options).await.map_err(|e| ElusionError::WriteError {
+            path: path.to_string(),
+            operation: "read".to_string(),
+            reason: e.to_string(),
+            suggestion: "💡 Verify the folder contains Parquet files".to_string(),
+        })?;
+
+        let normalized_alias = normalize_alias_write(alias).into_owned();
+        ctx.register_table(&normalized_alias, df.into_view())
+            .map_err(|e| ElusionError::InvalidOperation {
+                operation: "Table Registration".to_string(),
+                reason: e.to_string(),
+                suggestion: "💡 Try using a different alias name".to_string(),
+            })?;
+
+        let df = ctx.table(&normalized_alias).await
+            .map_err(|_| ElusionError::InvalidOperation {
+                operation: "Table Creation".to_string(),
+                reason: format!("Failed to create table with alias '{}'", alias),
+                suggestion: "💡 Check if the alias is valid and unique".to_string(),
+            })?;
+
+        println!("✅ Loaded partitioned Parquet '{}' (partition columns: {})", path,
+            if partition_columns.is_empty() { "none".to_string() } else {
+                partition_columns.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>().join(", ")
+            });
+
+        Ok(CustomDataFrame {
+            df,
+            table_alias: normalized_alias.clone(),
+            from_table: normalized_alias,
+            selected_columns: Vec::new(),
+            alias_map: Vec::new(),
+            aggregations: Vec::new(),
+            group_by_columns: Vec::new(),
+            where_conditions: Vec::new(),
+            having_conditions: Vec::new(),
+            order_by_columns: Vec::new(),
+            limit_count: None,
+            joins: Vec::new(),
+            window_functions: Vec::new(),
+            ctes: Vec::new(),
+            subquery_source: None,
+            set_operations: Vec::new(),
+            query: String::new(),
+            aggregated_df: None,
+            union_tables: None,
+            original_expressions: Vec::new(),
+            needs_normalization: false,
+            raw_selected_columns: Vec::new(),
+            raw_group_by_columns: Vec::new(),
+            raw_where_conditions: Vec::new(),
+            raw_having_conditions: Vec::new(),
+            raw_join_conditions: Vec::new(),
+            raw_aggregations: Vec::new(),
+            uses_group_by_all: false
+        })
     }
 
     /// Writes the DataFrame to a CSV file in either "overwrite" or "append" mode.
@@ -8217,7 +8679,8 @@ impl CustomDataFrame {
                 suggestion: "💡 Check SQL syntax, table aliases, and column names".to_string()
             }
         })?;
-        
+        let df = self.apply_column_operations(df)?;
+
         println!("✅ Query parsed successfully, creating execution stream...");
         
         // Execute stream directly from DataFrame
