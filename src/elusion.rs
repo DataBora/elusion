@@ -2912,6 +2912,11 @@ impl CustomDataFrame {
         Ok(df)
     }
 
+    /// Arrow schema of the DataFrame with column names and types (similar to Polars df.schema)
+    pub fn schema(&self) -> datafusion::arrow::datatypes::SchemaRef {
+        Arc::new(self.df.schema().as_arrow().clone())
+    }
+
     /// Column names of the DataFrame (similar to Polars df.columns)
     pub fn columns(&self) -> Vec<String> {
         self.df.schema().fields().iter().map(|f| f.name().clone()).collect()

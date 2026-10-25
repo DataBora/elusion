@@ -48,20 +48,12 @@ pub async fn extract_row_from_df(df: &CustomDataFrame, row_index: usize) -> Elus
     
     for (i, field) in schema.fields().iter().enumerate() {
         let col = batch.column(i);
-        let value = match col.data_type() {
-            ArrowDataType::Utf8 => {
-                let array = col.as_any().downcast_ref::<StringArray>()
-                    .ok_or_else(|| ElusionError::Custom("Failed to downcast to StringArray".to_string()))?;
-                
-                if array.is_null(0) {
-                    "".to_string()
-                } else {
-                    array.value(0).to_string()
-                }
-            },
-            _ => {
-                format!("{:?}", col.as_ref())
-            }
+        // Format any Arrow type as plain text (numbers, dates, Utf8View...), nulls as empty string
+        let value = if col.is_null(0) {
+            "".to_string()
+        } else {
+            datafusion::arrow::util::display::array_value_to_string(col, 0)
+                .map_err(|e| ElusionError::Custom(format!("Failed to format value of column '{}': {}", field.name(), e)))?
         };
         row_values.insert(field.name().to_string(), value);
     }

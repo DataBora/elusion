@@ -7,6 +7,7 @@
 - Vec versions for dynamic column lists: `with_columns_vec()`, `drop_columns_vec()`, `rename_vec()`, `cast_vec()`
 - Column operations chain with the existing builder and run in call order on the query result. Missing columns return a clear error with the list of available columns
 - `columns()`, `count_rows()`, `shape()` — column names, row count and (rows, columns) of a DataFrame
+- `schema()` — Arrow schema with column names and types (programmatic counterpart of `df_schema()`)
 - `value_counts("column", "alias")` — frequency of each value in a column, most frequent first
 - `write_to_parquet_partitioned(mode, path, &["col1", "col2"])` — Hive-style partitioned Parquet output (`path/col1=value/col2=value/*.parquet`) with `overwrite` and `append` modes, the standard layout for Fabric, Databricks and Spark
 - `load_parquet_partitioned(path, alias)` — load a Hive-partitioned Parquet folder; partition columns are detected from folder names
@@ -23,7 +24,7 @@
 - `suppaftp` 8 → 12.1.2 — fixes FTP command injection via CRLF (RUSTSEC-2026-0271)
 - `calamine` 0.34 → 0.37 and `rust_xlsxwriter` 0.94 → 0.101 — pulls `zip` 9.1 (symlink / SUID extraction issues, RUSTSEC-2026-0367/0368/0369) and `quick-xml` 0.42
 - `cargo update` for patched transitive dependencies: `rustls`, `rustls-webpki`, `quinn-proto`, `h2`, `tokio`, `tokio-postgres`, `postgres-protocol`, `webpki-roots` and others
-- Remaining: 2 `quick-xml` 0.38 advisories (RUSTSEC-2026-0194/0195) come through `deltalake` → `object_store` 0.12 and will be fixed once `deltalake` moves to `object_store` 0.14
+- Remaining: 2 `quick-xml` 0.38 advisories (RUSTSEC-2026-0194/0195) come through `deltalake` → `delta_kernel` → `object_store` 0.12 cloud features. They are **not reachable from Elusion**: Elusion uses `deltalake` only with local `file://` paths and includes no deltalake cloud handlers, so the S3/Azure/GCS XML parsing code never runs (Elusion's own Azure and Fabric code uses the fixed `quick-xml` 0.41). They are ignored in CI with this explanation and will be removed once `deltalake` moves to `object_store` 0.14 (delta-rs #4566). If your own project uses `deltalake` with cloud storage handlers, that code path is reachable in your dependencies
 
 ### Fixed
 - **macOS build**: relaxed the `openssl` pin from `=0.10.72` to `0.10.72` (minimum) so it compiles against OpenSSL 4 from Homebrew
@@ -31,6 +32,10 @@
 - **JSON column order**: columns loaded from JSON (local files, FTP, Azure, CopyData) now keep the order they have in the source file instead of a random order on every run. Azure CSV blobs keep their header order too. JSON written with `write_to_json()` keeps the DataFrame column order. Loading large JSON files is also slightly faster (228 MB file: 18.6s → 17.2s)
 - `df_schema()` now shows `String` for all string types (`Utf8View`, `LargeUtf8`) and the real type name instead of `Other` for everything else
 - "Column Not Found" error suggested a non-existent `.display_schema()` — now points to `.df_schema()`
+- `extract_value_from_df()` and `extract_row_from_df()` returned Arrow debug text for non-string columns (e.g. `"PrimitiveArray<Int64>\n[\n  10,\n]"` instead of `"10"`). All types (numbers, dates, booleans, Parquet `Utf8View` strings) are now returned as plain values; nulls stay empty strings
+
+### Tests
+- New integration tests in `tests/column_operations.rs` for column operations, `value_counts`, DataFrame info, cache keys and partitioned Parquet round-trips
 
 ### Changed
 - Azure uploads and downloads are partitioned and parallelized by the SDK — the manual block upload for files over 1 GB was removed
