@@ -376,7 +376,7 @@ async fn main() -> ElusionResult<()> {
 To add 🚀 Latest and the Greatest 🚀 version of **Elusion** to your Rust project, include the following lines in your `Cargo.toml` under `[dependencies]`:
 
 ```toml
-elusion = "8.3.0"
+elusion = "9.0.0"
 tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
 ```
 
@@ -386,25 +386,25 @@ Usage:
 - Add the POSTGRES feature when specifying the dependency:
 ```toml
 [dependencies]
-elusion = { version = "8.3.0", features = ["fabric"] }
+elusion = { version = "9.0.0", features = ["fabric"] }
 ```
 
 - Using NO Features (minimal dependencies):
 ```rust
 [dependencies]
-elusion = "8.3.0"
+elusion = "9.0.0"
 ```
 
 - Using multiple specific features:
 ```rust
 [dependencies]
-elusion = { version = "8.3.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
+elusion = { version = "9.0.0", features = ["dashboard", "api", "fabric", "ftp", "copydata"] }
 ```
 
 - Using all features:
 ```rust
 [dependencies]
-elusion = { version = "8.3.0", features = ["all"] }
+elusion = { version = "9.0.0", features = ["all"] }
 ```
 
 ### Feature Implications

@@ -1,3 +1,27 @@
+## [9.0.0] - 2026-10-25
+### ⚠️ Breaking Changes
+- **Azure SDK migration**: Azure Blob support now uses the official `azure_storage_blob` 1.1 crate instead of the deprecated `azure_storage` / `azure_storage_blobs` 0.21 crates
+- `elusion::prelude` no longer re-exports the old Azure SDK types: `azure_storage_blobs::prelude::*`, `StorageCredentials`, `CloudLocation`, `BlockList`, `BlobBlockType`. If you used them directly, add `azure_storage_blob` to your own `Cargo.toml`
+- Elusion's Azure functions are **unchanged** — `from_azure_with_sas_token()`, `write_parquet_to_azure_with_sas()` and `write_json_to_azure_with_sas()` keep the same signatures and behavior
+- Elusion now enables the `preserve_order` feature of `serde_json`. Because Cargo unifies features, `serde_json::Map` in your project will also keep insertion order instead of sorting keys alphabetically
+
+### Security
+- Fixed 32 of 34 RustSec advisories reported by `cargo audit`
+- `azure_core` 0.21 wrote the `authorization` header to logs (RUSTSEC-2026-0275) — fixed by the Azure SDK migration
+- `suppaftp` 8 → 12.1.2 — fixes FTP command injection via CRLF (RUSTSEC-2026-0271)
+- `calamine` 0.34 → 0.37 and `rust_xlsxwriter` 0.94 → 0.101 — pulls `zip` 9.1 (symlink / SUID extraction issues, RUSTSEC-2026-0367/0368/0369) and `quick-xml` 0.42
+- `cargo update` for patched transitive dependencies: `rustls`, `rustls-webpki`, `quinn-proto`, `h2`, `tokio`, `tokio-postgres`, `postgres-protocol`, `webpki-roots` and others
+- Remaining: 2 `quick-xml` 0.38 advisories (RUSTSEC-2026-0194/0195) come through `deltalake` → `object_store` 0.12 and will be fixed once `deltalake` moves to `object_store` 0.14
+
+### Fixed
+- **macOS build**: relaxed the `openssl` pin from `=0.10.72` to `0.10.72` (minimum) so it compiles against OpenSSL 4 from Homebrew
+- **Cross-platform paths** in `ElusionProject` local materialization — Parquet and Delta output paths are now built with `Path::join` instead of a hardcoded `\` separator, so Linux and macOS write to the correct location
+- **JSON column order**: columns loaded from JSON (local files, FTP, Azure, CopyData) now keep the order they have in the source file instead of a random order on every run. Azure CSV blobs keep their header order too. JSON written with `write_to_json()` keeps the DataFrame column order. Loading large JSON files is also slightly faster (228 MB file: 18.6s → 17.2s)
+- `df_schema()` now shows `String` for all string types (`Utf8View`, `LargeUtf8`) and the real type name instead of `Other` for everything else
+
+### Changed
+- Azure uploads and downloads are partitioned and parallelized by the SDK — the manual block upload for files over 1 GB was removed
+
 ## [8.3.0] - 2026-04-01
 ### Added - Elusion Project (Medallion Architecture Pipeline Framework)
 - New `ElusionProject` struct — declarative, config-driven data pipeline framework inspired by medallion architecture (Bronze/Silver/Gold) used in Microsoft Fabric, Databricks, and Azure Data Lake

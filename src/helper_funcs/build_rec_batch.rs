@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 pub fn build_record_batch(
-    rows: &[HashMap<String, Value>],
+    rows: &[Map<String, Value>],
     schema: Arc<Schema>
 ) -> ArrowResult<RecordBatch> {
     let mut builders: Vec<Box<dyn ArrayBuilder>> = Vec::new();

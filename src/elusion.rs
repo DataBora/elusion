@@ -4565,15 +4565,17 @@ impl CustomDataFrame {
         
         for (index, field) in schema.fields().iter().enumerate() {
             let data_type = match field.data_type() {
-                datafusion::arrow::datatypes::DataType::Utf8 => "String",
-                datafusion::arrow::datatypes::DataType::Int32 => "Int32",
-                datafusion::arrow::datatypes::DataType::Int64 => "Int64", 
-                datafusion::arrow::datatypes::DataType::Float32 => "Float32",
-                datafusion::arrow::datatypes::DataType::Float64 => "Float64",
-                datafusion::arrow::datatypes::DataType::Boolean => "Boolean",
-                datafusion::arrow::datatypes::DataType::Date32 => "Date",
-                datafusion::arrow::datatypes::DataType::Timestamp(_, _) => "Timestamp",
-                _ => "Other"
+                datafusion::arrow::datatypes::DataType::Utf8
+                | datafusion::arrow::datatypes::DataType::LargeUtf8
+                | datafusion::arrow::datatypes::DataType::Utf8View => "String".to_string(),
+                datafusion::arrow::datatypes::DataType::Int32 => "Int32".to_string(),
+                datafusion::arrow::datatypes::DataType::Int64 => "Int64".to_string(),
+                datafusion::arrow::datatypes::DataType::Float32 => "Float32".to_string(),
+                datafusion::arrow::datatypes::DataType::Float64 => "Float64".to_string(),
+                datafusion::arrow::datatypes::DataType::Boolean => "Boolean".to_string(),
+                datafusion::arrow::datatypes::DataType::Date32 => "Date".to_string(),
+                datafusion::arrow::datatypes::DataType::Timestamp(_, _) => "Timestamp".to_string(),
+                other => other.to_string()
             };
             
             println!("{:2}. {} ({})", 
@@ -6496,7 +6498,7 @@ impl CustomDataFrame {
             let reader = BufReader::with_capacity(128 * 1024, file); 
             let stream = Deserializer::from_reader(reader).into_iter::<Value>();
             
-            let mut all_data: Vec<HashMap<String, Value>> = Vec::new();
+            let mut all_data: Vec<serde_json::Map<String, Value>> = Vec::new();
             let mut processed_count = 0;
             let start_time = std::time::Instant::now();
             
@@ -6514,8 +6516,7 @@ impl CustomDataFrame {
                         match json_value {
                             Value::Object(map) => {
                                 // Handle single JSON object (your case is unlikely this)
-                                let hash_map: HashMap<String, Value> = map.into_iter().collect();
-                                all_data.push(hash_map);
+                                all_data.push(map);
                                 processed_count += 1;
                             },
                             Value::Array(array) => {
@@ -6538,9 +6539,7 @@ impl CustomDataFrame {
                                     
                                     for item in batch {
                                         if let Value::Object(map) = item {
-                                            //  Map to HashMap 
-                                            let hash_map: HashMap<String, Value> = map.clone().into_iter().collect();
-                                            all_data.push(hash_map);
+                                            all_data.push(map.clone());
                                             processed_count += 1;
                                         }
                                     }

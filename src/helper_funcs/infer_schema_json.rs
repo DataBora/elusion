@@ -1,13 +1,16 @@
 use crate::prelude::*;
 
 /// Function to infer schema from rows
-pub fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> DeltaSchemaRef {
+/// Columns keep the order in which keys first appear in the source data
+pub fn infer_schema_from_json(rows: &[Map<String, Value>]) -> DeltaSchemaRef {
     let mut fields_map: HashMap<String, ArrowDataType> = HashMap::new();
-    let mut keys_set: HashSet<String> = HashSet::new();
+    let mut ordered_keys: Vec<String> = Vec::new();
 
     for row in rows {
         for (k, v) in row {
-            keys_set.insert(k.clone());
+            if !fields_map.contains_key(k) {
+                ordered_keys.push(k.clone());
+            }
             let inferred_type = infer_arrow_type(v);
             // If the key already exists, ensure the type is compatible 
             fields_map
@@ -19,7 +22,7 @@ pub fn infer_schema_from_json(rows: &[HashMap<String, Value>]) -> DeltaSchemaRef
         }
     }
 
-    let fields: Vec<Field> = keys_set.into_iter().map(|k| {
+    let fields: Vec<Field> = ordered_keys.into_iter().map(|k| {
         let data_type = fields_map.get(&k).unwrap_or(&ArrowDataType::Utf8).clone();
         Field::new(&k, data_type, true)
     }).collect();

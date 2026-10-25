@@ -263,7 +263,7 @@ pub fn stream_json_array_batches(
             let mut rows = Vec::with_capacity(batch_size);
             while i < data.len() && rows.len() < batch_size {
                 if let Value::Object(obj) = &data[i] {
-                    rows.push(obj.clone().into_iter().collect::<HashMap<_, _>>());
+                    rows.push(obj.clone());
                 }
                 i += 1;
             }
@@ -756,14 +756,14 @@ impl CopyDataEngine {
                         .map_err(|e| ElusionError::Custom(format!("Failed to parse first JSON object: {}", e)))?;
                     
                     let first_map = if let Value::Object(map) = first_obj {
-                        map.into_iter().collect::<HashMap<String, Value>>()
+                        map
                     } else {
                         return Err(ElusionError::Custom("Expected JSON object in NDJSON file".to_string()));
                     };
                     
                     // For better inference, optionally read more rows (e.g., up to 10)
                     // Here, using just the first for simplicity; increase if types vary across rows
-                    let rows: Vec<HashMap<String, Value>> = vec![first_map];
+                    let rows: Vec<Map<String, Value>> = vec![first_map];
                     
                     // Infer schema using your custom function
                     let schema = infer_schema_from_json(&rows);
@@ -828,7 +828,7 @@ impl CopyDataEngine {
                     let mut rows = Vec::new();
                     for val in json_array.iter().take(100) {
                         if let Value::Object(map) = val {
-                            rows.push(map.clone().into_iter().collect::<HashMap<_, _>>());
+                            rows.push(map.clone());
                         } else {
                             return Err(ElusionError::Custom("Expected JSON objects inside array".to_string()));
                         }

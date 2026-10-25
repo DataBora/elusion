@@ -1,6 +1,6 @@
 [package]
 name = "elusion"
-version = "8.3.0"
+version = "9.0.0"
 edition = "2021"
 authors = ["Borivoj Grujicic <borivoj.grujicic@gmail.com>"]
 description = "Elusion is a modern DataFrame / Data Engineering / Data Analysis library that combines the familiarity of DataFrame operations (like those in PySpark, Pandas, and Polars) with the power of SQL query building. It provides flexible query construction without enforcing strict operation ordering, enabling developers to write intuitive and maintainable data transformations."
@@ -23,7 +23,7 @@ futures = "0.3.31"
 regex = "1.11.1"
 encoding_rs = "0.8.35"
 serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
 object_store = "0.13.2"
 plotly = { version = "0.12.1", optional = true }
 lazy_static = "1.5.0"

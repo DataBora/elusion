@@ -41,7 +41,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
 }
 
     #[cfg(feature = "azure")]
-    fn process_json_content(content: &[u8]) -> ElusionResult<Vec<HashMap<String, Value>>> {
+    fn process_json_content(content: &[u8]) -> ElusionResult<Vec<Map<String, Value>>> {
         // Skip empty or very small files 
         if content.len() < 3 {
             println!("⚠️ JSON file too small ({} bytes), skipping", content.len());
@@ -147,7 +147,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
     }
 
     #[cfg(feature = "azure")]
-    async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec<HashMap<String, Value>>> {
+    async fn process_csv_content(_name: &str, content: Vec<u8>) -> ElusionResult<Vec<Map<String, Value>>> {
         let mut reader = ReaderBuilder::new()
             .has_headers(true)
             .flexible(true)
@@ -167,7 +167,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         for record in reader.records() {
             match record {
                 Ok(record) => {
-                    let mut map = HashMap::with_capacity(headers.len());
+                    let mut map = Map::with_capacity(headers.len());
                     for (header, field) in headers.iter().zip(record.iter()) {
                         let value = if field.is_empty() {
                             Value::Null
