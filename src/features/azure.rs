@@ -9,6 +9,10 @@ use crate::build_record_batch;
 use crate::array_value_to_json;
 #[cfg(feature = "azure")]
 use tokio::time::{timeout, Duration};
+#[cfg(feature = "azure")]
+use azure_storage_blob::{BlobClient, BlobContainerClient};
+#[cfg(feature = "azure")]
+use azure_storage_blob::models::BlobClientUploadOptions;
 
 //=============== AZURE
 // Enum for writing options, probably will not use it as its bad for users to write enums
@@ -196,34 +200,75 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         Ok(results)
     }
 
+    // Splits https://{account}.{endpoint}.core.windows.net/{container}/{blob} into (account, container, blob)
     #[cfg(feature = "azure")]
-    fn setup_azure_client_impl(url: &str, sas_token: &str) -> ElusionResult<(ContainerClient, String)> {
-        // Validate URL format and parse components
+    fn parse_azure_url_impl(url: &str) -> ElusionResult<(String, String, String)> {
         let url_parts: Vec<&str> = url.split('/').collect();
-        if url_parts.len() < 5 {
+        if url_parts.len() < 4 {
             return Err(ElusionError::Custom(
                 "Invalid URL format. Expected format: https://{account}.{endpoint}.core.windows.net/{container}/{blob}".to_string()
             ));
         }
 
-        let (account, endpoint_type) = url_parts[2]
+        let account = url_parts[2]
             .split('.')
             .next()
-            .map(|acc| {
-                if url.contains(".dfs.") {
-                    (acc, "dfs")
-                } else {
-                    (acc, "blob")
-                }
-            })
+            .filter(|acc| !acc.is_empty())
             .ok_or_else(|| ElusionError::Custom("Invalid URL format: cannot extract account name".to_string()))?;
 
-        let container = url_parts[3].to_string();
+        let container = url_parts[3];
         if container.is_empty() {
             return Err(ElusionError::Custom("Container name cannot be empty".to_string()));
         }
 
-        let blob_name = url_parts[4..].join("/");
+        let blob_name = url_parts.get(4..).map(|parts| parts.join("/")).unwrap_or_default();
+
+        Ok((account.to_string(), container.to_string(), blob_name))
+    }
+
+    // Builds https://{account}.blob.core.windows.net/{container}[/{blob}]?{sas}
+    // Both blob and dfs URLs are served through the blob endpoint
+    #[cfg(feature = "azure")]
+    fn build_azure_sas_url_impl(account: &str, container: &str, blob_name: Option<&str>, sas_token: &str) -> ElusionResult<url::Url> {
+        let mut sas_url = url::Url::parse(&format!("https://{}.blob.core.windows.net", account))
+            .map_err(|e| ElusionError::Custom(format!("Invalid Azure account name '{}': {}", account, e)))?;
+        {
+            let mut segments = sas_url.path_segments_mut()
+                .map_err(|_| ElusionError::Custom("Invalid Azure endpoint URL".to_string()))?;
+            segments.push(container);
+            if let Some(blob_name) = blob_name {
+                segments.extend(blob_name.split('/'));
+            }
+        }
+        sas_url.set_query(Some(sas_token.trim_start_matches('?')));
+        Ok(sas_url)
+    }
+
+    #[cfg(feature = "azure")]
+    fn azure_container_client_impl(account: &str, container: &str, sas_token: &str) -> ElusionResult<BlobContainerClient> {
+        let container_url = build_azure_sas_url_impl(account, container, None, sas_token)?;
+        BlobContainerClient::new(container_url, None, None)
+            .map_err(|e| ElusionError::Custom(format!("Failed to create Azure container client: {}", e)))
+    }
+
+    #[cfg(feature = "azure")]
+    fn azure_blob_client_impl(account: &str, container: &str, blob_name: &str, sas_token: &str) -> ElusionResult<BlobClient> {
+        let blob_url = build_azure_sas_url_impl(account, container, Some(blob_name), sas_token)?;
+        BlobClient::new(blob_url, None, None)
+            .map_err(|e| ElusionError::Custom(format!("Failed to create Azure blob client: {}", e)))
+    }
+
+    // Downloads the whole blob; the SDK splits large blobs into parallel range requests
+    #[cfg(feature = "azure")]
+    async fn download_from_azure_impl(blob_client: &BlobClient) -> Result<Vec<u8>, String> {
+        let response = blob_client.download(None).await.map_err(|e| e.to_string())?;
+        let content = response.body.collect().await.map_err(|e| e.to_string())?;
+        Ok(content.to_vec())
+    }
+
+    #[cfg(feature = "azure")]
+    fn setup_azure_client_impl(url: &str, sas_token: &str) -> ElusionResult<BlobClient> {
+        let (account, container, blob_name) = parse_azure_url_impl(url)?;
         if blob_name.is_empty() {
             return Err(ElusionError::Custom("Blob name cannot be empty".to_string()));
         }
@@ -239,23 +284,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
             }
         }
 
-        let credentials = StorageCredentials::sas_token(sas_token.to_string())
-            .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
-
-        let client = if endpoint_type == "dfs" {
-            let cloud_location = CloudLocation::Public {
-                account: account.to_string(),
-            };
-            ClientBuilder::with_location(cloud_location, credentials)
-                .blob_service_client()
-                .container_client(container)
-        } else {
-            ClientBuilder::new(account.to_string(), credentials)
-                .blob_service_client()
-                .container_client(container)
-        };
-
-        Ok((client, blob_name))
+        azure_blob_client_impl(&account, &container, &blob_name, sas_token)
     }
 
     /// Function to write PARQUET to Azure BLOB Storage with overwrite and append modes
@@ -274,9 +303,8 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         }
 
         validate_azure_url(url)?;
-        
-        let (client, blob_name) = setup_azure_client_impl(url, sas_token)?;
-        let blob_client = client.blob_client(&blob_name);
+
+        let blob_client = setup_azure_client_impl(url, sas_token)?;
 
         match mode {
             "overwrite" => {
@@ -304,23 +332,15 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
                         .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
                 }
 
-                upload_to_azure_impl(&blob_client, buffer).await?;
+                upload_to_azure_impl(&blob_client, Bytes::from(buffer), "application/parquet").await?;
                 println!("✅ Successfully overwrote parquet data to Azure blob: {}", url);
             }
             "append" => {
                 let ctx = SessionContext::new();
                 
                 // Try to download existing blob
-                match blob_client.get().into_stream().try_collect::<Vec<_>>().await {
-                    Ok(chunks) => {
-                        // Combine all chunks into a single buffer
-                        let mut existing_data = Vec::new();
-                        for chunk in chunks {
-                            let data = chunk.data.collect().await
-                                .map_err(|e| ElusionError::Custom(format!("Failed to collect chunk data: {}", e)))?;
-                            existing_data.extend(data);
-                        }
-                        
+                match download_from_azure_impl(&blob_client).await {
+                    Ok(existing_data) => {
                         // Create temporary file to store existing data
                         let temp_file = Builder::new()
                             .prefix("azure_parquet_")
@@ -405,7 +425,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
                                 .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
                         }
 
-                        upload_to_azure_impl(&blob_client, buffer).await?;
+                        upload_to_azure_impl(&blob_client, Bytes::from(buffer), "application/parquet").await?;
                         println!("✅ Successfully appended parquet data to Azure blob: {}", url);
                     }
                     Err(_) => {
@@ -433,7 +453,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
                                 .map_err(|e| ElusionError::Custom(format!("Failed to close Parquet writer: {}", e)))?;
                         }
 
-                        upload_to_azure_impl(&blob_client, buffer).await?;
+                        upload_to_azure_impl(&blob_client, Bytes::from(buffer), "application/parquet").await?;
                         println!("✅ Successfully created initial parquet data in Azure blob: {}", url);
                     }
                 }
@@ -448,36 +468,19 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         Ok(())
     }
 
-    // Helper method for uploading data to Azure
+    // Helper method for uploading data to Azure (overwrites existing blob)
+    // The SDK stages large content as parallel blocks and commits them automatically
     #[cfg(feature = "azure")]
-    async fn upload_to_azure_impl(blob_client: &BlobClient, buffer: Vec<u8>) -> ElusionResult<()> {
-        let content = Bytes::from(buffer);
-        let content_length = content.len();
+    async fn upload_to_azure_impl(blob_client: &BlobClient, content: Bytes, content_type: &str) -> ElusionResult<()> {
+        let options = BlobClientUploadOptions {
+            blob_content_type: Some(content_type.to_string()),
+            ..Default::default()
+        };
 
-        if content_length > 1_073_741_824 {  // 1GB threshold
-            let block_id = STANDARD.encode(format!("{:0>20}", 1));
-
-            blob_client
-                .put_block(block_id.clone(), content)
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
-
-            let block_list = BlockList {
-                blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
-            };
-
-            blob_client
-                .put_block_list(block_list)
-                .content_type("application/parquet")
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
-        } else {
-            blob_client
-                .put_block_blob(content)
-                .content_type("application/parquet")
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
-        }
+        blob_client
+            .upload(content.into(), Some(options))
+            .await
+            .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
 
         Ok(())
     }
@@ -498,10 +501,9 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         }
 
         validate_azure_url(url)?;
-        
-        let (client, blob_name) = setup_azure_client_impl(url, sas_token)?;
-        let blob_client = client.blob_client(&blob_name);
-    
+
+        let blob_client = setup_azure_client_impl(url, sas_token)?;
+
         let batches = df.df.clone().collect().await.map_err(|e| 
             ElusionError::InvalidOperation {
                 operation: "Data Collection".to_string(),
@@ -608,7 +610,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         // buffer to Bytes for Azure upload
         let content = Bytes::from(buffer);
         
-        upload_json_to_azure_impl(&blob_client, content).await?;
+        upload_to_azure_impl(&blob_client, content, "application/json").await?;
         
         println!("✅ Successfully wrote JSON data to Azure blob: {}", url);
         
@@ -621,40 +623,7 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
         Ok(())
     }
 
-    // Helper method for uploading JSON data to Azure
-    #[cfg(feature = "azure")]
-    async fn upload_json_to_azure_impl(blob_client: &BlobClient, content: Bytes) -> ElusionResult<()> {
-        let content_length = content.len();
-    
-        if content_length > 1_073_741_824 {  // 1GB threshold
-            let block_id = STANDARD.encode(format!("{:0>20}", 1));
-    
-            blob_client
-                .put_block(block_id.clone(), content)
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to upload block to Azure: {}", e)))?;
-    
-            let block_list = BlockList {
-                blocks: vec![BlobBlockType::Uncommitted(block_id.into_bytes().into())],
-            };
-    
-            blob_client
-                .put_block_list(block_list)
-                .content_type("application/json")
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to commit block list: {}", e)))?;
-        } else {
-            blob_client
-                .put_block_blob(content)
-                .content_type("application/json")
-                .await
-                .map_err(|e| ElusionError::Custom(format!("Failed to upload blob to Azure: {}", e)))?;
-        }
-    
-        Ok(())
-    }
 
-  
     /// Azure function that connects to Azure blob storage with smart direct access
     #[cfg(feature = "azure")]
     pub async fn from_azure_with_sas_token_impl(
@@ -673,43 +642,10 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
             let blob_path = filter_keyword.unwrap(); 
             println!("🎯 Direct blob access mode for: {}", blob_path);
             
-            let url_parts: Vec<&str> = url.split('/').collect();
-            let (account, endpoint_type) = url_parts[2]
-                .split('.')
-                .next()
-                .map(|acc| {
-                    if url.contains(".dfs.") {
-                        (acc, "dfs")
-                    } else {
-                        (acc, "blob")
-                    }
-                })
-                .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?;
+            let (account, container, _) = parse_azure_url_impl(url)?;
+            let blob_client = azure_blob_client_impl(&account, &container, blob_path, sas_token)?;
 
-            let container = url_parts.get(3)
-                .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?
-                .to_string();
-
-            let credentials = StorageCredentials::sas_token(sas_token.to_string())
-                .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
-
-            let client = if endpoint_type == "dfs" {
-                let cloud_location = CloudLocation::Public {
-                    account: account.to_string(),
-                };
-                ClientBuilder::with_location(cloud_location, credentials)
-                    .blob_service_client()
-                    .container_client(container)
-            } else {
-                ClientBuilder::new(account.to_string(), credentials)
-                    .blob_service_client()
-                    .container_client(container)
-            };
-            let blob_client = client.blob_client(blob_path);
-            
-
-            let content = blob_client
-                .get_content()
+            let content = download_from_azure_impl(&blob_client)
                 .await
                 .map_err(|e| ElusionError::Custom(format!("Failed to get blob '{}': {}", blob_path, e)))?;
 
@@ -793,74 +729,40 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
             
             println!("Starting from_azure_with_sas_token with url={}, alias={}", url, alias);
 
-            let url_parts: Vec<&str> = url.split('/').collect();
-            let (account, endpoint_type) = url_parts[2]
-                .split('.')
-                .next()
-                .map(|acc| {
-                    if url.contains(".dfs.") {
-                        (acc, "dfs")
-                    } else {
-                        (acc, "blob")
-                    }
-                })
-                .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?;
-
-            let container = url_parts.get(3)//last()
-                .ok_or_else(|| ElusionError::Custom("Invalid URL format".to_string()))?
-                .to_string();
+            let (account, container, _) = parse_azure_url_impl(url)?;
 
             println!("✅ Extracted container='{}'", container);
 
-
-            let credentials = StorageCredentials::sas_token(sas_token.to_string())
-                .map_err(|e| ElusionError::Custom(format!("Invalid SAS token: {}", e)))?;
-
-            println!("✅ Created StorageCredentials");
-
-            let client = if endpoint_type == "dfs" {
-                // For ADLS Gen2, create client with cloud location
-                let cloud_location = CloudLocation::Public {
-                    account: account.to_string(),
-                };
-                ClientBuilder::with_location(cloud_location, credentials)
-                    .blob_service_client()
-                    .container_client(container)
-            } else {
-                ClientBuilder::new(account.to_string(), credentials)
-                    .blob_service_client()
-                    .container_client(container)
-            };
+            let client = azure_container_client_impl(&account, &container, sas_token)?;
 
             println!("✅ Created Azure client, starting to list blobs...");
 
+            let list_blobs_future = async {
+            let mut blobs: Vec<String> = Vec::new();
+            let mut total_size: usize = 0;
+            let mut pager = client.list_blobs(None)
+                .map_err(|e| ElusionError::Custom(format!("Failed to list blobs: {}", e)))?;
+
             println!("🔍 Created blob listing stream");
 
-            let list_blobs_future = async {
-            let mut blobs: Vec<String> = Vec::new(); 
-            let mut total_size: usize = 0;
-            let mut stream = client.list_blobs().into_stream();
-            
-            while let Some(response) = stream.next().await {
-                println!("🔍 Got response from blob listing");
-                let response = response.map_err(|e| {
-                    println!("❌ Error listing blobs: {}", e);
-                    ElusionError::Custom(format!("Failed to list blobs: {}", e))
-                })?;
-                
-                for blob in response.blobs.blobs() {
-                    println!("🔍 Checking blob: {}", blob.name);
-                    if (blob.name.ends_with(".json") || blob.name.ends_with(".csv")) && 
-                    filter_keyword.map_or(true, |keyword| blob.name.contains(keyword)) {
-                        println!("✅ Adding blob '{}' to download list", blob.name);
-                        total_size += blob.properties.content_length as usize;
-                        blobs.push(blob.name.clone());
-                    } else {
-                        println!("⏭️ Skipping blob '{}' (doesn't match criteria)", blob.name);
-                    }
+            while let Some(blob) = pager.try_next().await.map_err(|e| {
+                println!("❌ Error listing blobs: {}", e);
+                ElusionError::Custom(format!("Failed to list blobs: {}", e))
+            })? {
+                let Some(name) = blob.name else { continue };
+                println!("🔍 Checking blob: {}", name);
+                if (name.ends_with(".json") || name.ends_with(".csv")) &&
+                filter_keyword.map_or(true, |keyword| name.contains(keyword)) {
+                    println!("✅ Adding blob '{}' to download list", name);
+                    total_size += blob.properties
+                        .and_then(|p| p.content_length)
+                        .unwrap_or(0) as usize;
+                    blobs.push(name);
+                } else {
+                    println!("⏭️ Skipping blob '{}' (doesn't match criteria)", name);
                 }
             }
-            
+
             Ok::<(Vec<String>, usize), ElusionError>((blobs, total_size))
         };
         
@@ -884,10 +786,9 @@ fn validate_azure_url(url: &str) -> ElusionResult<()> {
             let concurrency_limit = num_cpus::get() * 16;
             let results = stream::iter(blobs.into_iter())
                 .map(|blob_name| {
-                    let blob_client = client.blob_client(&blob_name);
+                    let blob_client = azure_blob_client_impl(&account, &container, &blob_name, sas_token);
                     async move {
-                        let content = blob_client
-                            .get_content()
+                        let content = download_from_azure_impl(&blob_client?)
                             .await
                             .map_err(|e| ElusionError::Custom(format!("Failed to get blob content: {}", e)))?;
 

@@ -147,12 +147,6 @@ pub struct RangeSlider;
 pub use datafusion::common::ScalarValue;
 
 // ========== AZURE
-#[cfg(feature = "azure")]
-pub use azure_storage_blobs::prelude::*;
-#[cfg(feature = "azure")]
-pub use azure_storage::StorageCredentials;
-#[cfg(feature = "azure")]
-pub use azure_storage::CloudLocation;
 pub use futures::stream;
 pub use std::io::{BufReader,BufRead};
 pub use futures::pin_mut;
@@ -160,8 +154,6 @@ pub use csv::ReaderBuilder;
 pub use csv::Trim::All;
 pub use serde_json::Deserializer;
 // ==== pisanje
-#[cfg(feature = "azure")]
-pub use azure_storage_blobs::blob::{BlockList, BlobBlockType};
 pub use bytes::Bytes;
 pub use datafusion::parquet::basic::Compression;
 pub use datafusion::parquet::file::properties::{WriterProperties, WriterVersion};
