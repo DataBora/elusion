@@ -41,3 +41,5 @@ Cargo.lock
 .vscode/
 .idea/
 *.swp
+# Local images not used in README
+images/bar.PNG
