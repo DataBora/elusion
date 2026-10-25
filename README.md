@@ -1773,13 +1773,17 @@ df.peek(3).await?;
 df_arhiva.df_schema();
 ```
 ---
-### DATAFRAME INFO: COLUMNS(), COUNT_ROWS(), SHAPE()
+### DATAFRAME INFO: COLUMNS(), COUNT_ROWS(), SHAPE(), SCHEMA()
 ```rust
 let df = CustomDataFrame::new(csv_path, "sales").await?;
 
 let columns: Vec<String> = df.columns();   // ["orderdate", "ordernumber", "productkey", ...]
 let rows: usize = df.count_rows().await?;   // 29481
 let (rows, cols) = df.shape().await?;       // (29481, 8)
+
+// column names and types in code (df_schema() prints the same to the terminal)
+let schema = df.schema();
+let quantity_type = schema.field_with_name("orderquantity")?.data_type(); // Int64
 ```
 ---
 ### VALUE_COUNTS() - how many times each value appears in a column, most frequent first
@@ -2108,6 +2112,53 @@ let preview = df.sample(100).elusion("preview").await?;
 let ten_percent = df.sample_fraction(0.1).elusion("ten_percent").await?;
 ```
 #### Samples are different on every run. with_row_index() follows the current row order - use .order_by() and .elusion() before it for a stable order
+---
+## EXPLODE(), EXPLODE_SPLIT() - one row per element
+#### explode(): column with JSON arrays (typical for REST API data) -> one row per element, other columns are repeated
+```rust
+// products.json: [{"id": 1, "title": "Mascara", "tags": ["beauty", "mascara"]}, ...]
+let tags = products
+    .select(["id", "title", "tags"])
+    .explode("tags")
+    .elusion("product_tags").await?;
+
++----+----------+---------+
+| id | title    | tags    |
++----+----------+---------+
+| 1  | Mascara  | beauty  |
+| 1  | Mascara  | mascara |
++----+----------+---------+
+```
+#### explode_split(): text with a delimiter -> one row per part (parts are trimmed, empty parts skipped)
+```rust
+// "apple, pear, plum" -> 3 rows
+let items = orders.explode_split("items", ",").elusion("order_items").await?;
+```
+#### Empty arrays and nulls keep one row with null. Elements are returned as text - use .cast() for numbers
+---
+## TO_DUMMIES() - one 0/1 column per category
+#### The original column is replaced by one column per distinct value, named column_value
+```rust
+let encoded = sales
+    .select(["ordernumber", "region", "quantity"])
+    .to_dummies(["region"])
+    .elusion("encoded").await?;
+
+// columns: ordernumber, region_east, region_north, region_south, quantity
+```
+#### Meant for columns with a small number of categories (max 200 different values)
+---
+## INTERPOLATE() - fill gaps in numeric columns
+#### Nulls are filled with straight-line values between the nearest values above and below
+```rust
+// value: null, 10, null, null, 40, null  ->  null, 10, 20, 30, 40, null
+let smooth = daily_sales
+    .order_by(["day"], ["ASC"])
+    .elusion("daily_sorted").await?
+    .interpolate(["qty"])
+    .elusion("daily_filled").await?;
+```
+#### Nulls before the first and after the last value stay null. The result is DOUBLE. Sort the data first, interpolation follows the row order
 #### Columns created with with_columns() can be used in .filter() / .group_by() in the next step, after .elusion()
 ---
 ## SELECT

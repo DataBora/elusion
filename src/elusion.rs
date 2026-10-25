@@ -2546,7 +2546,7 @@ impl CustomDataFrame {
         self
     }
 
-    /// Drop rows that contain null values in specified columns (chainable - similar to Polars drop_nulls())
+    /// Drop rows that contain null values in specified columns (chainable)
     pub fn drop_null<const N: usize>(mut self, columns: [&str; N]) -> Self {
         if N == 0 {
             // Skip invalid operations - will be caught during elusion()
@@ -2750,9 +2750,9 @@ impl CustomDataFrame {
         )
     }
 
-    // =============== COLUMN OPERATIONS (Polars-style)
+    // =============== COLUMN OPERATIONS
 
-    /// Add new columns or replace existing ones, keeping all other columns (similar to Polars with_columns())
+    /// Add new columns or replace existing ones, keeping all other columns
     /// Each expression needs an alias: `["price * 1.2 AS price_eur", "UPPER(firstname) AS firstname"]`
     /// An existing column keeps its position, a new column is added at the end
     pub fn with_columns<const N: usize>(self, expressions: [&str; N]) -> Self {
@@ -2764,7 +2764,7 @@ impl CustomDataFrame {
         self.push_column_operation("WITH_COLUMNS", expressions.iter().map(|e| e.to_string()).collect())
     }
 
-    /// Remove columns by name (similar to Polars drop())
+    /// Remove columns by name
     pub fn drop_columns<const N: usize>(self, columns: [&str; N]) -> Self {
         self.drop_columns_vec(columns.to_vec())
     }
@@ -2774,7 +2774,7 @@ impl CustomDataFrame {
         self.push_column_operation("DROP_COLUMNS", columns.iter().map(|c| c.to_string()).collect())
     }
 
-    /// Rename columns: `[("old_name", "new_name")]` (similar to Polars rename())
+    /// Rename columns: `[("old_name", "new_name")]`
     pub fn rename<const N: usize>(self, columns: [(&str, &str); N]) -> Self {
         self.rename_vec(columns.to_vec())
     }
@@ -2787,7 +2787,7 @@ impl CustomDataFrame {
         )
     }
 
-    /// Change column types with SQL type names: `[("price", "DOUBLE"), ("order_date", "DATE")]` (similar to Polars cast())
+    /// Change column types with SQL type names: `[("price", "DOUBLE"), ("order_date", "DATE")]`
     pub fn cast<const N: usize>(self, columns: [(&str, &str); N]) -> Self {
         self.cast_vec(columns.to_vec())
     }
@@ -2800,25 +2800,25 @@ impl CustomDataFrame {
         )
     }
 
-    /// Add a row number column as the first column, starting at `offset` (similar to Polars with_row_index())
+    /// Add a row number column as the first column, starting at `offset`
     /// Numbers follow the current row order, use .order_by() before it for a stable order
     pub fn with_row_index(self, name: &str, offset: u64) -> Self {
         self.push_column_operation("ROW_INDEX", vec![name.to_string(), offset.to_string()])
     }
 
-    /// Random sample of `n` rows (similar to Polars sample(n=...)); returns all rows if there are fewer than `n`
+    /// Random sample of `n` rows; returns all rows if there are fewer than `n`
     /// Rows are different on every run
     pub fn sample(self, n: u64) -> Self {
         self.push_column_operation("SAMPLE_N", vec![n.to_string()])
     }
 
-    /// Random sample of about `fraction` of the rows, between 0.0 and 1.0 (similar to Polars sample(fraction=...))
+    /// Random sample of about `fraction` of the rows, between 0.0 and 1.0
     /// Rows and their exact number are different on every run
     pub fn sample_fraction(self, fraction: f64) -> Self {
         self.push_column_operation("SAMPLE_FRACTION", vec![fraction.to_string()])
     }
 
-    /// Fill nulls using a strategy (similar to Polars fill_null(strategy=...)):
+    /// Fill nulls using a strategy:
     /// "forward", "backward", "mean", "median", "min", "max", "zero"
     /// forward / backward also treat empty text as null, same as fill_down()
     pub fn fill_null_strategy<const N: usize>(self, columns: [&str; N], strategy: &str) -> Self {
@@ -2833,6 +2833,39 @@ impl CustomDataFrame {
         let mut args = vec![strategy.trim().to_lowercase()];
         args.extend(columns.iter().map(|c| c.to_string()));
         self.push_column_operation("FILL_STRATEGY", args)
+    }
+
+    /// Turn a column holding JSON arrays (e.g. `["red","blue"]` from API data) into one row per element
+    /// Other columns are repeated; empty arrays and nulls keep one row with null; elements become text
+    pub fn explode(self, column: &str) -> Self {
+        self.push_column_operation("EXPLODE", vec![column.to_string(), "json".to_string(), String::new()])
+    }
+
+    /// Split text by a delimiter and put each part in its own row: "red, blue" -> 2 rows
+    /// Parts are trimmed; empty parts are skipped
+    pub fn explode_split(self, column: &str, delimiter: &str) -> Self {
+        self.push_column_operation("EXPLODE", vec![column.to_string(), "split".to_string(), delimiter.to_string()])
+    }
+
+    /// One 0/1 column per distinct value, replacing the original column: region -> region_east, region_north...
+    pub fn to_dummies<const N: usize>(self, columns: [&str; N]) -> Self {
+        self.to_dummies_vec(columns.to_vec())
+    }
+
+    /// One 0/1 column per distinct value for a Vec of columns
+    pub fn to_dummies_vec(self, columns: Vec<&str>) -> Self {
+        self.push_column_operation("DUMMIES", columns.iter().map(|c| c.to_string()).collect())
+    }
+
+    /// Fill nulls in numeric columns with straight-line values between the nearest values above and below
+    /// Nulls before the first or after the last value stay null; follows the current row order
+    pub fn interpolate<const N: usize>(self, columns: [&str; N]) -> Self {
+        self.interpolate_vec(columns.to_vec())
+    }
+
+    /// Linear interpolation of nulls for a Vec of numeric columns
+    pub fn interpolate_vec(self, columns: Vec<&str>) -> Self {
+        self.push_column_operation("INTERPOLATE", columns.iter().map(|c| c.to_string()).collect())
     }
 
     fn push_column_operation(mut self, kind: &str, args: Vec<String>) -> Self {
@@ -2880,6 +2913,103 @@ impl CustomDataFrame {
             exprs.push(expr.alias(name));
         }
         df.select(exprs)
+    }
+
+    // One row per element of `column`: JSON array text ("json") or delimited text ("split")
+    async fn explode_column(df: DataFrame, column: &str, mode: &str, delimiter: &str) -> ElusionResult<DataFrame> {
+        use datafusion::arrow::array::{StringBuilder, UInt64Array};
+        use datafusion::arrow::datatypes::{Field, Schema};
+
+        let arrow_schema = df.schema().as_arrow().clone();
+        let column_index = arrow_schema.index_of(column)
+            .map_err(|e| ElusionError::Custom(format!("Column '{}' not found: {}", column, e)))?;
+
+        let batches = df.collect().await.map_err(|e| ElusionError::InvalidOperation {
+            operation: "explode".to_string(),
+            reason: format!("Failed to collect data: {}", e),
+            suggestion: "💡 Check if DataFrame contains valid data".to_string(),
+        })?;
+
+        let mut fields: Vec<Field> = arrow_schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+        fields[column_index] = Field::new(column, ArrowDataType::Utf8, true);
+        let new_schema = Arc::new(Schema::new(fields));
+
+        let mut new_batches = Vec::with_capacity(batches.len());
+        for batch in batches {
+            let text = compute::cast(batch.column(column_index), &ArrowDataType::Utf8)
+                .map_err(|e| ElusionError::Custom(format!("Failed to read column '{}' as text: {}", column, e)))?;
+            let text = text.as_any().downcast_ref::<StringArray>()
+                .ok_or_else(|| ElusionError::Custom(format!("Failed to read column '{}' as text", column)))?;
+
+            let mut take_indices: Vec<u64> = Vec::with_capacity(batch.num_rows());
+            let mut values = StringBuilder::new();
+
+            for row in 0..batch.num_rows() {
+                let parts: Vec<Option<String>> = if text.is_null(row) {
+                    vec![]
+                } else if mode == "json" {
+                    match serde_json::from_str::<Value>(text.value(row)) {
+                        Ok(Value::Array(items)) => items
+                            .into_iter()
+                            .map(|item| match item {
+                                Value::Null => None,
+                                Value::String(s) => Some(s),
+                                other => Some(other.to_string()),
+                            })
+                            .collect(),
+                        // Not an array: keep the value as a single element
+                        _ => vec![Some(text.value(row).to_string())],
+                    }
+                } else {
+                    text.value(row)
+                        .split(delimiter)
+                        .map(|part| part.trim())
+                        .filter(|part| !part.is_empty())
+                        .map(|part| Some(part.to_string()))
+                        .collect()
+                };
+
+                if parts.is_empty() {
+                    take_indices.push(row as u64);
+                    values.append_null();
+                } else {
+                    for part in parts {
+                        take_indices.push(row as u64);
+                        values.append_option(part);
+                    }
+                }
+            }
+
+            let indices = UInt64Array::from(take_indices);
+            let mut columns: Vec<ArrayRef> = Vec::with_capacity(batch.num_columns());
+            for (i, array) in batch.columns().iter().enumerate() {
+                if i == column_index {
+                    columns.push(Arc::new(values.finish()));
+                } else {
+                    columns.push(compute::take(array.as_ref(), &indices, None)
+                        .map_err(|e| ElusionError::Custom(format!("Failed to repeat rows: {}", e)))?);
+                }
+            }
+            new_batches.push(RecordBatch::try_new(new_schema.clone(), columns)
+                .map_err(|e| ElusionError::Custom(format!("Failed to build exploded rows: {}", e)))?);
+        }
+
+        let table = MemTable::try_new(new_schema, vec![new_batches])
+            .map_err(|e| ElusionError::Custom(format!("Failed to create exploded table: {}", e)))?;
+        SessionContext::new().read_table(Arc::new(table))
+            .map_err(|e| ElusionError::Custom(format!("Failed to read exploded table: {}", e)))
+    }
+
+    // Column name for a dummy column: "region" + "North East" -> "region_north_east"
+    fn dummy_column_name(column: &str, value: &str) -> String {
+        let cleaned: String = value
+            .trim()
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect();
+        let cleaned = cleaned.split('_').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("_");
+        format!("{}_{}", column, if cleaned.is_empty() { "blank".to_string() } else { cleaned })
     }
 
     // Single value of an aggregate over the whole column (e.g. MEDIAN("price")), used as a fill value
@@ -2995,7 +3125,7 @@ impl CustomDataFrame {
                         suggestion: "💡 Use a column name that doesn't exist yet".to_string(),
                     })?;
 
-                    // Move the index to the front like Polars
+                    // Move the index to the front
                     let mut ordered = vec![name.clone()];
                     ordered.extend(df.schema().fields().iter().map(|f| f.name().clone()).filter(|c| c != &name));
                     let ordered: Vec<&str> = ordered.iter().map(|c| c.as_str()).collect();
@@ -3076,6 +3206,133 @@ impl CustomDataFrame {
                         })?;
                     }
                 }
+                "EXPLODE" => {
+                    let column = Self::resolve_column_name(&df, args.first().copied().unwrap_or_default())?;
+                    let mode = args.get(1).copied().unwrap_or("json");
+                    let delimiter = args.get(2).copied().unwrap_or(",");
+                    if mode == "split" && delimiter.is_empty() {
+                        return Err(ElusionError::InvalidOperation {
+                            operation: "explode_split".to_string(),
+                            reason: "Delimiter is empty".to_string(),
+                            suggestion: "💡 Use .explode_split(\"tags\", \",\")".to_string(),
+                        });
+                    }
+                    df = Self::explode_column(df, &column, mode, delimiter).await?;
+                }
+                "DUMMIES" => {
+                    for column in args.iter() {
+                        let column = Self::resolve_column_name(&df, column)?;
+
+                        // Distinct non-null values, as text, sorted
+                        let column_expr = df.parse_sql_expr(&format!("\"{}\"", column))
+                            .map_err(|e| ElusionError::Custom(format!("Failed to read column '{}': {}", column, e)))?;
+                        let distinct_batches = df.clone()
+                            .aggregate(vec![column_expr], vec![])
+                            .and_then(|d| d.filter(col(Column::from_name(column.clone())).is_not_null()))
+                            .map_err(|e| ElusionError::Custom(format!("Failed to read values of '{}': {}", column, e)))?
+                            .collect().await
+                            .map_err(|e| ElusionError::Custom(format!("Failed to read values of '{}': {}", column, e)))?;
+                        let mut values: Vec<String> = Vec::new();
+                        for batch in &distinct_batches {
+                            for row in 0..batch.num_rows() {
+                                values.push(datafusion::arrow::util::display::array_value_to_string(batch.column(0), row)
+                                    .map_err(|e| ElusionError::Custom(format!("Failed to read value: {}", e)))?);
+                            }
+                        }
+                        // Numeric categories in number order (1, 2, 10), text in alphabetical order
+                        if values.iter().all(|v| v.parse::<f64>().is_ok()) {
+                            values.sort_by(|a, b| a.parse::<f64>().unwrap_or_default().total_cmp(&b.parse::<f64>().unwrap_or_default()));
+                        } else {
+                            values.sort();
+                        }
+                        values.dedup();
+
+                        if values.len() > 200 {
+                            return Err(ElusionError::InvalidOperation {
+                                operation: "to_dummies".to_string(),
+                                reason: format!("Column '{}' has {} different values, that would create {} columns", column, values.len(), values.len()),
+                                suggestion: "💡 Use to_dummies() for columns with a small number of categories, e.g. region or status".to_string(),
+                            });
+                        }
+
+                        let position = df.schema().fields().iter().position(|f| f.name() == &column).unwrap_or(0);
+                        let mut dummy_names: Vec<String> = Vec::with_capacity(values.len());
+                        for value in &values {
+                            let mut name = Self::dummy_column_name(&column, value);
+                            let mut suffix = 2;
+                            while dummy_names.contains(&name) || (name != column && df.schema().fields().iter().any(|f| f.name() == &name)) {
+                                name = format!("{}_{}", Self::dummy_column_name(&column, value), suffix);
+                                suffix += 1;
+                            }
+                            let expr = df.parse_sql_expr(&format!(
+                                "CASE WHEN CAST(\"{}\" AS VARCHAR) = '{}' THEN 1 ELSE 0 END",
+                                column, value.replace('\'', "''")
+                            )).map_err(|e| ElusionError::Custom(format!("Failed to build dummy column '{}': {}", name, e)))?;
+                            df = Self::set_column(df, &name, expr)
+                                .map_err(|e| ElusionError::Custom(format!("Failed to add dummy column '{}': {}", name, e)))?;
+                            dummy_names.push(name);
+                        }
+
+                        // Dummy columns take the place of the original column
+                        let mut ordered: Vec<String> = Vec::new();
+                        for (i, field) in df.schema().fields().iter().enumerate() {
+                            if i == position {
+                                ordered.extend(dummy_names.iter().cloned());
+                            }
+                            if field.name() != &column && !dummy_names.contains(field.name()) {
+                                ordered.push(field.name().clone());
+                            }
+                        }
+                        let ordered: Vec<&str> = ordered.iter().map(|c| c.as_str()).collect();
+                        df = df.select_columns(&ordered)
+                            .map_err(|e| ElusionError::Custom(format!("Failed to reorder columns: {}", e)))?;
+                    }
+                }
+                "INTERPOLATE" => {
+                    const ROW_NR: &str = "__elusion_row_nr";
+                    let columns = args
+                        .iter()
+                        .map(|c| Self::resolve_column_name(&df, c))
+                        .collect::<ElusionResult<Vec<String>>>()?;
+
+                    for column in &columns {
+                        let data_type = df.schema().field_with_unqualified_name(column).map(|f| f.data_type().clone())
+                            .map_err(|e| ElusionError::Custom(e.to_string()))?;
+                        if !data_type.is_numeric() {
+                            return Err(ElusionError::InvalidOperation {
+                                operation: "interpolate".to_string(),
+                                reason: format!("Column '{}' is {} - interpolate needs numbers", column, data_type),
+                                suggestion: "💡 Use .cast([(\"column\", \"DOUBLE\")]) first, or fill_null_strategy() for text".to_string(),
+                            });
+                        }
+                    }
+
+                    let row_nr = df.parse_sql_expr("ROW_NUMBER() OVER ()")
+                        .map_err(|e| ElusionError::Custom(format!("Failed to number rows: {}", e)))?;
+                    df = Self::set_column(df, ROW_NR, row_nr)
+                        .map_err(|e| ElusionError::Custom(format!("Failed to number rows: {}", e)))?;
+
+                    for column in &columns {
+                        let before = format!("OVER (ORDER BY \"{}\" ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)", ROW_NR);
+                        let after = format!("OVER (ORDER BY \"{}\" ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)", ROW_NR);
+                        let value_nr = format!("CASE WHEN \"{0}\" IS NOT NULL THEN \"{1}\" END", column, ROW_NR);
+                        let sql_expr = format!(
+                            "CASE WHEN \"{c}\" IS NOT NULL THEN CAST(\"{c}\" AS DOUBLE) ELSE \
+                             CAST(LAST_VALUE(\"{c}\") IGNORE NULLS {before} AS DOUBLE) + \
+                             (CAST(FIRST_VALUE(\"{c}\") IGNORE NULLS {after} AS DOUBLE) - CAST(LAST_VALUE(\"{c}\") IGNORE NULLS {before} AS DOUBLE)) * \
+                             CAST(\"{rn}\" - LAST_VALUE({vn}) IGNORE NULLS {before} AS DOUBLE) / \
+                             CAST(FIRST_VALUE({vn}) IGNORE NULLS {after} - LAST_VALUE({vn}) IGNORE NULLS {before} AS DOUBLE) END",
+                            c = column, rn = ROW_NR, vn = value_nr, before = before, after = after
+                        );
+                        let expr = df.parse_sql_expr(&sql_expr)
+                            .map_err(|e| ElusionError::Custom(format!("Failed to build interpolation for '{}': {}", column, e)))?;
+                        df = Self::set_column(df, column, expr)
+                            .map_err(|e| ElusionError::Custom(format!("Failed to interpolate '{}': {}", column, e)))?;
+                    }
+
+                    df = df.drop_columns(&[ROW_NR])
+                        .map_err(|e| ElusionError::Custom(format!("Failed to remove helper column: {}", e)))?;
+                }
                 _ => {}
             }
         }
@@ -3083,17 +3340,17 @@ impl CustomDataFrame {
         Ok(df)
     }
 
-    /// Arrow schema of the DataFrame with column names and types (similar to Polars df.schema)
+    /// Arrow schema of the DataFrame with column names and types
     pub fn schema(&self) -> datafusion::arrow::datatypes::SchemaRef {
         Arc::new(self.df.schema().as_arrow().clone())
     }
 
-    /// Column names of the DataFrame (similar to Polars df.columns)
+    /// Column names of the DataFrame
     pub fn columns(&self) -> Vec<String> {
         self.df.schema().fields().iter().map(|f| f.name().clone()).collect()
     }
 
-    /// Number of rows in the DataFrame (similar to Polars df.height)
+    /// Number of rows in the DataFrame
     pub async fn count_rows(&self) -> ElusionResult<usize> {
         self.df.clone().count().await.map_err(|e| ElusionError::InvalidOperation {
             operation: "count_rows".to_string(),
@@ -3102,13 +3359,13 @@ impl CustomDataFrame {
         })
     }
 
-    /// (rows, columns) of the DataFrame (similar to Polars df.shape)
+    /// (rows, columns) of the DataFrame
     pub async fn shape(&self) -> ElusionResult<(usize, usize)> {
         let rows = self.count_rows().await?;
         Ok((rows, self.df.schema().fields().len()))
     }
 
-    /// Count how many times each value appears in a column, most frequent first (similar to Polars value_counts())
+    /// Count how many times each value appears in a column, most frequent first
     /// Returns a DataFrame with the column and a `count` column
     pub async fn value_counts(&self, column: &str, alias: &str) -> ElusionResult<Self> {
         let column = Self::resolve_column_name(&self.df, column)?;
@@ -5934,7 +6191,7 @@ impl CustomDataFrame {
         Ok(())
     }
 
-    /// Write the DataFrame as a Hive-partitioned Parquet dataset (similar to Polars write_parquet(partition_by=...))
+    /// Write the DataFrame as a Hive-partitioned Parquet dataset
     /// Creates `path/col1=value/col2=value/*.parquet`; partition columns are stored in folder names, not in the files
     /// "overwrite" replaces the whole folder, "append" adds new files next to the existing ones
     pub async fn write_to_parquet_partitioned(

@@ -1,5 +1,5 @@
 ## [9.0.0] - 2026-10-25
-### Added - Polars-style column operations and Data Lake partitioning
+### Added - Column operations, data cleaning and Data Lake partitioning
 - `with_columns([...])` — add new columns or replace existing ones while keeping all other columns, no need to list every column in `.select()`. Existing columns keep their position, new ones are added at the end
 - `drop_columns([...])` — remove columns by name
 - `rename([("old", "new")])` — rename columns
@@ -15,6 +15,9 @@
 - `with_row_index("name", offset)` — row number as the first column
 - `sample(n)` and `sample_fraction(f)` — random rows for quick looks at large files
 - NDJSON / JSON Lines: `.ndjson` and `.jsonl` files load with `CustomDataFrame::new()` and folder loaders, `write_to_ndjson(path)` writes one JSON object per line
+- `explode("col")` — one row per element of a JSON array column (REST API data); `explode_split("col", ",")` — one row per part of delimited text
+- `to_dummies(["col"])` (+ `_vec`) — one 0/1 column per category, replacing the original column
+- `interpolate(["col"])` (+ `_vec`) — linear interpolation of nulls in numeric columns
 
 ### ⚠️ Breaking Changes
 - **Azure SDK migration**: Azure Blob support now uses the official `azure_storage_blob` 1.1 crate instead of the deprecated `azure_storage` / `azure_storage_blobs` 0.21 crates
@@ -43,7 +46,7 @@
 - `write_to_json()` wrote whole numbers as decimals (`478.0` instead of `478`) and lost precision for integers above 2^53
 
 ### Tests
-- New integration tests in `tests/column_operations.rs` (18) for column operations, `fill_null_strategy`, `with_row_index`, `sample`, `value_counts`, DataFrame info, cache keys, partitioned Parquet and NDJSON round-trips, JSON nulls and `COUNT(DISTINCT)`
+- New integration tests in `tests/column_operations.rs` (22) for column operations, `fill_null_strategy`, `with_row_index`, `sample`, `explode`, `to_dummies`, `interpolate`, `value_counts`, DataFrame info, cache keys, partitioned Parquet and NDJSON round-trips, JSON nulls and `COUNT(DISTINCT)`
 
 ### Changed
 - Azure uploads and downloads are partitioned and parallelized by the SDK — the manual block upload for files over 1 GB was removed

@@ -427,3 +427,92 @@ async fn test_count_distinct_in_select_and_agg() {
         .elusion("cd_3").await.unwrap();
     assert_eq!(extract_value_from_df(&grouped, "products", 0).await.unwrap(), "2");
 }
+
+// ---------------- explode, explode_split, to_dummies, interpolate
+
+#[tokio::test]
+async fn test_explode_json_arrays() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = create_test_csv(
+        r#"[{"id": 1, "tags": ["red", "blue"]}, {"id": 2, "tags": []}, {"id": 3, "tags": null}, {"id": 4, "tags": [7, "green", null]}]"#,
+        "tags.json",
+        &temp_dir,
+    );
+    let df = CustomDataFrame::new(&path, "tags_src").await.unwrap();
+
+    let exploded = df.explode("tags").order_by(["id"], ["ASC"]).elusion("tags_out").await.unwrap();
+    // 2 + 1 (empty array) + 1 (null) + 3
+    assert_eq!(exploded.count_rows().await.unwrap(), 7);
+    assert_eq!(exploded.columns(), vec!["id", "tags"]);
+    assert_eq!(column_type(&exploded, "tags"), ArrowDataType::Utf8);
+
+    let id1 = exploded.clone().filter("id = 1").elusion("tags_1").await.unwrap();
+    assert_eq!(id1.count_rows().await.unwrap(), 2);
+    let empty = exploded.clone().filter("id = 2 AND tags IS NULL").elusion("tags_2").await.unwrap();
+    assert_eq!(empty.count_rows().await.unwrap(), 1);
+    let numbers = exploded.clone().filter("tags = '7'").elusion("tags_7").await.unwrap();
+    assert_eq!(numbers.count_rows().await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn test_explode_split() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = create_test_csv(
+        "Order,Items\nA,\"apple, pear , plum\"\nB,banana\nC,\n",
+        "items.csv",
+        &temp_dir,
+    );
+    let df = CustomDataFrame::new(&path, "items_src").await.unwrap();
+
+    let exploded = df.clone().explode_split("items", ",").elusion("items_out").await.unwrap();
+    assert_eq!(exploded.count_rows().await.unwrap(), 5);
+    let trimmed = exploded.clone().filter("items = 'pear'").elusion("items_pear").await.unwrap();
+    assert_eq!(trimmed.count_rows().await.unwrap(), 1);
+
+    assert!(df.explode_split("items", "").elusion("items_err").await.is_err());
+}
+
+#[tokio::test]
+async fn test_to_dummies() {
+    let temp_dir = TempDir::new().unwrap();
+    let sales = load_sales(&temp_dir, "dum_sales").await;
+
+    let dummies = sales.clone()
+        .select(["product", "region", "quantity"])
+        .to_dummies(["region"])
+        .elusion("dum_out").await.unwrap();
+
+    // dummy columns replace the original column, in sorted order
+    assert_eq!(
+        dummies.columns(),
+        vec!["product", "region_east", "region_north", "region_south", "quantity"]
+    );
+    let sums = dummies.select(["SUM(region_north) AS n", "SUM(region_east) AS e"]).elusion("dum_sums").await.unwrap();
+    assert_eq!(extract_value_from_df(&sums, "n", 0).await.unwrap(), "3");
+    assert_eq!(extract_value_from_df(&sums, "e", 0).await.unwrap(), "1");
+
+    // numeric categories are ordered as numbers
+    let numeric = sales.clone()
+        .select(["quantity"])
+        .to_dummies(["quantity"])
+        .elusion("dum_num").await.unwrap();
+    assert_eq!(numeric.columns(), vec!["quantity_1", "quantity_2", "quantity_3", "quantity_4", "quantity_5"]);
+}
+
+#[tokio::test]
+async fn test_interpolate() {
+    let temp_dir = TempDir::new().unwrap();
+    let path = create_test_csv("Seq,Value\n1,\n2,10\n3,\n4,\n5,40\n6,\n", "series.csv", &temp_dir);
+    let df = CustomDataFrame::new(&path, "series_src").await.unwrap()
+        .order_by(["seq"], ["ASC"])
+        .elusion("series_sorted").await.unwrap();
+
+    let interpolated = df.clone().interpolate(["value"]).elusion("series_out").await.unwrap();
+    // helper column is removed
+    assert_eq!(interpolated.columns(), vec!["seq", "value"]);
+    // nulls before the first and after the last value stay empty
+    assert_eq!(sorted_values(&interpolated, "value", "series_vals").await, vec!["", "10.0", "20.0", "30.0", "40.0", ""]);
+
+    let text_column = df.clone().with_columns(["CAST(seq AS VARCHAR) AS label"]).elusion("series_text").await.unwrap();
+    assert!(text_column.interpolate(["label"]).elusion("series_err").await.is_err());
+}
