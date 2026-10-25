@@ -111,4 +111,4 @@ name = "elusion"
 path = "src/elusion.rs"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-openssl = "=0.10.72" #security fix
+openssl = "0.10.72" #security fix (minimum version; newer needed for OpenSSL 4 on macOS)
